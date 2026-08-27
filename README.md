@@ -18,12 +18,12 @@
 
 ### 🏨 1. Espaços Virtuais em Pixel Art (Tema Habbo Hotel)
 - **Renderizador Canvas 2D Otimizado**: Renderização pixelada nítida (`image-rendering: pixelated`) com 60 FPS constantes.
-- **Modelos Prontos Nostálgicos**:
-  - 🏨 **Habbo Hotel Lobby (Recepção Clássica)**: Balcão de check-in, Sala VIP Habbo Club (HC), Suíte Executiva, Teleportes e o lendário Pato Amarelo 🦆.
-  - 🏖️ **Habbo Rooftop & Piscina**: Piscina pública com espreguiçadeiras, pista de dança iluminada e cabine de DJ do Clube Massiva.
-  - 🏢 **Tech Startup HQ**: Escritório corporativo com ilhas de time e salas de reunião.
-- **Catálogo de Mobílias (Furni) & Raros**:
-  - Sofás HC verdes com botões dourados, Candeeiro Dragão de Fogo Raro 🔥, Mesas Executivas de Mogno, Balcões de Recepção, Máquinas de Refrigerante, Plantas Yucca e TVs retrô.
+- **Espaço em Branco 100% Customizável (Padrão)**:
+  - 📐 **Workspace Limpo & Amplo**: Ambiente espaçoso, sem layouts fixos, permitindo que você construa, decore e desenhe suas próprias salas e mesas do zero.
+- **Catálogo Completo de Mobílias (Furni), Pisos & Paredes**:
+  - Sofás HC verdes, Candeeiro Dragão de Fogo Raro 🔥, Mesas Executivas de Mogno, Balcões de Recepção, Máquinas de Refrigerante, Plantas Yucca, TVs retrô, pisos em parquet, carpetes e paredes personalizadas.
+- **Painel com Indicador de Objeto em Uso & Ghost Preview**:
+  - Exibição em tempo real do item selecionado no topo do menu com suas dimensões e pré-visualização translúcida no cursor.
 - **Movimentação Suave**: Controle por teclado (**WASD / Setas**) ou **Clique para Mover (Pathfinding)**.
 
 ---

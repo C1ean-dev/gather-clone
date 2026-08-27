@@ -3,7 +3,7 @@ import { TILE_SIZE } from './Constants'
 
 export class AvatarRenderer {
   /**
-   * Draw complete player avatar on canvas
+   * Draw complete 2D player avatar on canvas
    */
   static drawPlayer(
     ctx: CanvasRenderingContext2D,
@@ -97,15 +97,14 @@ export class AvatarRenderer {
     } else if (player.direction === 'right') {
       ctx.fillRect(centerX + 4, baseY - 21, 2, 3)
     }
-    // (If direction === 'up', eyes are hidden behind the back of head)
 
     // 6. Draw Hair
     this.drawHair(ctx, avatar, centerX, baseY, player.direction)
 
-    // 7. Draw Accessories (Headphones, Glasses, Hats)
+    // 7. Draw Accessories
     this.drawAccessory(ctx, avatar, centerX, baseY, player.direction)
 
-    // 8. Name Tag Pill (Gather V2 Style)
+    // 8. Name Tag Pill
     this.drawNameTag(ctx, player, isLocal, centerX, py - 6)
 
     ctx.restore()
@@ -152,7 +151,6 @@ export class AvatarRenderer {
         ctx.beginPath()
         ctx.roundRect(centerX - 8, baseY - 29, 16, 8, 3)
         ctx.fill()
-        // Long hair strands
         ctx.fillRect(centerX - 8, baseY - 24, 3, 14)
         ctx.fillRect(centerX + 5, baseY - 24, 3, 14)
         if (direction === 'up') {
@@ -165,8 +163,6 @@ export class AvatarRenderer {
         ctx.arc(centerX - 5, baseY - 28, 5, 0, Math.PI * 2)
         ctx.arc(centerX, baseY - 30, 6, 0, Math.PI * 2)
         ctx.arc(centerX + 5, baseY - 28, 5, 0, Math.PI * 2)
-        ctx.arc(centerX - 7, baseY - 24, 4, 0, Math.PI * 2)
-        ctx.arc(centerX + 7, baseY - 24, 4, 0, Math.PI * 2)
         ctx.fill()
         break
 
@@ -174,7 +170,6 @@ export class AvatarRenderer {
         ctx.beginPath()
         ctx.roundRect(centerX - 8, baseY - 29, 16, 7, 3)
         ctx.fill()
-        // Ponytail behind or side
         ctx.beginPath()
         ctx.arc(centerX + (direction === 'left' ? 7 : -7), baseY - 26, 5, 0, Math.PI * 2)
         ctx.fill()
@@ -205,19 +200,16 @@ export class AvatarRenderer {
 
     switch (avatar.accessory) {
       case 'headphones':
-        // Headband
         ctx.strokeStyle = color
         ctx.lineWidth = 2.5
         ctx.beginPath()
         ctx.arc(centerX, baseY - 25, 9, Math.PI, 0)
         ctx.stroke()
-        // Earcups
         ctx.fillStyle = color
         ctx.beginPath()
         ctx.roundRect(centerX - 10, baseY - 24, 3, 7, 1.5)
         ctx.roundRect(centerX + 7, baseY - 24, 3, 7, 1.5)
         ctx.fill()
-        // Mic boom
         if (direction !== 'up') {
           ctx.fillStyle = '#fab005'
           ctx.fillRect(centerX - 8, baseY - 19, 4, 2)
@@ -242,7 +234,6 @@ export class AvatarRenderer {
           ctx.fillStyle = '#12151d'
           ctx.fillRect(centerX - 6, baseY - 22, 5, 4)
           ctx.fillRect(centerX + 1, baseY - 22, 5, 4)
-          ctx.fillRect(centerX - 1, baseY - 21, 2, 2)
         }
         break
 
@@ -251,7 +242,6 @@ export class AvatarRenderer {
         ctx.beginPath()
         ctx.roundRect(centerX - 8, baseY - 30, 16, 6, 3)
         ctx.fill()
-        // Cap visor
         if (direction === 'down') {
           ctx.fillRect(centerX - 9, baseY - 24, 18, 2)
         } else if (direction === 'left') {
@@ -266,15 +256,12 @@ export class AvatarRenderer {
         ctx.beginPath()
         ctx.roundRect(centerX - 8, baseY - 32, 16, 10, 4)
         ctx.fill()
-        // Beanie fold
-        ctx.fillStyle = 'rgba(0,0,0,0.2)'
-        ctx.fillRect(centerX - 8, baseY - 24, 16, 3)
         break
     }
   }
 
   /**
-   * Draw Floating Name Tag & Status Pill (Gather V2)
+   * Draw Floating Name Tag & Status Pill
    */
   private static drawNameTag(
     ctx: CanvasRenderingContext2D,
@@ -283,7 +270,7 @@ export class AvatarRenderer {
     centerX: number,
     tagY: number
   ) {
-    const label = (isLocal ? 'You' : player.name) + (player.statusEmoji ? ` ${player.statusEmoji}` : '')
+    const label = (isLocal ? 'Você' : player.name) + (player.statusEmoji ? ` ${player.statusEmoji}` : '')
     ctx.font = '600 11px Inter, sans-serif'
     const textW = ctx.measureText(label).width
     const pillW = textW + 20
@@ -301,7 +288,7 @@ export class AvatarRenderer {
     ctx.lineWidth = 1
     ctx.stroke()
 
-    // Status presence dot (green = available, busy = red, focus = purple, away = yellow)
+    // Status presence dot
     let statusColor = '#20c997'
     if (player.status === 'busy') statusColor = '#fa5252'
     else if (player.status === 'focusing') statusColor = '#be4bdb'
@@ -315,11 +302,5 @@ export class AvatarRenderer {
     // Text name
     ctx.fillStyle = '#ffffff'
     ctx.fillText(label, pillX + 15, tagY - 5)
-
-    // Optional: Mic Mute indicator icon
-    if (player.isMuted) {
-      ctx.fillStyle = '#fa5252'
-      ctx.fillRect(pillX + pillW - 6, tagY - pillH + 2, 4, 4)
-    }
   }
 }

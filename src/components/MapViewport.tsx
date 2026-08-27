@@ -1,10 +1,9 @@
 import React, { useEffect, useRef } from 'react'
-import { Plus, Minus, Maximize, Compass, Info } from 'lucide-react'
+import { Plus, Minus, Maximize2, Sparkles } from 'lucide-react'
 import { CanvasEngine } from '../engine/CanvasEngine'
 import { useMapStore } from '../store/useMapStore'
-import { useGameStore } from '../store/useGameStore'
 import { PeerManager } from '../p2p/PeerManager'
-import { PlacedFurniture } from '../types/map'
+import { PlacedFurniture, PrivateZone } from '../types/map'
 
 export const MapViewport: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -16,10 +15,12 @@ export const MapViewport: React.FC = () => {
     selectedFloor,
     selectedWall,
     selectedFurnitureDefId,
+    zoneDraft,
     setFloorTile,
     setWallTile,
     addFurniture,
     removeFurnitureAt,
+    addOrUpdateZone,
     mapData,
   } = useMapStore()
 
@@ -33,17 +34,30 @@ export const MapViewport: React.FC = () => {
     const handleResize = () => {
       canvas.width = canvas.parentElement?.clientWidth || window.innerWidth
       canvas.height = canvas.parentElement?.clientHeight || window.innerHeight - 56
+      engine.fitToScreen(0.95)
     }
 
     handleResize()
     window.addEventListener('resize', handleResize)
     engine.start()
 
+    // Auto-fit on initial render
+    setTimeout(() => {
+      engine.fitToScreen(0.95)
+    }, 50)
+
     return () => {
       window.removeEventListener('resize', handleResize)
       engine.dispose()
     }
   }, [])
+
+  // Auto-fit when mapData template changes
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.fitToScreen(0.95)
+    }
+  }, [mapData.width, mapData.height])
 
   // Handle Canvas Mouse Clicks & Editor Interactions
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -55,7 +69,10 @@ export const MapViewport: React.FC = () => {
     const tile = engineRef.current.screenToTile(mouseX, mouseY)
 
     if (isEditorOpen) {
-      if (activeTool === 'paint_floor') {
+      if (activeTool === 'draw_zone') {
+        engineRef.current.zoneDragStart = tile
+        engineRef.current.zoneDragCurrent = tile
+      } else if (activeTool === 'paint_floor') {
         setFloorTile(tile.x, tile.y, selectedFloor)
         PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: selectedFloor })
       } else if (activeTool === 'paint_wall') {
@@ -90,11 +107,78 @@ export const MapViewport: React.FC = () => {
 
     const tile = engineRef.current.screenToTile(mouseX, mouseY)
     engineRef.current.hoverTile = tile
+
+    // Update drag preview if drawing zone
+    if (isEditorOpen && activeTool === 'draw_zone' && engineRef.current.zoneDragStart) {
+      engineRef.current.zoneDragCurrent = tile
+    }
+  }
+
+  const handleCanvasMouseUp = () => {
+    if (!engineRef.current) return
+
+    // Finalize drag-to-draw zone
+    if (isEditorOpen && activeTool === 'draw_zone' && engineRef.current.zoneDragStart && engineRef.current.zoneDragCurrent) {
+      const start = engineRef.current.zoneDragStart
+      const current = engineRef.current.zoneDragCurrent
+
+      let minX = Math.min(start.x, current.x)
+      let maxX = Math.max(start.x, current.x)
+      let minY = Math.min(start.y, current.y)
+      let maxY = Math.max(start.y, current.y)
+
+      // Magnetic alignment with existing zones to prevent 1-tile gaps or overlap hooks
+      for (const z of mapData.zones) {
+        const zMaxX = z.x + z.width - 1
+        const zMaxY = z.y + z.height - 1
+
+        // Snap X adjacent
+        if (Math.abs(minX - zMaxX) <= 1) minX = zMaxX
+        if (Math.abs(minX - (zMaxX + 1)) <= 1) minX = zMaxX + 1
+        if (Math.abs(maxX - z.x) <= 1) maxX = z.x
+
+        // Snap Y alignment
+        if (Math.abs(minY - z.y) <= 1) minY = z.y
+        if (Math.abs(maxY - zMaxY) <= 1) maxY = zMaxY
+      }
+
+      const width = maxX - minX + 1
+      const height = maxY - minY + 1
+
+      if (width >= 2 && height >= 2) {
+        const newZone: PrivateZone = {
+          id: 'zone-' + Math.random().toString(36).substring(2, 7),
+          name: zoneDraft.name.trim() || 'Nova Zona',
+          color: zoneDraft.color || '#4c6ef5',
+          x: minX,
+          y: minY,
+          width,
+          height,
+          description: 'Zona de chamada privada demarcada com mouse',
+        }
+
+        addOrUpdateZone(newZone)
+        PeerManager.getInstance().broadcast({
+          type: 'MAP_SYNC',
+          senderId: 'host',
+          payload: { mapData: useMapStore.getState().mapData },
+          timestamp: Date.now(),
+        })
+      }
+
+      engineRef.current.zoneDragStart = null
+      engineRef.current.zoneDragCurrent = null
+    }
   }
 
   const handleZoom = (delta: number) => {
     if (!engineRef.current) return
-    engineRef.current.camera.zoom = Math.max(0.8, Math.min(2.5, engineRef.current.camera.zoom + delta))
+    engineRef.current.camera.zoom = Math.max(0.6, Math.min(3.0, engineRef.current.camera.zoom + delta))
+  }
+
+  const handleFitScreen = () => {
+    if (!engineRef.current) return
+    engineRef.current.fitToScreen(0.95)
   }
 
   return (
@@ -104,38 +188,54 @@ export const MapViewport: React.FC = () => {
         ref={canvasRef}
         onMouseDown={handleCanvasMouseDown}
         onMouseMove={handleCanvasMouseMove}
+        onMouseUp={handleCanvasMouseUp}
+        onMouseLeave={handleCanvasMouseUp}
         className="w-full h-full cursor-crosshair pixelated block"
       />
 
+      {/* Drawing Zone Active Floating Banner */}
+      {isEditorOpen && activeTool === 'draw_zone' && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-indigo-600/90 backdrop-blur-md border border-indigo-400/40 text-white px-4 py-2 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-pulse select-none z-30">
+          <Sparkles className="w-4 h-4 text-amber-300" />
+          <span>Clique e arraste no mapa para demarcar a zona privada</span>
+        </div>
+      )}
+
       {/* Floating Info & Shortcuts Badge (Bottom-Right) */}
       <div className="absolute bottom-4 right-4 flex flex-col items-end gap-2 pointer-events-none select-none">
-        {/* Controls Pills */}
         <div className="bg-[#1b202c]/90 backdrop-blur-md border border-[#2a3142] rounded-2xl p-2.5 shadow-xl pointer-events-auto flex items-center gap-3 text-xs text-slate-300">
           <div className="flex items-center gap-1.5 font-medium">
             <kbd className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-200">W</kbd>
             <kbd className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-200">A</kbd>
             <kbd className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-200">S</kbd>
             <kbd className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-200">D</kbd>
-            <span className="text-slate-400">ou Clique para Mover</span>
+            <span className="text-slate-400">ou Clique</span>
           </div>
 
           <div className="h-4 w-px bg-slate-700" />
 
-          {/* Zoom Buttons */}
+          {/* Zoom Buttons & Fit Screen */}
           <div className="flex items-center gap-1">
             <button
               onClick={() => handleZoom(0.2)}
               className="p-1 rounded-lg hover:bg-slate-700 text-slate-300 transition-colors"
-              title="Aumentar Zoom"
+              title="Aumentar Zoom (+)"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => handleZoom(-0.2)}
               className="p-1 rounded-lg hover:bg-slate-700 text-slate-300 transition-colors"
-              title="Diminuir Zoom"
+              title="Diminuir Zoom (-)"
             >
               <Minus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleFitScreen}
+              className="p-1 rounded-lg hover:bg-indigo-600/30 text-indigo-400 hover:text-indigo-200 transition-colors"
+              title="Enquadrar Mapa na Tela"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>

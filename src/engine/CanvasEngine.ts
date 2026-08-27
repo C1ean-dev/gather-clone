@@ -15,14 +15,16 @@ export class CanvasEngine {
   private animationFrameId: number | null = null
 
   // Camera & Viewport
-  public camera = { x: 0, y: 0, zoom: 1.5 }
+  public camera = { x: 0, y: 0, zoom: 1.6 }
   private keysPressed: Set<string> = new Set()
   private targetTile: { x: number; y: number } | null = null
   private lastTime: number = performance.now()
-  private moveSpeed = 4.2 // tiles per second
+  private moveSpeed = 4.5 // tiles per second
 
-  // Editor hover preview
+  // Editor hover preview & Drag-to-Draw Zone
   public hoverTile: { x: number; y: number } | null = null
+  public zoneDragStart: { x: number; y: number } | null = null
+  public zoneDragCurrent: { x: number; y: number } | null = null
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
@@ -41,7 +43,6 @@ export class CanvasEngine {
   }
 
   private handleKeyDown = (e: KeyboardEvent) => {
-    // Ignore game movement keys if typing in chat/input
     if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
       return
     }
@@ -49,7 +50,7 @@ export class CanvasEngine {
     const key = e.key.toLowerCase()
     if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
       this.keysPressed.add(key)
-      this.targetTile = null // Cancel click-to-move if using keys
+      this.targetTile = null
     }
   }
 
@@ -60,6 +61,23 @@ export class CanvasEngine {
 
   public setClickTarget(tileX: number, tileY: number) {
     this.targetTile = { x: tileX, y: tileY }
+  }
+
+  /**
+   * Auto-fit camera zoom to occupy 95%+ of screen viewport
+   */
+  public fitToScreen(percentage: number = 0.95) {
+    const map = useMapStore.getState().mapData
+    const mapPixelWidth = map.width * TILE_SIZE
+    const mapPixelHeight = map.height * TILE_SIZE
+
+    if (mapPixelWidth === 0 || mapPixelHeight === 0 || this.canvas.width === 0 || this.canvas.height === 0) return
+
+    const targetZoomX = (this.canvas.width * percentage) / mapPixelWidth
+    const targetZoomY = (this.canvas.height * percentage) / mapPixelHeight
+    const optimalZoom = Math.min(targetZoomX, targetZoomY)
+
+    this.camera.zoom = Math.max(0.6, Math.min(3.2, optimalZoom))
   }
 
   public start() {
@@ -85,7 +103,7 @@ export class CanvasEngine {
   private loop = (currentTime: number) => {
     if (!this.isRunning) return
 
-    const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.1) // cap at 100ms
+    const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.1)
     this.lastTime = currentTime
 
     this.update(deltaTime, currentTime)
@@ -147,77 +165,85 @@ export class CanvasEngine {
 
     // Normalize diagonal movement
     if (dx !== 0 && dy !== 0) {
-      dx *= 0.7071
-      dy *= 0.7071
+      const length = Math.hypot(dx, dy)
+      dx /= length
+      dy /= length
     }
 
+    // 3. Collision Detection & Step Validation
     if (dx !== 0 || dy !== 0) {
       isMoving = true
-      const step = this.moveSpeed * deltaTime
-      const nextX = local.x + dx * step
-      const nextY = local.y + dy * step
-
-      // Collision checks
-      const canMoveX = !this.checkCollision(nextX, local.y, map)
-      const canMoveY = !this.checkCollision(local.x, nextY, map)
+      const stepDist = this.moveSpeed * deltaTime
+      const targetX = local.x + dx * stepDist
+      const targetY = local.y + dy * stepDist
 
       let finalX = local.x
       let finalY = local.y
 
-      if (canMoveX) finalX = nextX
-      if (canMoveY) finalY = nextY
+      if (!this.checkCollision(targetX, local.y, map)) {
+        finalX = targetX
+      }
+      if (!this.checkCollision(local.x, targetY, map)) {
+        finalY = targetY
+      }
 
-      // Clamp within map bounds
-      finalX = Math.max(1, Math.min(map.width - 2, finalX))
-      finalY = Math.max(1, Math.min(map.height - 2, finalY))
+      gameStore.setLocalPlayer({
+        x: finalX,
+        y: finalY,
+        direction: nextDirection,
+        isMoving: true,
+      })
 
-      // Update state and broadcast
-      gameStore.setLocalPosition(finalX, finalY, nextDirection, isMoving)
-      PeerManager.getInstance().sendMovement(finalX, finalY, nextDirection, isMoving)
+      // Broadcast Movement
+      PeerManager.getInstance().sendMovement(finalX, finalY, nextDirection, true)
     } else if (local.isMoving) {
-      gameStore.setLocalPosition(local.x, local.y, local.direction, false)
+      gameStore.setLocalPlayer({ isMoving: false })
       PeerManager.getInstance().sendMovement(local.x, local.y, local.direction, false)
     }
 
-    // 3. Smooth Camera Follow
-    const targetCamX = local.x * TILE_SIZE + TILE_SIZE / 2
-    const targetCamY = local.y * TILE_SIZE + TILE_SIZE / 2
-    this.camera.x += (targetCamX - this.camera.x) * 0.12
-    this.camera.y += (targetCamY - this.camera.y) * 0.12
+    // 4. Smooth Camera Following
+    this.camera.x += (local.x * TILE_SIZE - this.camera.x) * 0.15
+    this.camera.y += (local.y * TILE_SIZE - this.camera.y) * 0.15
 
-    // 4. Zone Detection
-    this.updateZoneDetection(local, map)
+    // 5. Zone Detection
+    this.checkZonePresence(local.x, local.y, map)
   }
 
   /**
-   * Check tile and furniture collisions
+   * Collision checking against Walls & Obstacle Furniture
    */
   private checkCollision(x: number, y: number, map: MapData): boolean {
-    const radius = 0.35 // player collision radius in tiles
-    const checkPoints = [
-      { x: x + 0.5 - radius, y: y + 0.8 - radius },
-      { x: x + 0.5 + radius, y: y + 0.8 - radius },
-      { x: x + 0.5 - radius, y: y + 0.8 + radius },
-      { x: x + 0.5 + radius, y: y + 0.8 + radius },
-    ]
+    const margin = 0.3
+    const minX = Math.floor(x - margin)
+    const maxX = Math.floor(x + margin)
+    const minY = Math.floor(y - margin)
+    const maxY = Math.floor(y + margin)
 
-    for (const pt of checkPoints) {
-      const tx = Math.floor(pt.x)
-      const ty = Math.floor(pt.y)
+    // Map bounds
+    if (minX < 0 || maxX >= map.width || minY < 0 || maxY >= map.height) {
+      return true
+    }
 
-      // Bounds
-      if (tx < 0 || tx >= map.width || ty < 0 || ty >= map.height) return true
+    // Check Wall Collisions
+    for (let checkY = minY; checkY <= maxY; checkY++) {
+      for (let checkX = minX; checkX <= maxX; checkX++) {
+        if (map.walls[checkY]?.[checkX]) {
+          return true
+        }
+      }
+    }
 
-      // Wall collision
-      if (map.walls[ty] && map.walls[ty][tx] !== null) return true
+    // Check Furniture Collisions
+    for (const furn of map.furniture) {
+      const def = FURNITURE_CATALOG.find((f) => f.id === furn.defId)
+      if (def && def.isObstacle) {
+        const furnMinX = furn.x
+        const furnMaxX = furn.x + def.width
+        const furnMinY = furn.y
+        const furnMaxY = furn.y + def.height
 
-      // Furniture collision
-      for (const item of map.furniture) {
-        const def = FURNITURE_CATALOG.find((f) => f.id === item.defId)
-        if (def && def.isObstacle) {
-          if (tx >= item.x && tx < item.x + def.width && ty >= item.y && ty < item.y + def.height) {
-            return true
-          }
+        if (x + margin > furnMinX && x - margin < furnMaxX && y + margin > furnMinY && y - margin < furnMaxY) {
+          return true
         }
       }
     }
@@ -226,21 +252,19 @@ export class CanvasEngine {
   }
 
   /**
-   * Check if player entered/exited a Private Zone
+   * Check if player has entered a Private Zone
    */
-  private updateZoneDetection(local: Player, map: MapData) {
-    const playerCenterX = local.x + 0.5
-    const playerCenterY = local.y + 0.5
-
+  private checkZonePresence(playerX: number, playerY: number, map: MapData) {
+    const local = useGameStore.getState().localPlayer
     let detectedZone: string | null = null
-    let detectedZoneName: string | null = null
+    let detectedZoneName: string = ''
 
     for (const zone of map.zones) {
       if (
-        playerCenterX >= zone.x &&
-        playerCenterX < zone.x + zone.width &&
-        playerCenterY >= zone.y &&
-        playerCenterY < zone.y + zone.height
+        playerX >= zone.x &&
+        playerX <= zone.x + zone.width &&
+        playerY >= zone.y &&
+        playerY <= zone.y + zone.height
       ) {
         detectedZone = zone.id
         detectedZoneName = zone.name
@@ -249,7 +273,6 @@ export class CanvasEngine {
     }
 
     if (local.currentZoneId !== detectedZone) {
-      console.log(`[Zone] Transitioned from ${local.currentZoneId} to ${detectedZone}`)
       useGameStore.getState().setCurrentZoneId(detectedZone)
       useChatStore.getState().updateZoneChannel(detectedZoneName)
       PeerManager.getInstance().sendPlayerUpdate({ currentZoneId: detectedZone })
@@ -257,13 +280,16 @@ export class CanvasEngine {
   }
 
   /**
-   * Render Loop
+   * 2D Render Loop
    */
   private render(currentTime: number) {
     const ctx = this.ctx
     const canvas = this.canvas
-    const map = useMapStore.getState().mapData
-    const isEditorOpen = useMapStore.getState().isEditorOpen
+    const mapStore = useMapStore.getState()
+    const map = mapStore.mapData
+    const isEditorOpen = mapStore.isEditorOpen
+    const activeTool = mapStore.activeTool
+    const zoneDraft = mapStore.zoneDraft
     const localPlayer = useGameStore.getState().localPlayer
     const remotePlayers = useGameStore.getState().remotePlayers
     const reactions = useGameStore.getState().reactions
@@ -287,12 +313,12 @@ export class CanvasEngine {
     // 1. Draw Floors
     for (let y = 0; y < map.height; y++) {
       for (let x = 0; x < map.width; x++) {
-        const floor = map.floors[y]?.[x] || 'wood_light'
+        const floor = map.floors[y]?.[x] || 'habbo_parquet'
         PixelArtRenderer.drawFloor(ctx, floor, x * TILE_SIZE, y * TILE_SIZE)
       }
     }
 
-    // 2. Draw Private Zones (Beneath furniture & players)
+    // 2. Draw Existing Private Zones
     for (const zone of map.zones) {
       const isCurrent = localPlayer.currentZoneId === zone.id
       PixelArtRenderer.drawPrivateZone(ctx, zone, isCurrent)
@@ -303,12 +329,27 @@ export class CanvasEngine {
       PixelArtRenderer.drawFurniture(ctx, item)
     }
 
-    // 4. Draw Walls
+    // 4. Draw Thin Partition Walls
     for (let y = 0; y < map.height; y++) {
       for (let x = 0; x < map.width; x++) {
         const wall = map.walls[y]?.[x]
         if (wall) {
-          PixelArtRenderer.drawWall(ctx, wall, x * TILE_SIZE, y * TILE_SIZE)
+          const hasTop = y > 0 && map.walls[y - 1]?.[x] !== null
+          const hasBottom = y < map.height - 1 && map.walls[y + 1]?.[x] !== null
+          const hasLeft = x > 0 && map.walls[y]?.[x - 1] !== null
+          const hasRight = x < map.width - 1 && map.walls[y]?.[x + 1] !== null
+
+          PixelArtRenderer.drawThinWall(
+            ctx,
+            wall,
+            x * TILE_SIZE,
+            y * TILE_SIZE,
+            TILE_SIZE,
+            hasTop,
+            hasBottom,
+            hasLeft,
+            hasRight
+          )
         }
       }
     }
@@ -335,16 +376,85 @@ export class CanvasEngine {
       }
     }
 
-    // 7. Draw Editor Hover Tile Preview
-    if (isEditorOpen && this.hoverTile) {
-      ctx.strokeStyle = '#20c997'
-      ctx.lineWidth = 2
-      ctx.strokeRect(
-        this.hoverTile.x * TILE_SIZE + 0.5,
-        this.hoverTile.y * TILE_SIZE + 0.5,
-        TILE_SIZE - 1,
-        TILE_SIZE - 1
-      )
+    // 7. Draw Live Drag-to-Draw Zone Preview
+    if (isEditorOpen && activeTool === 'draw_zone' && this.zoneDragStart && this.zoneDragCurrent) {
+      const minX = Math.min(this.zoneDragStart.x, this.zoneDragCurrent.x)
+      const maxX = Math.max(this.zoneDragStart.x, this.zoneDragCurrent.x)
+      const minY = Math.min(this.zoneDragStart.y, this.zoneDragCurrent.y)
+      const maxY = Math.max(this.zoneDragStart.y, this.zoneDragCurrent.y)
+
+      const w = (maxX - minX + 1) * TILE_SIZE
+      const h = (maxY - minY + 1) * TILE_SIZE
+      const px = minX * TILE_SIZE
+      const py = minY * TILE_SIZE
+
+      ctx.save()
+      // Fill
+      ctx.fillStyle = zoneDraft.color ? `${zoneDraft.color}35` : 'rgba(76, 110, 245, 0.25)'
+      ctx.fillRect(px, py, w, h)
+
+      // Dashed border
+      ctx.strokeStyle = zoneDraft.color || '#4c6ef5'
+      ctx.lineWidth = 3
+      ctx.setLineDash([8, 4])
+      ctx.strokeRect(px + 1.5, py + 1.5, w - 3, h - 3)
+
+      // Dimension badge
+      ctx.setLineDash([])
+      const badgeText = `${zoneDraft.name} (${maxX - minX + 1}x${maxY - minY + 1} tiles)`
+      ctx.font = 'bold 11px sans-serif'
+      const textWidth = ctx.measureText(badgeText).width
+
+      ctx.fillStyle = zoneDraft.color || '#4c6ef5'
+      ctx.beginPath()
+      ctx.roundRect(px + 4, py - 20, textWidth + 14, 18, 5)
+      ctx.fill()
+
+      ctx.fillStyle = '#ffffff'
+      ctx.fillText(badgeText, px + 11, py - 6)
+      ctx.restore()
+    }
+    // Draw Editor Hover Tile Preview with Asset Dimensions
+    else if (isEditorOpen && this.hoverTile) {
+      ctx.save()
+      const tx = this.hoverTile.x
+      const ty = this.hoverTile.y
+
+      if (activeTool === 'place_furniture') {
+        const furnDef = FURNITURE_CATALOG.find((f) => f.id === mapStore.selectedFurnitureDefId)
+        const w = (furnDef?.width || 1) * TILE_SIZE
+        const h = (furnDef?.height || 1) * TILE_SIZE
+
+        // Semi-transparent ghost furniture preview
+        ctx.fillStyle = furnDef?.iconColor ? `${furnDef.iconColor}44` : 'rgba(76, 110, 245, 0.3)'
+        ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, w, h)
+        ctx.strokeStyle = furnDef?.iconColor || '#4c6ef5'
+        ctx.lineWidth = 2
+        ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, w - 1, h - 1)
+      } else if (activeTool === 'paint_floor') {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
+        ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+        ctx.strokeStyle = '#20c997'
+        ctx.lineWidth = 2
+        ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1)
+      } else if (activeTool === 'paint_wall') {
+        ctx.fillStyle = 'rgba(232, 212, 162, 0.4)'
+        ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+        ctx.strokeStyle = '#fab005'
+        ctx.lineWidth = 2
+        ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1)
+      } else if (activeTool === 'eraser') {
+        ctx.fillStyle = 'rgba(224, 49, 49, 0.3)'
+        ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+        ctx.strokeStyle = '#fa5252'
+        ctx.lineWidth = 2
+        ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1)
+      } else {
+        ctx.strokeStyle = '#20c997'
+        ctx.lineWidth = 2
+        ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1)
+      }
+      ctx.restore()
     }
 
     ctx.restore()

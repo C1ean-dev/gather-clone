@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { MapData, FloorType, WallType, PlacedFurniture, PrivateZone, EditorTool } from '../types/map'
-import { createHabboHotelLobby, createHabboRooftopPool, createModernTechOffice } from '../editor/templates'
+import { createEmptyWorkspace } from '../editor/templates'
+import { generateWallsAndDoorsForZones, snapAndAlignZone } from '../editor/zoneWallGenerator'
 
 interface MapStore {
   mapData: MapData
@@ -12,7 +13,7 @@ interface MapStore {
   setEditorOpen: (open: boolean) => void
   activeTool: EditorTool
   setActiveTool: (tool: EditorTool) => void
-  
+
   // Selected brush items
   selectedFloor: FloorType
   setSelectedFloor: (floor: FloorType) => void
@@ -21,6 +22,10 @@ interface MapStore {
   selectedFurnitureDefId: string
   setSelectedFurnitureDefId: (defId: string) => void
 
+  // Zone Draft (for click-and-drag drawing)
+  zoneDraft: { name: string; color: string }
+  setZoneDraft: (draft: { name: string; color: string }) => void
+
   // Editing Actions
   setFloorTile: (x: number, y: number, floor: FloorType) => void
   setWallTile: (x: number, y: number, wall: WallType | null) => void
@@ -28,12 +33,12 @@ interface MapStore {
   removeFurnitureAt: (tileX: number, tileY: number) => void
   addOrUpdateZone: (zone: PrivateZone) => void
   removeZone: (id: string) => void
-  loadTemplate: (templateId: 'habbo_hotel_lobby' | 'habbo_rooftop_pool' | 'modern_tech_hq') => void
+  resetEmptyWorkspace: () => void
 }
 
 export const useMapStore = create<MapStore>((set, get) => ({
-  // Default Initial Map is the nostalgic Habbo Hotel Lobby!
-  mapData: createHabboHotelLobby(),
+  // Default Map: Empty Workspace for Custom Editing
+  mapData: createEmptyWorkspace(),
 
   setMapData: (mapData) => set({ mapData }),
 
@@ -41,7 +46,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
   toggleEditor: () => set((s) => ({ isEditorOpen: !s.isEditorOpen })),
   setEditorOpen: (open) => set({ isEditorOpen: open }),
 
-  activeTool: 'select',
+  activeTool: 'place_furniture',
   setActiveTool: (tool) => set({ activeTool: tool }),
 
   selectedFloor: 'habbo_parquet',
@@ -52,6 +57,12 @@ export const useMapStore = create<MapStore>((set, get) => ({
 
   selectedFurnitureDefId: 'habbo_sofa_hc',
   setSelectedFurnitureDefId: (defId) => set({ selectedFurnitureDefId: defId, activeTool: 'place_furniture' }),
+
+  zoneDraft: {
+    name: 'Nova Mesa Privada',
+    color: '#4c6ef5',
+  },
+  setZoneDraft: (zoneDraft) => set({ zoneDraft }),
 
   setFloorTile: (x, y, floor) =>
     set((state) => {
@@ -87,29 +98,53 @@ export const useMapStore = create<MapStore>((set, get) => ({
       },
     })),
 
+  // Automatically snap and enclose zones with clean walls and smart doorways
   addOrUpdateZone: (zone) =>
-    set((state) => ({
-      mapData: {
-        ...state.mapData,
-        zones: [...state.mapData.zones.filter((z) => z.id !== zone.id), zone],
-      },
-    })),
+    set((state) => {
+      const alignedZone = snapAndAlignZone(
+        zone,
+        state.mapData.zones,
+        state.mapData.width,
+        state.mapData.height
+      )
+
+      const updatedZones = [...state.mapData.zones.filter((z) => z.id !== alignedZone.id), alignedZone]
+      const updatedWalls = generateWallsAndDoorsForZones(
+        updatedZones,
+        state.mapData.width,
+        state.mapData.height,
+        state.selectedWall || 'habbo_hotel_gold'
+      )
+
+      return {
+        mapData: {
+          ...state.mapData,
+          zones: updatedZones,
+          walls: updatedWalls,
+        },
+      }
+    }),
 
   removeZone: (id) =>
-    set((state) => ({
-      mapData: {
-        ...state.mapData,
-        zones: state.mapData.zones.filter((z) => z.id !== id),
-      },
-    })),
+    set((state) => {
+      const updatedZones = state.mapData.zones.filter((z) => z.id !== id)
+      const updatedWalls = generateWallsAndDoorsForZones(
+        updatedZones,
+        state.mapData.width,
+        state.mapData.height,
+        state.selectedWall || 'habbo_hotel_gold'
+      )
 
-  loadTemplate: (templateId) => {
-    if (templateId === 'habbo_rooftop_pool') {
-      set({ mapData: createHabboRooftopPool() })
-    } else if (templateId === 'modern_tech_hq') {
-      set({ mapData: createModernTechOffice() })
-    } else {
-      set({ mapData: createHabboHotelLobby() })
-    }
+      return {
+        mapData: {
+          ...state.mapData,
+          zones: updatedZones,
+          walls: updatedWalls,
+        },
+      }
+    }),
+
+  resetEmptyWorkspace: () => {
+    set({ mapData: createEmptyWorkspace() })
   },
 }))
