@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { SensitivityMode } from '../types/audio'
 
 interface MediaStore {
   // Local Streams
@@ -13,6 +14,7 @@ interface MediaStore {
   isScreenSharing: boolean
   isNoiseSuppressionEnabled: boolean
   isGridCallOpen: boolean
+  isSettingsModalOpen: boolean
 
   toggleMute: () => void
   toggleCamera: () => void
@@ -20,6 +22,37 @@ interface MediaStore {
   toggleNoiseSuppression: () => void
   toggleGridCall: () => void
   setGridCallOpen: (open: boolean) => void
+  setSettingsModalOpen: (open: boolean) => void
+
+  // Audio Device & Control Settings
+  selectedAudioInput: string
+  selectedAudioOutput: string
+  inputVolume: number // 0 to 200 (percentage, 100 is unity)
+  outputVolume: number // 0 to 100 (percentage)
+  sensitivityMode: SensitivityMode
+  manualSensitivityThreshold: number // 0 to 100
+  echoCancellation: boolean
+  autoGainControl: boolean
+  screenShareAudioVolume: number // 0 to 100 (percentage, default 50)
+  duckingEnabled: boolean // Auto-reduce screen sound when user talks
+
+  setSelectedAudioInput: (deviceId: string) => void
+  setSelectedAudioOutput: (deviceId: string) => void
+  setInputVolume: (vol: number) => void
+  setOutputVolume: (vol: number) => void
+  setSensitivityMode: (mode: SensitivityMode) => void
+  setManualSensitivityThreshold: (val: number) => void
+  setEchoCancellation: (enabled: boolean) => void
+  setAutoGainControl: (enabled: boolean) => void
+  setScreenShareAudioVolume: (vol: number) => void
+  setDuckingEnabled: (enabled: boolean) => void
+
+  // Audio Level meter & Gate state (for visual speaker aura & settings VU meter)
+  localAudioLevel: number
+  isGateOpen: boolean
+  isTestingMic: boolean
+  setLocalAudioLevel: (level: number, gateOpen?: boolean) => void
+  setIsTestingMic: (testing: boolean) => void
 
   // Remote Streams map: peerId -> MediaStream
   peerStreams: Record<string, MediaStream>
@@ -29,10 +62,35 @@ interface MediaStore {
   setPeerScreenStream: (peerId: string, stream: MediaStream) => void
   removePeerScreenStream: (peerId: string) => void
   clearAllPeerStreams: () => void
+}
 
-  // Audio Level meter (for visual speaker aura)
-  localAudioLevel: number
-  setLocalAudioLevel: (level: number) => void
+const STORAGE_KEY = 'gather_v2_audio_settings'
+
+const loadSavedAudioSettings = () => {
+  try {
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      const raw = window.localStorage.getItem(STORAGE_KEY)
+      if (raw) {
+        return JSON.parse(raw)
+      }
+    }
+  } catch (e) {
+    // Ignore in non-browser env
+  }
+  return null
+}
+
+const saved = loadSavedAudioSettings() || {}
+
+const saveAudioSettings = (settings: Record<string, any>) => {
+  try {
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      const current = loadSavedAudioSettings() || {}
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...settings }))
+    }
+  } catch (e) {
+    // Ignore in non-browser env
+  }
 }
 
 export const useMediaStore = create<MediaStore>((set, get) => ({
@@ -44,8 +102,62 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   isMuted: false,
   isCameraOff: false,
   isScreenSharing: false,
-  isNoiseSuppressionEnabled: true,
+  isNoiseSuppressionEnabled: saved.isNoiseSuppressionEnabled !== undefined ? saved.isNoiseSuppressionEnabled : true,
   isGridCallOpen: false,
+  isSettingsModalOpen: false,
+
+  // Device & Volume Config
+  selectedAudioInput: saved.selectedAudioInput || 'default',
+  selectedAudioOutput: saved.selectedAudioOutput || 'default',
+  inputVolume: saved.inputVolume !== undefined ? saved.inputVolume : 100,
+  outputVolume: saved.outputVolume !== undefined ? saved.outputVolume : 100,
+  sensitivityMode: saved.sensitivityMode || 'auto',
+  manualSensitivityThreshold: saved.manualSensitivityThreshold !== undefined ? saved.manualSensitivityThreshold : 20,
+  echoCancellation: saved.echoCancellation !== undefined ? saved.echoCancellation : true,
+  autoGainControl: saved.autoGainControl !== undefined ? saved.autoGainControl : true,
+  screenShareAudioVolume: saved.screenShareAudioVolume !== undefined ? saved.screenShareAudioVolume : 50,
+  duckingEnabled: saved.duckingEnabled !== undefined ? saved.duckingEnabled : true,
+
+  setSelectedAudioInput: (selectedAudioInput) => {
+    saveAudioSettings({ selectedAudioInput })
+    set({ selectedAudioInput })
+  },
+  setSelectedAudioOutput: (selectedAudioOutput) => {
+    saveAudioSettings({ selectedAudioOutput })
+    set({ selectedAudioOutput })
+  },
+  setInputVolume: (inputVolume) => {
+    saveAudioSettings({ inputVolume })
+    set({ inputVolume })
+  },
+  setOutputVolume: (outputVolume) => {
+    saveAudioSettings({ outputVolume })
+    set({ outputVolume })
+  },
+  setSensitivityMode: (sensitivityMode) => {
+    saveAudioSettings({ sensitivityMode })
+    set({ sensitivityMode })
+  },
+  setManualSensitivityThreshold: (manualSensitivityThreshold) => {
+    saveAudioSettings({ manualSensitivityThreshold })
+    set({ manualSensitivityThreshold })
+  },
+  setEchoCancellation: (echoCancellation) => {
+    saveAudioSettings({ echoCancellation })
+    set({ echoCancellation })
+  },
+  setAutoGainControl: (autoGainControl) => {
+    saveAudioSettings({ autoGainControl })
+    set({ autoGainControl })
+  },
+  setScreenShareAudioVolume: (screenShareAudioVolume) => {
+    saveAudioSettings({ screenShareAudioVolume })
+    set({ screenShareAudioVolume })
+  },
+  setDuckingEnabled: (duckingEnabled) => {
+    saveAudioSettings({ duckingEnabled })
+    set({ duckingEnabled })
+  },
 
   toggleMute: () => {
     const { localStream, isMuted } = get()
@@ -71,11 +183,15 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
 
   setScreenSharing: (sharing) => set({ isScreenSharing: sharing }),
 
-  toggleNoiseSuppression: () =>
-    set((state) => ({ isNoiseSuppressionEnabled: !state.isNoiseSuppressionEnabled })),
+  toggleNoiseSuppression: () => {
+    const nextState = !get().isNoiseSuppressionEnabled
+    saveAudioSettings({ isNoiseSuppressionEnabled: nextState })
+    set({ isNoiseSuppressionEnabled: nextState })
+  },
 
   toggleGridCall: () => set((state) => ({ isGridCallOpen: !state.isGridCallOpen })),
   setGridCallOpen: (open) => set({ isGridCallOpen: open }),
+  setSettingsModalOpen: (isSettingsModalOpen) => set({ isSettingsModalOpen }),
 
   peerStreams: {},
   peerScreenStreams: {},
@@ -107,5 +223,9 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   clearAllPeerStreams: () => set({ peerStreams: {}, peerScreenStreams: {} }),
 
   localAudioLevel: 0,
-  setLocalAudioLevel: (localAudioLevel) => set({ localAudioLevel }),
+  isGateOpen: false,
+  isTestingMic: false,
+  setLocalAudioLevel: (localAudioLevel, isGateOpen = false) =>
+    set({ localAudioLevel, isGateOpen: isGateOpen ?? get().isGateOpen }),
+  setIsTestingMic: (isTestingMic) => set({ isTestingMic }),
 }))

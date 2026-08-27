@@ -156,6 +156,15 @@ export const TopNavBar: React.FC<Props> = ({ onOpenAvatarModal }) => {
           <span>{remotePlayerList.length + 1}</span>
         </div>
 
+        {/* Audio & Video Settings Button */}
+        <button
+          onClick={() => useMediaStore.getState().setSettingsModalOpen(true)}
+          className="p-2 rounded-xl bg-[#1b202c] hover:bg-slate-800 border border-[#2a3142] text-slate-300 hover:text-white transition-all group"
+          title="Configurações de Áudio e Chamada"
+        >
+          <Settings className="w-4 h-4 text-slate-400 group-hover:text-indigo-400 group-hover:rotate-45 transition-transform" />
+        </button>
+
         {/* User Profile / Avatar Button */}
         <button
           onClick={onOpenAvatarModal}

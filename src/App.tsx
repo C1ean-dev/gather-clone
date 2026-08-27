@@ -7,6 +7,7 @@ import { FullScreenGrid } from './components/FullScreenGrid'
 import { ChatDrawer } from './components/ChatDrawer'
 import { AvatarCustomizerModal } from './components/AvatarCustomizerModal'
 import { LobbyModal } from './components/LobbyModal'
+import { AudioSettingsModal } from './components/AudioSettingsModal'
 import { useGameStore } from './store/useGameStore'
 import { useMediaStore } from './store/useMediaStore'
 import { useChatStore } from './store/useChatStore'
@@ -58,6 +59,9 @@ export const App: React.FC = () => {
 
       {/* Full-Screen Conference Grid (Gather V2 Grid View) */}
       <FullScreenGrid />
+
+      {/* Audio & Video Settings Modal */}
+      <AudioSettingsModal />
 
       {/* Avatar Customizer Modal */}
       <AvatarCustomizerModal

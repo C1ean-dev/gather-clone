@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { MediaManager, ScreenShareConfig } from '../media/MediaManager'
+import { useMediaStore } from '../store/useMediaStore'
 
 interface DesktopSource {
   id: string
@@ -274,35 +275,62 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
               </div>
             </div>
 
-            {/* Audio Toggle Switch */}
-            <div className="pt-2 border-t border-[#2a3142]/60 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
-                    includeAudio
-                      ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
-                      : 'bg-slate-800 border-slate-700 text-slate-400'
-                  }`}
-                >
-                  {includeAudio ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-slate-200">Transmitir Áudio do Sistema / Aplicativo</div>
-                  <div className="text-[10px] text-slate-400">
-                    Seus amigos ouvirão o som transmitido junto com seu microfone
+            {/* Audio Toggle Switch & Anti-Echo Volume Slider */}
+            <div className="pt-2 border-t border-[#2a3142]/60 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
+                      includeAudio
+                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                        : 'bg-slate-800 border-slate-700 text-slate-400'
+                    }`}
+                  >
+                    {includeAudio ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-200">Transmitir Áudio do Sistema / Aplicativo</div>
+                    <div className="text-[10px] text-slate-400">
+                      Seus amigos ouvirão o som transmitido junto com seu microfone
+                    </div>
                   </div>
                 </div>
+
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeAudio}
+                    onChange={(e) => setIncludeAudio(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                </label>
               </div>
 
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeAudio}
-                  onChange={(e) => setIncludeAudio(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-              </label>
+              {includeAudio && (
+                <div className="bg-[#1b202c] p-3 rounded-xl border border-[#2a3142] space-y-2 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between text-[11px] text-slate-300">
+                    <span>Volume do Áudio Transmitido</span>
+                    <span className="font-bold text-indigo-400">{useMediaStore.getState().screenShareAudioVolume}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={useMediaStore.getState().screenShareAudioVolume}
+                    onChange={(e) => {
+                      const val = Number(e.target.value)
+                      useMediaStore.getState().setScreenShareAudioVolume(val)
+                      MediaManager.getInstance().updateScreenShareAudioVolume(val)
+                    }}
+                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  />
+                  <div className="text-[10px] text-emerald-400 flex items-center gap-1.5 pt-1">
+                    <Sparkles className="w-3 h-3 shrink-0" />
+                    <span>Ducking anti-eco ativado: o som da tela diminui automaticamente quando você fala.</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

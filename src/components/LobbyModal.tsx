@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { PlusCircle, LogIn, Sparkles, User, Shield, Video, Mic, Volume2 } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
+import { useMediaStore } from '../store/useMediaStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { MediaManager } from '../media/MediaManager'
 
@@ -147,15 +148,24 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
             </div>
           )}
 
-          {/* Features highlight */}
-          <div className="bg-[#12151d]/60 rounded-2xl p-3 border border-[#2a3142]/60 space-y-2 text-[11px] text-slate-400">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Supressor de Ruído DSP ativado automaticamente</span>
+          {/* Features highlight & Audio Quick Config */}
+          <div className="bg-[#12151d]/60 rounded-2xl p-3 border border-[#2a3142]/60 space-y-2.5 text-[11px] text-slate-400">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Supressor de Ruído DSP & Anti-Eco ativados</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => useMediaStore.getState().setSettingsModalOpen(true)}
+                className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 underline"
+              >
+                <span>Configurar Áudio</span>
+              </button>
             </div>
             <div className="flex items-center gap-2">
               <Shield className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Rede P2P WebRTC direta sem servidores terceiros</span>
+              <span>Rede P2P WebRTC direta criptografada</span>
             </div>
           </div>
 

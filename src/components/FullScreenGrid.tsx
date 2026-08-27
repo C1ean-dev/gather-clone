@@ -65,6 +65,7 @@ const GridParticipantTile: React.FC<GridParticipantTileProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const screenRef = useRef<HTMLVideoElement | null>(null)
+  const { outputVolume, selectedAudioOutput } = useMediaStore()
 
   useEffect(() => {
     if (videoRef.current && user.stream) {
@@ -77,6 +78,24 @@ const GridParticipantTile: React.FC<GridParticipantTileProps> = ({
       screenRef.current.srcObject = user.screenStream
     }
   }, [user.screenStream])
+
+  useEffect(() => {
+    if (!user.isLocal) {
+      const vol = Math.max(0, Math.min(1, outputVolume / 100))
+      if (videoRef.current) {
+        videoRef.current.volume = vol
+        if (typeof (videoRef.current as any).setSinkId === 'function' && selectedAudioOutput) {
+          ;(videoRef.current as any).setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput).catch(() => {})
+        }
+      }
+      if (screenRef.current) {
+        screenRef.current.volume = vol
+        if (typeof (screenRef.current as any).setSinkId === 'function' && selectedAudioOutput) {
+          ;(screenRef.current as any).setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput).catch(() => {})
+        }
+      }
+    }
+  }, [outputVolume, selectedAudioOutput, user.isLocal])
 
   const hasLive = user.isScreenSharing || !!user.screenStream
 
@@ -551,7 +570,7 @@ export const FullScreenGrid: React.FC = () => {
 
         {/* Bottom Controls Bar (Gather V2 Dock) */}
         <div className="flex items-center justify-between px-6 py-2.5 bg-[#12151d]/95 backdrop-blur-xl rounded-2xl border border-[#2a3142] max-w-3xl mx-auto w-full shadow-2xl shrink-0 mt-2">
-          {/* Left Side: Noise Suppressor DSP */}
+          {/* Left Side: Noise Suppressor DSP & Audio Settings */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
@@ -567,6 +586,14 @@ export const FullScreenGrid: React.FC = () => {
             >
               <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
               <span className="hidden sm:inline">Supressor IA {isNoiseSuppressionEnabled ? 'ON' : 'OFF'}</span>
+            </button>
+
+            <button
+              onClick={() => useMediaStore.getState().setSettingsModalOpen(true)}
+              className="p-2 rounded-xl bg-slate-800/60 border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+              title="Configurações de Áudio e Voz"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
             </button>
           </div>
 
