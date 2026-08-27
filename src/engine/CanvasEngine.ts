@@ -210,39 +210,86 @@ export class CanvasEngine {
   }
 
   /**
-   * Collision checking against Walls & Obstacle Furniture
+   * Precise Thin-Wall & Furniture Collision Checking
+   * Only collides with the exact physical 6px partition beams and obstacle items,
+   * completely eliminating invisible block boundaries.
    */
   private checkCollision(x: number, y: number, map: MapData): boolean {
-    const margin = 0.3
-    const minX = Math.floor(x - margin)
-    const maxX = Math.floor(x + margin)
-    const minY = Math.floor(y - margin)
-    const maxY = Math.floor(y + margin)
+    const playerRadius = 0.22
+    const pcx = x + 0.5
+    const pcy = y + 0.5
 
-    // Map bounds
-    if (minX < 0 || maxX >= map.width || minY < 0 || maxY >= map.height) {
+    const pMinX = pcx - playerRadius
+    const pMaxX = pcx + playerRadius
+    const pMinY = pcy - playerRadius
+    const pMaxY = pcy + playerRadius
+
+    // Map bounds checking
+    if (pMinX < 0.5 || pMaxX >= map.width - 0.5 || pMinY < 0.5 || pMaxY >= map.height - 0.5) {
       return true
     }
 
-    // Check Wall Collisions
-    for (let checkY = minY; checkY <= maxY; checkY++) {
-      for (let checkX = minX; checkX <= maxX; checkX++) {
-        if (map.walls[checkY]?.[checkX]) {
-          return true
+    const minTileX = Math.floor(pMinX)
+    const maxTileX = Math.floor(pMaxX)
+    const minTileY = Math.floor(pMinY)
+    const maxTileY = Math.floor(pMaxY)
+
+    const halfThickness = 0.1 // 6px / 32px ~ 0.1875 -> half thickness 0.1 tile
+
+    // 1. Precise Thin-Wall Collision
+    for (let ty = minTileY; ty <= maxTileY; ty++) {
+      for (let tx = minTileX; tx <= maxTileX; tx++) {
+        const wall = map.walls[ty]?.[tx]
+        if (wall) {
+          const hasTop = ty > 0 && map.walls[ty - 1]?.[tx] !== null
+          const hasBottom = ty < map.height - 1 && map.walls[ty + 1]?.[tx] !== null
+          const hasLeft = tx > 0 && map.walls[ty]?.[tx - 1] !== null
+          const hasRight = tx < map.width - 1 && map.walls[ty]?.[tx + 1] !== null
+
+          const cx = tx + 0.5
+          const cy = ty + 0.5
+
+          const isIsolated = !hasTop && !hasBottom && !hasLeft && !hasRight
+          const drawHoriz = hasLeft || hasRight || isIsolated
+          const drawVert = hasTop || hasBottom
+
+          // Check horizontal thin wall beam
+          if (drawHoriz) {
+            const wMinX = hasLeft ? tx : cx - halfThickness
+            const wMaxX = hasRight ? tx + 1 : cx + halfThickness
+            const wMinY = cy - halfThickness
+            const wMaxY = cy + halfThickness
+
+            if (pMaxX > wMinX && pMinX < wMaxX && pMaxY > wMinY && pMinY < wMaxY) {
+              return true
+            }
+          }
+
+          // Check vertical thin wall beam
+          if (drawVert) {
+            const wMinX = cx - halfThickness
+            const wMaxX = cx + halfThickness
+            const wMinY = hasTop ? ty : cy - halfThickness
+            const wMaxY = hasBottom ? ty + 1 : cy + halfThickness
+
+            if (pMaxX > wMinX && pMinX < wMaxX && pMaxY > wMinY && pMinY < wMaxY) {
+              return true
+            }
+          }
         }
       }
     }
 
-    // Check Furniture Collisions
+    // 2. Check Furniture Obstacle Collisions
     for (const furn of map.furniture) {
       const def = FURNITURE_CATALOG.find((f) => f.id === furn.defId)
       if (def && def.isObstacle) {
-        const furnMinX = furn.x
-        const furnMaxX = furn.x + def.width
-        const furnMinY = furn.y
-        const furnMaxY = furn.y + def.height
+        const furnMinX = furn.x + 0.05
+        const furnMaxX = furn.x + def.width - 0.05
+        const furnMinY = furn.y + 0.05
+        const furnMaxY = furn.y + def.height - 0.05
 
-        if (x + margin > furnMinX && x - margin < furnMaxX && y + margin > furnMinY && y - margin < furnMaxY) {
+        if (pMaxX > furnMinX && pMinX < furnMaxX && pMaxY > furnMinY && pMinY < furnMaxY) {
           return true
         }
       }
