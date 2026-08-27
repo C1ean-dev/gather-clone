@@ -12,11 +12,14 @@ export class PixelArtRenderer {
     ctx.save()
     switch (type) {
       case 'habbo_parquet':
-        ctx.fillStyle = '#dfab68'
+      case 'wood_light':
+        // Exact Gather Wood Plank Floor (as seen in photo)
+        ctx.fillStyle = '#f6e7d2'
         ctx.fillRect(px, py, size, size)
-        ctx.fillStyle = '#c7914e'
+        ctx.fillStyle = '#ebcca8'
         ctx.fillRect(px, py + size / 2, size, 1)
-        ctx.fillStyle = '#b37c3c'
+        ctx.fillRect(px, py + size - 1, size, 1)
+        ctx.fillStyle = '#e4be96'
         ctx.fillRect(px + size / 2, py, 1, size / 2)
         ctx.fillRect(px + size / 4, py + size / 2, 1, size / 2)
         ctx.fillRect(px + (size * 3) / 4, py + size / 2, 1, size / 2)
@@ -71,15 +74,6 @@ export class PixelArtRenderer {
         ctx.fillRect(px, py + size - 2, size, 2)
         break
 
-      case 'wood_light':
-        ctx.fillStyle = '#e9c496'
-        ctx.fillRect(px, py, size, size)
-        ctx.fillStyle = '#dfb482'
-        ctx.fillRect(px, py + size / 2, size, 1)
-        ctx.fillStyle = '#d4a36e'
-        ctx.fillRect(px + size / 2, py, 1, size / 2)
-        break
-
       case 'wood_dark':
         ctx.fillStyle = '#8c5e3c'
         ctx.fillRect(px, py, size, size)
@@ -113,11 +107,12 @@ export class PixelArtRenderer {
         break
 
       case 'grass':
-        ctx.fillStyle = '#51cf66'
+        // Soft green corridor surrounding the room
+        ctx.fillStyle = '#d3e8d2'
         ctx.fillRect(px, py, size, size)
-        ctx.fillStyle = '#40c057'
-        ctx.fillRect(px + 4, py + 8, 2, 4)
-        ctx.fillRect(px + 18, py + 4, 2, 4)
+        ctx.fillStyle = '#c0dbc0'
+        ctx.fillRect(px + 4, py + 8, 2, 3)
+        ctx.fillRect(px + 18, py + 4, 2, 3)
         break
 
       case 'concrete':
@@ -132,154 +127,141 @@ export class PixelArtRenderer {
   }
 
   /**
-   * Draw Architectural Room Wall:
-   * - isBackWall === true: Solid Top Wall surface aligned flush with side walls (for mounting windows/decors).
-   * - isBackWall === false: Thin 6px sleek wall partition for sides, front, and dividers with seamless corners.
+   * Draw Exact Gather Room Architecture (1:1 Replica of Photo):
+   * 1. Tall Soft Slate Back Wall with white outer border & wooden baseboard trim.
+   * 2. Minimalist White/Slate Thin Side Glass Partitions.
+   * 3. Solid 3D Front Wall Blocks with white top ledge and open central doorway.
    */
-  static drawThinWall(
-    ctx: CanvasRenderingContext2D,
-    type: WallType,
-    x: number,
-    y: number,
-    size: number = TILE_SIZE,
-    isBackWall: boolean = false,
-    hasLeft: boolean = false,
-    hasRight: boolean = false,
-    hasTop: boolean = false,
-    hasBottom: boolean = false
-  ) {
-    const px = Math.floor(x)
-    const py = Math.floor(y)
+  static drawGatherRoom(ctx: CanvasRenderingContext2D, zone: PrivateZone, zones: PrivateZone[] = []) {
+    const minX = Math.floor(zone.x * TILE_SIZE)
+    const maxX = Math.floor((zone.x + zone.width) * TILE_SIZE)
+    const minY = Math.floor(zone.y * TILE_SIZE)
+    const maxY = Math.floor((zone.y + zone.height) * TILE_SIZE)
+    const w = maxX - minX
+    const h = maxY - minY
 
     ctx.save()
 
-    const topCapColor = '#64748b'
-    const topBevelColor = '#475569'
-    const wallBodyColor = '#374151'
-    const seamColor = '#2d3748'
-    const shadowColor = 'rgba(0, 0, 0, 0.35)'
-    const outlineColor = '#1e293b'
+    const wallBodyColor = '#d5dee5'
+    const whiteBorderColor = '#ffffff'
+    const bevelColor = '#b8c9d9'
+    const shadowLineColor = '#7d91a3'
+    const baseboardColor = '#deb887'
 
-    const thickness = 6
-    const halfT = thickness / 2
-    const cx = px + size / 2
-    const cy = py + size / 2
+    // Height of back wall (approx 2 tiles = 64px)
+    const backWallH = Math.min(Math.floor(h * 0.32), 64)
+    // Height of front wall blocks (approx 1.5 tiles = 48px)
+    const frontWallH = Math.min(Math.floor(h * 0.24), 48)
+    const frontWallY = maxY - frontWallH
+
+    // Doorway opening in middle
+    const doorW = Math.min(Math.floor(w * 0.38), 64)
+    const doorStartX = minX + Math.floor((w - doorW) / 2)
+    const doorEndX = doorStartX + doorW
 
     // ==========================================
-    // 1. BACK WALL (Top / North Wall - Flush with Side Walls)
+    // 1. TALL BACK WALL (Parte de Trás para Janelas/Decorações)
     // ==========================================
-    if (isBackWall) {
-      // Left and right edges align flush with the vertical side walls
-      const leftX = hasLeft ? px : cx - halfT
-      const rightX = hasRight ? px + size : cx + halfT
-      const width = rightX - leftX
+    // Solid Back Wall Body
+    ctx.fillStyle = wallBodyColor
+    ctx.fillRect(minX, minY, w, backWallH)
 
-      // Solid Back Wall Body
-      ctx.fillStyle = wallBodyColor
-      ctx.fillRect(leftX, py, width, size)
+    // Outer White Trim (Top, Left, Right)
+    ctx.fillStyle = whiteBorderColor
+    ctx.fillRect(minX, minY, w, 2.5) // Top border
+    ctx.fillRect(minX, minY, 2.5, backWallH) // Left border
+    ctx.fillRect(maxX - 2.5, minY, 2.5, backWallH) // Right border
 
-      // Top Roof Ledge / Molding Trim
-      ctx.fillStyle = topCapColor
-      ctx.fillRect(leftX, py, width, 4)
-      ctx.fillStyle = topBevelColor
-      ctx.fillRect(leftX, py + 4, width, 1)
+    // Bottom Shadow Line & Wooden Baseboard Trim
+    ctx.fillStyle = shadowLineColor
+    ctx.fillRect(minX + 2.5, minY + backWallH - 4, w - 5, 1)
+    ctx.fillStyle = baseboardColor
+    ctx.fillRect(minX + 2.5, minY + backWallH - 3, w - 5, 3)
 
-      // Vertical panel seams
-      if (hasLeft) {
-        ctx.fillStyle = seamColor
-        ctx.fillRect(px, py + 5, 1, size - 5)
-      }
+    // ==========================================
+    // 2. THIN SIDE WALLS (Paredes Laterais Minimalistas de Vidro/Brancas)
+    // ==========================================
+    const sideTopY = minY + backWallH
+    const sideBottomY = frontWallY
+    const sideHeight = sideBottomY - sideTopY
 
-      // Outer side trim on left corner end (flush with left side wall)
-      if (!hasLeft) {
-        ctx.fillStyle = topCapColor
-        ctx.fillRect(leftX, py, 2.5, size)
-        ctx.fillStyle = outlineColor
-        ctx.fillRect(leftX, py, 1, size)
-      }
+    if (sideHeight > 0) {
+      // Left Thin Side Wall
+      ctx.fillStyle = whiteBorderColor
+      ctx.fillRect(minX, sideTopY, 2.5, sideHeight)
+      ctx.fillStyle = bevelColor
+      ctx.fillRect(minX + 2.5, sideTopY, 1.5, sideHeight)
 
-      // Outer side trim on right corner end (flush with right side wall)
-      if (!hasRight) {
-        ctx.fillStyle = topCapColor
-        ctx.fillRect(rightX - 2.5, py, 2.5, size)
-        ctx.fillStyle = outlineColor
-        ctx.fillRect(rightX - 1, py, 1, size)
-      }
-
-      // Bottom Baseline Shadow onto the room floor
-      ctx.fillStyle = shadowColor
-      ctx.fillRect(leftX, py + size - 3, width, 3)
-
-      ctx.restore()
-      return
+      // Right Thin Side Wall
+      ctx.fillStyle = whiteBorderColor
+      ctx.fillRect(maxX - 2.5, sideTopY, 2.5, sideHeight)
+      ctx.fillStyle = bevelColor
+      ctx.fillRect(maxX - 4, sideTopY, 1.5, sideHeight)
     }
 
     // ==========================================
-    // 2. THIN WALLS (Sides, Front Wall & Dividers with Seamless Corner Joints)
+    // 3. FRONT WALL BLOCKS (Paredes da Frente com Porta Central)
     // ==========================================
-    const isIsolated = !hasTop && !hasBottom && !hasLeft && !hasRight
-    const drawHoriz = hasLeft || hasRight || isIsolated
-    const drawVert = hasTop || hasBottom
-
-    // 2A. Horizontal Thin Beam (Front wall & horizontal dividers)
-    if (drawHoriz) {
-      const leftX = hasLeft ? px : cx - halfT
-      const rightX = hasRight ? px + size : cx + halfT
-      const width = rightX - leftX
-
-      // Shadow
-      ctx.fillStyle = shadowColor
-      ctx.fillRect(leftX, cy + halfT, width, 2.5)
-
-      // Body
+    // Left Front Block
+    const leftBlockW = doorStartX - minX
+    if (leftBlockW > 0) {
+      // Front Body
       ctx.fillStyle = wallBodyColor
-      ctx.fillRect(leftX, cy - halfT, width, thickness)
+      ctx.fillRect(minX, frontWallY, leftBlockW, frontWallH)
 
-      // Top Trim
-      ctx.fillStyle = topCapColor
-      ctx.fillRect(leftX, cy - halfT, width, 1.5)
+      // Top White Ledge & Bevel
+      ctx.fillStyle = whiteBorderColor
+      ctx.fillRect(minX, frontWallY, leftBlockW, 3.5)
+      ctx.fillStyle = bevelColor
+      ctx.fillRect(minX, frontWallY + 3.5, leftBlockW, 2)
 
-      // Outline
-      ctx.strokeStyle = outlineColor
-      ctx.lineWidth = 1
-      ctx.strokeRect(leftX + 0.5, cy - halfT + 0.5, width - 1, thickness - 1)
+      // Outer White Borders
+      ctx.fillStyle = whiteBorderColor
+      ctx.fillRect(minX, frontWallY, 2.5, frontWallH) // Left
+      ctx.fillRect(doorStartX - 2, frontWallY, 2, frontWallH) // Door jamb right
+      ctx.fillStyle = bevelColor
+      ctx.fillRect(minX, maxY - 1.5, leftBlockW, 1.5) // Bottom line
     }
 
-    // 2B. Vertical Thin Beam (Left & right outer sides, and vertical dividers)
-    if (drawVert) {
-      // If connecting to the back wall above, start right at the top edge py
-      const topY = hasTop ? py : cy - halfT
-      const bottomY = hasBottom ? py + size : cy + halfT
-      const height = bottomY - topY
-
-      // Shadow
-      ctx.fillStyle = shadowColor
-      ctx.fillRect(cx + halfT, topY, 2.5, height)
-
-      // Body
+    // Right Front Block
+    const rightBlockW = maxX - doorEndX
+    if (rightBlockW > 0) {
+      // Front Body
       ctx.fillStyle = wallBodyColor
-      ctx.fillRect(cx - halfT, topY, thickness, height)
+      ctx.fillRect(doorEndX, frontWallY, rightBlockW, frontWallH)
 
-      // Top Trim (if top of beam)
-      if (!hasTop) {
-        ctx.fillStyle = topCapColor
-        ctx.fillRect(cx - halfT, topY, thickness, 1.5)
-      }
+      // Top White Ledge & Bevel
+      ctx.fillStyle = whiteBorderColor
+      ctx.fillRect(doorEndX, frontWallY, rightBlockW, 3.5)
+      ctx.fillStyle = bevelColor
+      ctx.fillRect(doorEndX, frontWallY + 3.5, rightBlockW, 2)
 
-      // Outline
-      ctx.strokeStyle = outlineColor
-      ctx.lineWidth = 1
-      ctx.strokeRect(cx - halfT + 0.5, topY + 0.5, thickness - 1, height - 1)
+      // Outer White Borders
+      ctx.fillStyle = whiteBorderColor
+      ctx.fillRect(doorEndX, frontWallY, 2, frontWallH) // Door jamb left
+      ctx.fillRect(maxX - 2.5, frontWallY, 2.5, frontWallH) // Right
+      ctx.fillStyle = bevelColor
+      ctx.fillRect(doorEndX, maxY - 1.5, rightBlockW, 1.5) // Bottom line
     }
 
     ctx.restore()
   }
 
   /**
-   * Draw Wall (Fallback / Thumbnail compatibility)
+   * Draw Wall Tile (Fallback / Palette preview)
    */
   static drawWall(ctx: CanvasRenderingContext2D, type: WallType, x: number, y: number, size: number = TILE_SIZE) {
-    this.drawThinWall(ctx, type, x, y, size, true, false, false, false, false)
+    const px = Math.floor(x)
+    const py = Math.floor(y)
+
+    ctx.save()
+    ctx.fillStyle = '#d5dee5'
+    ctx.fillRect(px, py, size, size)
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(px, py, size, 3)
+    ctx.fillStyle = '#b8c9d9'
+    ctx.fillRect(px, py + size - 2, size, 2)
+    ctx.restore()
   }
 
   /**

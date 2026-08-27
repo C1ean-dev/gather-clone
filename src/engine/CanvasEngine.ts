@@ -236,43 +236,52 @@ export class CanvasEngine {
 
     const halfThickness = 0.1 // 6px / 32px ~ 0.1875 -> half thickness 0.1 tile
 
-    // 1. Precise Wall Collision (Solid Back Wall + Sub-tile Thin Walls)
-    for (let ty = minTileY; ty <= maxTileY; ty++) {
-      for (let tx = minTileX; tx <= maxTileX; tx++) {
-        const wall = map.walls[ty]?.[tx]
-        if (wall) {
-          const isBackWall = map.zones.some((z) => z.y === ty && tx >= z.x && tx <= z.x + z.width - 1) || ty === 0
+    // 1. Precise Room Architecture Collision (Exact 1:1 Gather Photo)
+    for (const zone of map.zones) {
+      const minX = zone.x
+      const maxX = zone.x + zone.width
+      const minY = zone.y
+      const maxY = zone.y + zone.height
+      const h = zone.height
+      const w = zone.width
 
-          if (isBackWall) {
-            if (pMaxX > tx && pMinX < tx + 1 && pMaxY > ty && pMinY < ty + 0.9) return true
-          } else {
-            const hasTop = ty > 0 && map.walls[ty - 1]?.[tx] !== null
-            const hasBottom = ty < map.height - 1 && map.walls[ty + 1]?.[tx] !== null
-            const hasLeft = tx > 0 && map.walls[ty]?.[tx - 1] !== null
-            const hasRight = tx < map.width - 1 && map.walls[ty]?.[tx + 1] !== null
+      const backWallH = Math.min(h * 0.32, 2.0)
+      const frontWallH = Math.min(h * 0.24, 1.5)
+      const frontWallY = maxY - frontWallH
 
-            const cx = tx + 0.5
-            const cy = ty + 0.5
-            const isIsolated = !hasTop && !hasBottom && !hasLeft && !hasRight
+      const doorW = Math.min(w * 0.38, 2.0)
+      const doorStartX = minX + (w - doorW) / 2
+      const doorEndX = doorStartX + doorW
 
-            if (hasLeft || hasRight || isIsolated) {
-              const wMinX = hasLeft ? tx : cx - 0.1
-              const wMaxX = hasRight ? tx + 1 : cx + 0.1
-              const wMinY = cy - 0.1
-              const wMaxY = cy + 0.1
-              if (pMaxX > wMinX && pMinX < wMaxX && pMaxY > wMinY && pMinY < wMaxY) return true
-            }
-
-            if (hasTop || hasBottom) {
-              const wMinX = cx - 0.1
-              const wMaxX = cx + 0.1
-              const wMinY = hasTop ? ty : cy - 0.1
-              const wMaxY = hasBottom ? ty + 1 : cy + 0.1
-              if (pMaxX > wMinX && pMinX < wMaxX && pMaxY > wMinY && pMinY < wMaxY) return true
-            }
-          }
-        }
+      // A. Back Wall Collision (Top block)
+      if (pMaxX > minX && pMinX < maxX && pMaxY > minY && pMinY < minY + backWallH) {
+        return true
       }
+
+      // B. Left Thin Side Wall Collision
+      if (pMaxX > minX && pMinX < minX + 0.15 && pMaxY > minY + backWallH && pMinY < frontWallY) {
+        return true
+      }
+
+      // C. Right Thin Side Wall Collision
+      if (pMaxX > maxX - 0.15 && pMinX < maxX && pMaxY > minY + backWallH && pMinY < frontWallY) {
+        return true
+      }
+
+      // D. Left Front Wall Block Collision
+      if (pMaxX > minX && pMinX < doorStartX && pMaxY > frontWallY && pMinY < maxY) {
+        return true
+      }
+
+      // E. Right Front Wall Block Collision
+      if (pMaxX > doorEndX && pMinX < maxX && pMaxY > frontWallY && pMinY < maxY) {
+        return true
+      }
+    }
+
+    // Outer Map Boundary Collision
+    if (pMinX < 1 || pMaxX > map.width - 1 || pMinY < 1 || pMaxY > map.height - 1) {
+      return true
     }
 
     // 2. Check Furniture Obstacle Collisions
@@ -360,43 +369,20 @@ export class CanvasEngine {
       }
     }
 
-    // 2. Draw Existing Private Zones
+    // 2. Draw Gather Room Architecture (1:1 Exact Photo Replica)
+    for (const zone of map.zones) {
+      PixelArtRenderer.drawGatherRoom(ctx, zone, map.zones)
+    }
+
+    // 3. Draw Zone Header Badges & Interactive Overlays
     for (const zone of map.zones) {
       const isCurrent = localPlayer.currentZoneId === zone.id
       PixelArtRenderer.drawPrivateZone(ctx, zone, isCurrent)
     }
 
-    // 3. Draw Placed Furniture
+    // 4. Draw Placed Furniture & Wall Windows
     for (const item of map.furniture) {
       PixelArtRenderer.drawFurniture(ctx, item)
-    }
-
-    // 4. Draw Walls (Back Wall is solid for mounting windows/decors, Side/Front/Divider walls are thin with seamless corners)
-    for (let y = 0; y < map.height; y++) {
-      for (let x = 0; x < map.width; x++) {
-        const wall = map.walls[y]?.[x]
-        if (wall) {
-          const hasTop = y > 0 && map.walls[y - 1]?.[x] !== null
-          const hasBottom = y < map.height - 1 && map.walls[y + 1]?.[x] !== null
-          const hasLeft = x > 0 && map.walls[y]?.[x - 1] !== null
-          const hasRight = x < map.width - 1 && map.walls[y]?.[x + 1] !== null
-
-          const isBackWall = map.zones.some((z) => z.y === y && x >= z.x && x <= z.x + z.width - 1) || y === 0
-
-          PixelArtRenderer.drawThinWall(
-            ctx,
-            wall,
-            x * TILE_SIZE,
-            y * TILE_SIZE,
-            TILE_SIZE,
-            isBackWall,
-            hasLeft,
-            hasRight,
-            hasTop,
-            hasBottom
-          )
-        }
-      }
     }
 
     // 5. Sort and Draw Players by Y-depth
@@ -433,24 +419,38 @@ export class CanvasEngine {
       const px = minX * TILE_SIZE
       const py = minY * TILE_SIZE
 
+      const isOverlapping = map.zones.some((z) => {
+        const zMaxX = z.x + z.width - 1
+        const zMaxY = z.y + z.height - 1
+        const overlapX = Math.min(maxX, zMaxX) - Math.max(minX, z.x)
+        const overlapY = Math.min(maxY, zMaxY) - Math.max(minY, z.y)
+        return overlapX >= 1 && overlapY >= 1
+      })
+
       ctx.save()
       // Fill
-      ctx.fillStyle = zoneDraft.color ? `${zoneDraft.color}35` : 'rgba(76, 110, 245, 0.25)'
+      ctx.fillStyle = isOverlapping
+        ? 'rgba(239, 68, 68, 0.35)'
+        : zoneDraft.color
+        ? `${zoneDraft.color}35`
+        : 'rgba(76, 110, 245, 0.25)'
       ctx.fillRect(px, py, w, h)
 
       // Dashed border
-      ctx.strokeStyle = zoneDraft.color || '#4c6ef5'
+      ctx.strokeStyle = isOverlapping ? '#ef4444' : zoneDraft.color || '#4c6ef5'
       ctx.lineWidth = 3
       ctx.setLineDash([8, 4])
       ctx.strokeRect(px + 1.5, py + 1.5, w - 3, h - 3)
 
       // Dimension badge
       ctx.setLineDash([])
-      const badgeText = `${zoneDraft.name} (${maxX - minX + 1}x${maxY - minY + 1} tiles)`
+      const badgeText = isOverlapping
+        ? `🚫 SOBREPOSIÇÃO NÃO PERMITIDA (${maxX - minX + 1}x${maxY - minY + 1})`
+        : `${zoneDraft.name} (${maxX - minX + 1}x${maxY - minY + 1} tiles)`
       ctx.font = 'bold 11px sans-serif'
       const textWidth = ctx.measureText(badgeText).width
 
-      ctx.fillStyle = zoneDraft.color || '#4c6ef5'
+      ctx.fillStyle = isOverlapping ? '#dc2626' : zoneDraft.color || '#4c6ef5'
       ctx.beginPath()
       ctx.roundRect(px + 4, py - 20, textWidth + 14, 18, 5)
       ctx.fill()
@@ -508,8 +508,8 @@ export class CanvasEngine {
   public screenToTile(screenX: number, screenY: number): { x: number; y: number } {
     const viewWidth = this.canvas.width / this.camera.zoom
     const viewHeight = this.canvas.height / this.camera.zoom
-    const offsetX = viewWidth / 2 - this.camera.x
-    const offsetY = viewHeight / 2 - this.camera.y
+    const offsetX = Math.floor(viewWidth / 2 - this.camera.x)
+    const offsetY = Math.floor(viewHeight / 2 - this.camera.y)
 
     const worldX = screenX / this.camera.zoom - offsetX
     const worldY = screenY / this.camera.zoom - offsetY

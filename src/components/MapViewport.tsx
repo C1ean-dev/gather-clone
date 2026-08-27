@@ -63,8 +63,10 @@ export const MapViewport: React.FC = () => {
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!engineRef.current || !canvasRef.current) return
     const rect = canvasRef.current.getBoundingClientRect()
-    const mouseX = e.clientX - rect.left
-    const mouseY = e.clientY - rect.top
+    const scaleX = canvasRef.current.width / (rect.width || 1)
+    const scaleY = canvasRef.current.height / (rect.height || 1)
+    const mouseX = (e.clientX - rect.left) * scaleX
+    const mouseY = (e.clientY - rect.top) * scaleY
 
     const tile = engineRef.current.screenToTile(mouseX, mouseY)
 
@@ -102,8 +104,10 @@ export const MapViewport: React.FC = () => {
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!engineRef.current || !canvasRef.current) return
     const rect = canvasRef.current.getBoundingClientRect()
-    const mouseX = e.clientX - rect.left
-    const mouseY = e.clientY - rect.top
+    const scaleX = canvasRef.current.width / (rect.width || 1)
+    const scaleY = canvasRef.current.height / (rect.height || 1)
+    const mouseX = (e.clientX - rect.left) * scaleX
+    const mouseY = (e.clientY - rect.top) * scaleY
 
     const tile = engineRef.current.screenToTile(mouseX, mouseY)
     engineRef.current.hoverTile = tile
@@ -127,25 +131,36 @@ export const MapViewport: React.FC = () => {
       let minY = Math.min(start.y, current.y)
       let maxY = Math.max(start.y, current.y)
 
-      // Magnetic alignment with existing zones to prevent 1-tile gaps or overlap hooks
+      // Magnetic alignment with existing zones to prevent gaps or interior overlaps
       for (const z of mapData.zones) {
-        const zMaxX = z.x + z.width - 1
-        const zMaxY = z.y + z.height - 1
+        const zRight = z.x + z.width
+        const zBottom = z.y + z.height
 
-        // Snap X adjacent
-        if (Math.abs(minX - zMaxX) <= 1) minX = zMaxX
-        if (Math.abs(minX - (zMaxX + 1)) <= 1) minX = zMaxX + 1
-        if (Math.abs(maxX - z.x) <= 1) maxX = z.x
+        // Snap adjacent right (starts right where existing zone ends)
+        if (Math.abs(minX - zRight) <= 1) minX = zRight
+        // Snap adjacent left (ends right where existing zone starts)
+        if (Math.abs((maxX + 1) - z.x) <= 1) maxX = z.x - 1
 
         // Snap Y alignment
         if (Math.abs(minY - z.y) <= 1) minY = z.y
-        if (Math.abs(maxY - zMaxY) <= 1) maxY = zMaxY
+        if (Math.abs(maxY - (zBottom - 1)) <= 1) maxY = zBottom - 1
+        // Snap adjacent bottom
+        if (Math.abs(minY - zBottom) <= 1) minY = zBottom
       }
 
       const width = maxX - minX + 1
       const height = maxY - minY + 1
 
-      if (width >= 2 && height >= 2) {
+      // Allow touching/shared walls, but forbid interior area intersections
+      const hasOverlap = mapData.zones.some((z) => {
+        const zMaxX = z.x + z.width - 1
+        const zMaxY = z.y + z.height - 1
+        const overlapX = Math.min(maxX, zMaxX) - Math.max(minX, z.x)
+        const overlapY = Math.min(maxY, zMaxY) - Math.max(minY, z.y)
+        return overlapX >= 1 && overlapY >= 1
+      })
+
+      if (width >= 2 && height >= 2 && !hasOverlap) {
         const newZone: PrivateZone = {
           id: 'zone-' + Math.random().toString(36).substring(2, 7),
           name: zoneDraft.name.trim() || 'Nova Zona',

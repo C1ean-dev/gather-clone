@@ -21,25 +21,25 @@ export function snapAndAlignZone(
     if (existing.id === zone.id) continue
 
     const eMinX = existing.x
-    const eMaxX = existing.x + existing.width - 1
+    const eMaxX = existing.x + existing.width
     const eMinY = existing.y
-    const eMaxY = existing.y + existing.height - 1
+    const eMaxY = existing.y + existing.height
 
     const zMinX = x
-    const zMaxX = x + width - 1
+    const zMaxX = x + width
     const zMinY = y
-    const zMaxY = y + height - 1
+    const zMaxY = y + height
 
     // 1. Horizontal Adjacency (Rooms side by side)
     const yOverlap = Math.min(zMaxY, eMaxY) - Math.max(zMinY, eMinY)
     const isYNear = Math.abs(zMinY - eMinY) <= 3 || Math.abs(zMaxY - eMaxY) <= 3 || yOverlap >= 1
 
     if (isYNear) {
-      // Zone to the Right of existing: Snap left edge to existing right wall
-      if (Math.abs(zMinX - eMaxX) <= 2 || Math.abs(zMinX - (eMaxX + 1)) <= 1) {
+      // Zone to the Right of existing: Snap left edge to existing right boundary
+      if (Math.abs(zMinX - eMaxX) <= 2) {
         const targetRightX = zMaxX
-        x = eMaxX // Share the exact dividing wall
-        width = Math.max(3, targetRightX - x + 1)
+        x = eMaxX
+        width = Math.max(3, targetRightX - x)
 
         // Align top and bottom if close
         if (Math.abs(zMinY - eMinY) <= 3) {
@@ -49,9 +49,9 @@ export function snapAndAlignZone(
           }
         }
       }
-      // Zone to the Left of existing: Snap right edge to existing left wall
-      else if (Math.abs(zMaxX - eMinX) <= 2 || Math.abs(zMaxX - (eMinX - 1)) <= 1) {
-        width = Math.max(3, eMinX - x + 1)
+      // Zone to the Left of existing: Snap right edge to existing left boundary
+      else if (Math.abs(zMaxX - eMinX) <= 2) {
+        x = Math.max(1, eMinX - width)
 
         if (Math.abs(zMinY - eMinY) <= 3) {
           y = eMinY
@@ -67,11 +67,11 @@ export function snapAndAlignZone(
     const isXNear = Math.abs(zMinX - eMinX) <= 3 || Math.abs(zMaxX - eMaxX) <= 3 || xOverlap >= 1
 
     if (isXNear) {
-      // Zone Below existing: Snap top edge to existing bottom wall
-      if (Math.abs(zMinY - eMaxY) <= 2 || Math.abs(zMinY - (eMaxY + 1)) <= 1) {
+      // Zone Below existing: Snap top edge to existing bottom boundary
+      if (Math.abs(zMinY - eMaxY) <= 2) {
         const targetBottomY = zMaxY
-        y = eMaxY // Share the exact dividing wall
-        height = Math.max(3, targetBottomY - y + 1)
+        y = eMaxY
+        height = Math.max(3, targetBottomY - y)
 
         if (Math.abs(zMinX - eMinX) <= 3) {
           x = eMinX
@@ -80,9 +80,9 @@ export function snapAndAlignZone(
           }
         }
       }
-      // Zone Above existing: Snap bottom edge to existing top wall
-      else if (Math.abs(zMaxY - eMinY) <= 2 || Math.abs(zMaxY - (eMinY - 1)) <= 1) {
-        height = Math.max(3, eMinY - y + 1)
+      // Zone Above existing: Snap bottom edge to existing top boundary
+      else if (Math.abs(zMaxY - eMinY) <= 2) {
+        y = Math.max(1, eMinY - height)
 
         if (Math.abs(zMinX - eMinX) <= 3) {
           x = eMinX

@@ -108,6 +108,22 @@ export const useMapStore = create<MapStore>((set, get) => ({
         state.mapData.height
       )
 
+      // Allow touching/shared walls, but forbid interior area intersections
+      const hasOverlap = state.mapData.zones.some((z) => {
+        if (z.id === alignedZone.id) return false
+        const aMaxX = alignedZone.x + alignedZone.width - 1
+        const aMaxY = alignedZone.y + alignedZone.height - 1
+        const bMaxX = z.x + z.width - 1
+        const bMaxY = z.y + z.height - 1
+        const overlapX = Math.min(aMaxX, bMaxX) - Math.max(alignedZone.x, z.x)
+        const overlapY = Math.min(aMaxY, bMaxY) - Math.max(alignedZone.y, z.y)
+        return overlapX >= 1 && overlapY >= 1
+      })
+
+      if (hasOverlap) {
+        return state
+      }
+
       const updatedZones = [...state.mapData.zones.filter((z) => z.id !== alignedZone.id), alignedZone]
       const updatedWalls = generateWallsAndDoorsForZones(
         updatedZones,
