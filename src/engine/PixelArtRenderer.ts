@@ -51,7 +51,7 @@ export class PixelArtRenderer {
         ctx.fillRect(px + 18, py + 16, 10, 2)
         break
 
-      case 'habbo_disco_dance':
+      case 'habbo_disco_dance': {
         const discoColors = ['#e64980', '#7950f2', '#12b886', '#fab005', '#228be6']
         const colorIdx = (Math.floor(px / size) + Math.floor(py / size)) % discoColors.length
         ctx.fillStyle = discoColors[colorIdx]
@@ -59,6 +59,7 @@ export class PixelArtRenderer {
         ctx.fillStyle = 'rgba(255,255,255,0.4)'
         ctx.fillRect(px + 2, py + 2, size - 4, size - 4)
         break
+      }
 
       case 'habbo_executive_rug':
         ctx.fillStyle = '#800020'
@@ -89,11 +90,11 @@ export class PixelArtRenderer {
         break
 
       case 'carpet_blue':
-        ctx.fillStyle = '#364fc7'
+        ctx.fillStyle = '#9aa5b1'
         ctx.fillRect(px, py, size, size)
-        ctx.fillStyle = '#2b3f9e'
-        ctx.fillRect(px + 4, py + 4, 2, 2)
-        ctx.fillRect(px + 20, py + 8, 2, 2)
+        ctx.fillStyle = '#8895a5'
+        ctx.fillRect(px, py, size / 2, size / 2)
+        ctx.fillRect(px + size / 2, py + size / 2, size / 2, size / 2)
         break
 
       case 'carpet_gray':
@@ -131,7 +132,7 @@ export class PixelArtRenderer {
   }
 
   /**
-   * Draw Thin Architectural Partition Wall (Paredes Finas / Divisórias)
+   * Draw Wall Tile (with full vertical back wall surface for wall items & thin partition dividers)
    */
   static drawThinWall(
     ctx: CanvasRenderingContext2D,
@@ -146,22 +147,51 @@ export class PixelArtRenderer {
   ) {
     const px = Math.floor(x)
     const py = Math.floor(y)
+
+    ctx.save()
+
+    // 1. TOP / BACK WALL SURFACE (Where windows, whiteboards & TVs are mounted)
+    // If it's a horizontal top wall without a wall above it, draw the full back wall face!
+    const isTopBackWall = !hasTop && (hasLeft || hasRight || (!hasTop && !hasBottom && !hasLeft && !hasRight))
+
+    if (isTopBackWall) {
+      // Solid Back Wall Face (Deep Charcoal Slate)
+      ctx.fillStyle = '#374151'
+      ctx.fillRect(px, py, size, size)
+
+      // Top Roof Ledge / Molding Trim
+      ctx.fillStyle = '#64748b'
+      ctx.fillRect(px, py, size, 4)
+      ctx.fillStyle = '#475569'
+      ctx.fillRect(px, py + 4, size, 1)
+
+      // Vertical panel seams
+      ctx.fillStyle = '#2d3748'
+      ctx.fillRect(px, py + 5, 1, size - 5)
+
+      // Bottom baseline drop shadow onto the floor
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
+      ctx.fillRect(px, py + size - 3, size, 3)
+
+      ctx.restore()
+      return
+    }
+
+    // 2. SIDE DIVIDER PARTITIONS & LOWER WALLS (Thin sleek dividers)
     const thickness = 6
     const halfT = thickness / 2
     const cx = px + size / 2
     const cy = py + size / 2
 
-    ctx.save()
-
-    let mainColor = '#d4be88'
-    let borderColor = '#5c3a21'
-    let topColor = '#fff0d0'
+    let mainColor = '#475569'
+    let borderColor = '#1e293b'
+    let topColor = '#94a3b8'
 
     switch (type) {
       case 'habbo_hotel_gold':
-        mainColor = '#d4be88'
-        borderColor = '#5c3a21'
-        topColor = '#fff0d0'
+        mainColor = '#475569'
+        borderColor = '#1e293b'
+        topColor = '#64748b'
         break
       case 'habbo_brick_classic':
       case 'brick_red':
@@ -186,9 +216,9 @@ export class PixelArtRenderer {
         break
       case 'drywall_white':
       default:
-        mainColor = '#dee2e6'
-        borderColor = '#adb5bd'
-        topColor = '#ffffff'
+        mainColor = '#475569'
+        borderColor = '#1e293b'
+        topColor = '#94a3b8'
         break
     }
 
@@ -196,14 +226,14 @@ export class PixelArtRenderer {
     const drawHoriz = hasLeft || hasRight || isIsolated
     const drawVert = hasTop || hasBottom
 
-    // 1. Horizontal beam
+    // Horizontal beam (lower walls)
     if (drawHoriz) {
       const leftX = hasLeft ? px : cx - halfT
       const rightX = hasRight ? px + size : cx + halfT
       const width = rightX - leftX
 
       // Shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
       ctx.fillRect(leftX, cy + halfT, width, 3)
 
       // Main body
@@ -220,14 +250,14 @@ export class PixelArtRenderer {
       ctx.strokeRect(leftX + 0.5, cy - halfT + 0.5, width - 1, thickness - 1)
     }
 
-    // 2. Vertical beam
+    // Vertical beam (dividers)
     if (drawVert) {
       const topY = hasTop ? py : cy - halfT
       const bottomY = hasBottom ? py + size : cy + halfT
       const height = bottomY - topY
 
       // Shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
       ctx.fillRect(cx + halfT, topY, 3, height)
 
       // Main body
@@ -255,7 +285,7 @@ export class PixelArtRenderer {
   }
 
   /**
-   * Draw 2D Furniture
+   * Draw 2D Furniture & Wall Decors
    */
   static drawFurniture(ctx: CanvasRenderingContext2D, furn: PlacedFurniture) {
     const def = FURNITURE_CATALOG.find((f) => f.id === furn.defId)
@@ -268,14 +298,272 @@ export class PixelArtRenderer {
 
     ctx.save()
 
-    // Furniture drop shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
-    ctx.beginPath()
-    ctx.ellipse(px + w / 2, py + h - 2, w / 2 - 2, 6, 0, 0, Math.PI * 2)
-    ctx.fill()
+    // Furniture drop shadow (except for wall-mounted items)
+    if (def.category !== 'walls_windows') {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+      ctx.beginPath()
+      ctx.ellipse(px + w / 2, py + h - 2, w / 2 - 2, 5, 0, 0, Math.PI * 2)
+      ctx.fill()
+    }
 
     switch (def.spriteKey) {
-      // --- HABBO FURNI ---
+      // ==========================================
+      // 1. WALL ITEMS & WINDOWS (EXACT GATHER STYLE)
+      // ==========================================
+      case 'window_grid_large': {
+        // 3-Pane Large Modern Office Window (as in screenshot)
+        // Outer dark frame
+        ctx.fillStyle = '#0f172a'
+        ctx.fillRect(px + 2, py + 2, w - 4, h - 4)
+
+        // Glass background gradient
+        const colW = (w - 12) / 3
+        for (let i = 0; i < 3; i++) {
+          const colX = px + 4 + i * (colW + 2)
+
+          // Top pane
+          ctx.fillStyle = '#a5f3fc'
+          ctx.fillRect(colX, py + 4, colW, 11)
+          // Lower pane
+          ctx.fillStyle = '#67e8f9'
+          ctx.fillRect(colX, py + 17, colW, 10)
+
+          // Glass diagonal glare reflections
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.65)'
+          ctx.beginPath()
+          ctx.moveTo(colX + 2, py + 4)
+          ctx.lineTo(colX + 6, py + 4)
+          ctx.lineTo(colX + 2, py + 12)
+          ctx.closePath()
+          ctx.fill()
+        }
+
+        // Inner Mullion Bars
+        ctx.fillStyle = '#0f172a'
+        ctx.fillRect(px + 2, py + 15, w - 4, 2) // horizontal bar
+        break
+      }
+
+      case 'window_grid_medium': {
+        // 2-Pane Medium Office Window
+        ctx.fillStyle = '#0f172a'
+        ctx.fillRect(px + 2, py + 2, w - 4, h - 4)
+
+        const colW = (w - 10) / 2
+        for (let i = 0; i < 2; i++) {
+          const colX = px + 4 + i * (colW + 2)
+          ctx.fillStyle = '#a5f3fc'
+          ctx.fillRect(colX, py + 4, colW, 11)
+          ctx.fillStyle = '#67e8f9'
+          ctx.fillRect(colX, py + 17, colW, 10)
+        }
+        ctx.fillStyle = '#0f172a'
+        ctx.fillRect(px + 2, py + 15, w - 4, 2)
+        break
+      }
+
+      case 'wall_cabinets_kitchen': {
+        // Suspended Kitchen/Coffee Cabinets (3x1)
+        ctx.fillStyle = '#1e293b'
+        ctx.fillRect(px + 2, py + 2, w - 4, h - 6)
+
+        const cabW = (w - 10) / 3
+        for (let i = 0; i < 3; i++) {
+          const cabX = px + 4 + i * (cabW + 2)
+          ctx.fillStyle = '#334155'
+          ctx.fillRect(cabX, py + 4, cabW, h - 10)
+          ctx.strokeStyle = '#0f172a'
+          ctx.lineWidth = 1
+          ctx.strokeRect(cabX + 0.5, py + 4.5, cabW - 1, h - 11)
+
+          // Silver handle
+          ctx.fillStyle = '#e2e8f0'
+          ctx.fillRect(cabX + cabW - 4, py + h - 12, 2, 4)
+        }
+        break
+      }
+
+      case 'wall_whiteboard': {
+        // Office Whiteboard
+        ctx.fillStyle = '#cbd5e1'
+        ctx.fillRect(px + 2, py + 2, w - 4, h - 4)
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(px + 4, py + 4, w - 8, h - 9)
+
+        // Pen tray & markers
+        ctx.fillStyle = '#94a3b8'
+        ctx.fillRect(px + 6, py + h - 5, w - 12, 2)
+        ctx.fillStyle = '#3b82f6'
+        ctx.fillRect(px + 10, py + h - 7, 6, 2)
+        ctx.fillStyle = '#ef4444'
+        ctx.fillRect(px + 18, py + h - 7, 6, 2)
+
+        // Diagrams on board
+        ctx.fillStyle = '#3b82f6'
+        ctx.fillRect(px + 8, py + 8, 12, 6)
+        ctx.fillStyle = '#10b981'
+        ctx.fillRect(px + 24, py + 8, 16, 2)
+        break
+      }
+
+      case 'wall_tv_large': {
+        // Large OLED Wall TV
+        ctx.fillStyle = '#0f172a'
+        ctx.fillRect(px + 2, py + 2, w - 4, h - 4)
+        ctx.fillStyle = '#1e293b'
+        ctx.fillRect(px + 4, py + 4, w - 8, h - 8)
+
+        // Slide / Chart on screen
+        ctx.fillStyle = '#38bdf8'
+        ctx.fillRect(px + 8, py + 8, 20, 10)
+        ctx.fillStyle = '#f43f5e'
+        ctx.fillRect(px + 32, py + 12, 16, 6)
+        break
+      }
+
+      case 'wall_clock_modern': {
+        // Round Wall Clock
+        ctx.fillStyle = '#0f172a'
+        ctx.beginPath()
+        ctx.arc(px + w / 2, py + h / 2, 10, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#ffffff'
+        ctx.beginPath()
+        ctx.arc(px + w / 2, py + h / 2, 8, 0, Math.PI * 2)
+        ctx.fill()
+        // Clock hands
+        ctx.strokeStyle = '#0f172a'
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.moveTo(px + w / 2, py + h / 2)
+        ctx.lineTo(px + w / 2, py + h / 2 - 5)
+        ctx.moveTo(px + w / 2, py + h / 2)
+        ctx.lineTo(px + w / 2 + 4, py + h / 2)
+        ctx.stroke()
+        break
+      }
+
+      case 'wall_poster_habbo': {
+        // Framed Poster
+        ctx.fillStyle = '#5c3a21'
+        ctx.fillRect(px + 4, py + 3, w - 8, h - 6)
+        ctx.fillStyle = '#fcc419'
+        ctx.fillRect(px + 6, py + 5, w - 12, h - 10)
+        // Mini duck in frame
+        ctx.fillStyle = '#fd7e14'
+        ctx.fillRect(px + w / 2 + 1, py + h / 2 - 2, 3, 2)
+        break
+      }
+
+      // ==========================================
+      // 2. GATHER OFFICE FURNITURE (FROM SCREENSHOT)
+      // ==========================================
+      case 'desk_executive_clean': {
+        // Large Clean Grey/White Meeting Table (3x1)
+        // Table top
+        ctx.fillStyle = '#e2e8f0'
+        ctx.fillRect(px + 2, py + 2, w - 4, h - 6)
+        ctx.fillStyle = '#f8fafc'
+        ctx.fillRect(px + 3, py + 3, w - 6, 4) // top surface highlight
+
+        // Table base & drawers
+        ctx.fillStyle = '#475569'
+        ctx.fillRect(px + 2, py + h - 6, w - 4, 4)
+        // Drawers left side
+        ctx.fillStyle = '#94a3b8'
+        ctx.fillRect(px + 6, py + h - 6, 16, 3)
+        ctx.fillStyle = '#334155'
+        ctx.fillRect(px + 12, py + h - 5, 4, 1)
+        break
+      }
+
+      case 'chair_office_mesh': {
+        // Mesh Office Chair
+        ctx.fillStyle = '#334155'
+        ctx.beginPath()
+        ctx.arc(px + w / 2, py + h / 2, 8, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#1e293b'
+        ctx.beginPath()
+        ctx.arc(px + w / 2, py + h / 2, 5, 0, Math.PI * 2)
+        ctx.fill()
+        break
+      }
+
+      case 'potted_bonsai_tree': {
+        // Corner Potted Tree (as in screenshot)
+        // Dark pot
+        ctx.fillStyle = '#334155'
+        ctx.beginPath()
+        ctx.arc(px + w / 2, py + h - 6, 7, 0, Math.PI * 2)
+        ctx.fill()
+        // Trunk
+        ctx.fillStyle = '#92400e'
+        ctx.fillRect(px + w / 2 - 2, py + 10, 4, 12)
+        // Green foliage
+        ctx.fillStyle = '#22c55e'
+        ctx.beginPath()
+        ctx.arc(px + w / 2, py + 8, 9, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#4ade80'
+        ctx.beginPath()
+        ctx.arc(px + w / 2 - 2, py + 6, 5, 0, Math.PI * 2)
+        ctx.fill()
+        break
+      }
+
+      case 'coffee_bar_station': {
+        // Coffee Bar Counter with Purple Cups (as in screenshot)
+        ctx.fillStyle = '#334155'
+        ctx.fillRect(px + 2, py + 4, w - 4, h - 8)
+        ctx.fillStyle = '#475569'
+        ctx.fillRect(px + 2, py + 4, w - 4, 4)
+
+        // Espresso machine on left
+        ctx.fillStyle = '#1e293b'
+        ctx.fillRect(px + 6, py - 4, 14, 16)
+        ctx.fillStyle = '#7c3aed'
+        ctx.fillRect(px + 10, py + 4, 6, 6)
+
+        // Purple coffee cups
+        ctx.fillStyle = '#9333ea'
+        ctx.fillRect(px + 28, py + 2, 6, 6)
+        ctx.fillRect(px + 40, py + 2, 6, 6)
+
+        // Mini fridge on right
+        ctx.fillStyle = '#cbd5e1'
+        ctx.fillRect(px + w - 22, py - 2, 16, 18)
+        ctx.fillStyle = '#38bdf8'
+        ctx.fillRect(px + w - 20, py + 2, 12, 10)
+        break
+      }
+
+      case 'bookshelf_arcade': {
+        // Bookshelf + Arcade Machine (as in screenshot)
+        // Arcade on left
+        ctx.fillStyle = '#334155'
+        ctx.fillRect(px + 2, py - 6, 24, h - 2)
+        ctx.fillStyle = '#f59e0b'
+        ctx.fillRect(px + 4, py - 2, 20, 10) // screen
+        ctx.fillStyle = '#ef4444'
+        ctx.fillRect(px + 6, py + 10, 4, 4) // button
+
+        // Bookshelf on right
+        ctx.fillStyle = '#e2e8f0'
+        ctx.fillRect(px + 30, py - 6, w - 32, h - 2)
+        // Colorful book spines
+        const bookColors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6']
+        for (let i = 0; i < 6; i++) {
+          ctx.fillStyle = bookColors[i % bookColors.length]
+          ctx.fillRect(px + 34 + i * 4, py - 2, 3, 10)
+          ctx.fillRect(px + 34 + i * 4, py + 10, 3, 8)
+        }
+        break
+      }
+
+      // ==========================================
+      // 3. HABBO FURNI & CLASSICS
+      // ==========================================
       case 'habbo_sofa_hc': {
         ctx.fillStyle = '#1e4620'
         ctx.fillRect(px + 2, py + 4, w - 4, h - 6)

@@ -25,7 +25,7 @@ export type WallType =
   | 'glass_modern' 
   | 'stone_dark'
 
-export type FurnitureCategory = 'habbo' | 'desks' | 'chairs' | 'tech' | 'lounge' | 'decor' | 'meeting'
+export type FurnitureCategory = 'habbo' | 'walls_windows' | 'desks' | 'chairs' | 'tech' | 'lounge' | 'decor' | 'meeting'
 
 export interface FurnitureDefinition {
   id: string

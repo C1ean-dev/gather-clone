@@ -39,7 +39,7 @@ export const AssetPalette: React.FC = () => {
   } = useMapStore()
 
   const [activeTab, setActiveTab] = useState<'furniture' | 'floors' | 'walls' | 'zones'>('furniture')
-  const [furnitureCategory, setFurnitureCategory] = useState<string>('habbo')
+  const [furnitureCategory, setFurnitureCategory] = useState<string>('walls_windows')
 
   if (!isEditorOpen) return null
 
@@ -260,12 +260,13 @@ export const AssetPalette: React.FC = () => {
             {/* Category Pills */}
             <div className="flex gap-1 overflow-x-auto pb-1">
               {[
-                { id: 'habbo', label: '👑 Habbo Furni' },
+                { id: 'walls_windows', label: '🪟 Parede & Janelas' },
                 { id: 'desks', label: 'Mesas' },
                 { id: 'chairs', label: 'Cadeiras' },
+                { id: 'decor', label: 'Decoração' },
                 { id: 'meeting', label: 'Reunião' },
                 { id: 'lounge', label: 'Lounge' },
-                { id: 'decor', label: 'Decoração' },
+                { id: 'habbo', label: '👑 Habbo Furni' },
               ].map((cat) => (
                 <button
                   key={cat.id}

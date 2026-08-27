@@ -55,7 +55,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
   selectedWall: 'habbo_hotel_gold',
   setSelectedWall: (wall) => set({ selectedWall: wall, activeTool: 'paint_wall' }),
 
-  selectedFurnitureDefId: 'habbo_sofa_hc',
+  selectedFurnitureDefId: 'window_grid_large',
   setSelectedFurnitureDefId: (defId) => set({ selectedFurnitureDefId: defId, activeTool: 'place_furniture' }),
 
   zoneDraft: {
