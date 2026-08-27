@@ -132,7 +132,9 @@ export class PixelArtRenderer {
   }
 
   /**
-   * Draw Architectural Room Walls with Flush Corners, Back Wall Surface & Dividers
+   * Draw Architectural Room Wall:
+   * - isBackWall === true: Solid Top Wall surface aligned flush with side walls (for mounting windows/decors).
+   * - isBackWall === false: Thin 6px sleek wall partition for sides, front, and dividers with seamless corners.
    */
   static drawThinWall(
     ctx: CanvasRenderingContext2D,
@@ -140,7 +142,7 @@ export class PixelArtRenderer {
     x: number,
     y: number,
     size: number = TILE_SIZE,
-    wallRole: 'top_back' | 'bottom_front' | 'left_outer' | 'right_outer' | 'divider' | 'generic' = 'generic',
+    isBackWall: boolean = false,
     hasLeft: boolean = false,
     hasRight: boolean = false,
     hasTop: boolean = false,
@@ -151,175 +153,124 @@ export class PixelArtRenderer {
 
     ctx.save()
 
-    // Base colors
     const topCapColor = '#64748b'
+    const topBevelColor = '#475569'
     const wallBodyColor = '#374151'
+    const seamColor = '#2d3748'
     const shadowColor = 'rgba(0, 0, 0, 0.35)'
     const outlineColor = '#1e293b'
 
+    const thickness = 6
+    const halfT = thickness / 2
+    const cx = px + size / 2
+    const cy = py + size / 2
+
     // ==========================================
-    // 1. TOP / NORTH BACK WALL (Full Wall Surface for Windows & Decors)
+    // 1. BACK WALL (Top / North Wall - Flush with Side Walls)
     // ==========================================
-    if (wallRole === 'top_back') {
-      // Solid Back Wall Face
+    if (isBackWall) {
+      // Left and right edges align flush with the vertical side walls
+      const leftX = hasLeft ? px : cx - halfT
+      const rightX = hasRight ? px + size : cx + halfT
+      const width = rightX - leftX
+
+      // Solid Back Wall Body
       ctx.fillStyle = wallBodyColor
-      ctx.fillRect(px, py, size, size)
+      ctx.fillRect(leftX, py, width, size)
 
       // Top Roof Ledge / Molding Trim
       ctx.fillStyle = topCapColor
-      ctx.fillRect(px, py, size, 4)
-      ctx.fillStyle = '#475569'
-      ctx.fillRect(px, py + 4, size, 1)
+      ctx.fillRect(leftX, py, width, 4)
+      ctx.fillStyle = topBevelColor
+      ctx.fillRect(leftX, py + 4, width, 1)
 
       // Vertical panel seams
-      ctx.fillStyle = '#2d3748'
-      ctx.fillRect(px, py + 5, 1, size - 5)
+      if (hasLeft) {
+        ctx.fillStyle = seamColor
+        ctx.fillRect(px, py + 5, 1, size - 5)
+      }
 
-      // Outer side borders if corner
+      // Outer side trim on left corner end (flush with left side wall)
       if (!hasLeft) {
         ctx.fillStyle = topCapColor
-        ctx.fillRect(px, py, 3, size)
+        ctx.fillRect(leftX, py, 2.5, size)
+        ctx.fillStyle = outlineColor
+        ctx.fillRect(leftX, py, 1, size)
       }
+
+      // Outer side trim on right corner end (flush with right side wall)
       if (!hasRight) {
         ctx.fillStyle = topCapColor
-        ctx.fillRect(px + size - 3, py, 3, size)
+        ctx.fillRect(rightX - 2.5, py, 2.5, size)
+        ctx.fillStyle = outlineColor
+        ctx.fillRect(rightX - 1, py, 1, size)
       }
 
-      // Bottom baseline drop shadow onto floor
+      // Bottom Baseline Shadow onto the room floor
       ctx.fillStyle = shadowColor
-      ctx.fillRect(px, py + size - 3, size, 3)
+      ctx.fillRect(leftX, py + size - 3, width, 3)
 
       ctx.restore()
       return
     }
 
     // ==========================================
-    // 2. BOTTOM / SOUTH FRONT WALL (Flush Lower Partition)
+    // 2. THIN WALLS (Sides, Front Wall & Dividers with Seamless Corner Joints)
     // ==========================================
-    if (wallRole === 'bottom_front') {
-      const wallH = 14
-      const startY = py + size - wallH
+    const isIsolated = !hasTop && !hasBottom && !hasLeft && !hasRight
+    const drawHoriz = hasLeft || hasRight || isIsolated
+    const drawVert = hasTop || hasBottom
+
+    // 2A. Horizontal Thin Beam (Front wall & horizontal dividers)
+    if (drawHoriz) {
+      const leftX = hasLeft ? px : cx - halfT
+      const rightX = hasRight ? px + size : cx + halfT
+      const width = rightX - leftX
 
       // Shadow
       ctx.fillStyle = shadowColor
-      ctx.fillRect(px, py + size - 2, size, 3)
+      ctx.fillRect(leftX, cy + halfT, width, 2.5)
 
-      // Main front wall body
+      // Body
       ctx.fillStyle = wallBodyColor
-      ctx.fillRect(px, startY, size, wallH)
+      ctx.fillRect(leftX, cy - halfT, width, thickness)
 
-      // Top ledge
+      // Top Trim
       ctx.fillStyle = topCapColor
-      ctx.fillRect(px, startY, size, 2.5)
+      ctx.fillRect(leftX, cy - halfT, width, 1.5)
 
-      // Outer corners
-      if (!hasLeft) {
+      // Outline
+      ctx.strokeStyle = outlineColor
+      ctx.lineWidth = 1
+      ctx.strokeRect(leftX + 0.5, cy - halfT + 0.5, width - 1, thickness - 1)
+    }
+
+    // 2B. Vertical Thin Beam (Left & right outer sides, and vertical dividers)
+    if (drawVert) {
+      // If connecting to the back wall above, start right at the top edge py
+      const topY = hasTop ? py : cy - halfT
+      const bottomY = hasBottom ? py + size : cy + halfT
+      const height = bottomY - topY
+
+      // Shadow
+      ctx.fillStyle = shadowColor
+      ctx.fillRect(cx + halfT, topY, 2.5, height)
+
+      // Body
+      ctx.fillStyle = wallBodyColor
+      ctx.fillRect(cx - halfT, topY, thickness, height)
+
+      // Top Trim (if top of beam)
+      if (!hasTop) {
         ctx.fillStyle = topCapColor
-        ctx.fillRect(px, startY, 3, wallH)
-      }
-      if (!hasRight) {
-        ctx.fillStyle = topCapColor
-        ctx.fillRect(px + size - 3, startY, 3, wallH)
+        ctx.fillRect(cx - halfT, topY, thickness, 1.5)
       }
 
+      // Outline
       ctx.strokeStyle = outlineColor
       ctx.lineWidth = 1
-      ctx.strokeRect(px + 0.5, startY + 0.5, size - 1, wallH - 1)
-
-      ctx.restore()
-      return
+      ctx.strokeRect(cx - halfT + 0.5, topY + 0.5, thickness - 1, height - 1)
     }
-
-    // ==========================================
-    // 3. LEFT OUTER WALL (Flush with Left Edge px)
-    // ==========================================
-    if (wallRole === 'left_outer') {
-      const wallW = 8
-
-      // Shadow
-      ctx.fillStyle = shadowColor
-      ctx.fillRect(px + wallW, py, 3, size)
-
-      // Wall Body
-      ctx.fillStyle = wallBodyColor
-      ctx.fillRect(px, py, wallW, size)
-
-      // Outer Left Border
-      ctx.fillStyle = topCapColor
-      ctx.fillRect(px, py, 2.5, size)
-
-      ctx.strokeStyle = outlineColor
-      ctx.lineWidth = 1
-      ctx.strokeRect(px + 0.5, py + 0.5, wallW - 1, size - 1)
-
-      ctx.restore()
-      return
-    }
-
-    // ==========================================
-    // 4. RIGHT OUTER WALL (Flush with Right Edge px + size)
-    // ==========================================
-    if (wallRole === 'right_outer') {
-      const wallW = 8
-      const startX = px + size - wallW
-
-      // Shadow
-      ctx.fillStyle = shadowColor
-      ctx.fillRect(startX - 3, py, 3, size)
-
-      // Wall Body
-      ctx.fillStyle = wallBodyColor
-      ctx.fillRect(startX, py, wallW, size)
-
-      // Outer Right Border
-      ctx.fillStyle = topCapColor
-      ctx.fillRect(px + size - 2.5, py, 2.5, size)
-
-      ctx.strokeStyle = outlineColor
-      ctx.lineWidth = 1
-      ctx.strokeRect(startX + 0.5, py + 0.5, wallW - 1, size - 1)
-
-      ctx.restore()
-      return
-    }
-
-    // ==========================================
-    // 5. INTERIOR DIVIDING WALL (Between Adjacent Rooms)
-    // ==========================================
-    if (wallRole === 'divider') {
-      const wallW = 8
-      const startX = px + size / 2 - wallW / 2
-
-      // Shadow
-      ctx.fillStyle = shadowColor
-      ctx.fillRect(startX + wallW, py, 3, size)
-
-      // Wall Body
-      ctx.fillStyle = wallBodyColor
-      ctx.fillRect(startX, py, wallW, size)
-
-      // Top Cap
-      ctx.fillStyle = topCapColor
-      ctx.fillRect(startX, py, wallW, 2)
-
-      ctx.strokeStyle = outlineColor
-      ctx.lineWidth = 1
-      ctx.strokeRect(startX + 0.5, py + 0.5, wallW - 1, size - 1)
-
-      ctx.restore()
-      return
-    }
-
-    // ==========================================
-    // 6. GENERIC / FALLBACK WALL (Outer Map Perimeter)
-    // ==========================================
-    ctx.fillStyle = wallBodyColor
-    ctx.fillRect(px, py, size, size)
-    ctx.fillStyle = topCapColor
-    ctx.fillRect(px, py, size, 3)
-    ctx.strokeStyle = outlineColor
-    ctx.lineWidth = 1
-    ctx.strokeRect(px + 0.5, py + 0.5, size - 1, size - 1)
 
     ctx.restore()
   }
@@ -328,7 +279,7 @@ export class PixelArtRenderer {
    * Draw Wall (Fallback / Thumbnail compatibility)
    */
   static drawWall(ctx: CanvasRenderingContext2D, type: WallType, x: number, y: number, size: number = TILE_SIZE) {
-    this.drawThinWall(ctx, type, x, y, size, 'top_back', false, false, true, true)
+    this.drawThinWall(ctx, type, x, y, size, true, false, false, false, false)
   }
 
   /**

@@ -236,34 +236,40 @@ export class CanvasEngine {
 
     const halfThickness = 0.1 // 6px / 32px ~ 0.1875 -> half thickness 0.1 tile
 
-    // 1. Precise Wall Collision by Architectural Role
+    // 1. Precise Wall Collision (Solid Back Wall + Sub-tile Thin Walls)
     for (let ty = minTileY; ty <= maxTileY; ty++) {
       for (let tx = minTileX; tx <= maxTileX; tx++) {
         const wall = map.walls[ty]?.[tx]
         if (wall) {
-          const topZones = map.zones.filter((z) => z.y === ty && tx >= z.x && tx <= z.x + z.width - 1)
-          const bottomZones = map.zones.filter((z) => z.y + z.height - 1 === ty && tx >= z.x && tx <= z.x + z.width - 1)
-          const leftZones = map.zones.filter((z) => z.x === tx && ty >= z.y && ty <= z.y + z.height - 1)
-          const rightZones = map.zones.filter((z) => z.x + z.width - 1 === tx && ty >= z.y && ty <= z.y + z.height - 1)
+          const isBackWall = map.zones.some((z) => z.y === ty && tx >= z.x && tx <= z.x + z.width - 1) || ty === 0
 
-          if (topZones.length > 0) {
-            // Top back wall
+          if (isBackWall) {
             if (pMaxX > tx && pMinX < tx + 1 && pMaxY > ty && pMinY < ty + 0.9) return true
-          } else if (bottomZones.length > 0) {
-            // Bottom front wall
-            if (pMaxX > tx && pMinX < tx + 1 && pMaxY > ty + 0.55 && pMinY < ty + 1.0) return true
-          } else if (leftZones.length > 0 && rightZones.length > 0) {
-            // Interior divider (centered column)
-            if (pMaxX > tx + 0.35 && pMinX < tx + 0.65 && pMaxY > ty && pMinY < ty + 1.0) return true
-          } else if (leftZones.length > 0) {
-            // Left outer wall (flush with tx)
-            if (pMaxX > tx && pMinX < tx + 0.28 && pMaxY > ty && pMinY < ty + 1.0) return true
-          } else if (rightZones.length > 0) {
-            // Right outer wall (flush with tx + 1)
-            if (pMaxX > tx + 0.72 && pMinX < tx + 1.0 && pMaxY > ty && pMinY < ty + 1.0) return true
           } else {
-            // Generic wall
-            if (pMaxX > tx + 0.1 && pMinX < tx + 0.9 && pMaxY > ty + 0.1 && pMinY < ty + 0.9) return true
+            const hasTop = ty > 0 && map.walls[ty - 1]?.[tx] !== null
+            const hasBottom = ty < map.height - 1 && map.walls[ty + 1]?.[tx] !== null
+            const hasLeft = tx > 0 && map.walls[ty]?.[tx - 1] !== null
+            const hasRight = tx < map.width - 1 && map.walls[ty]?.[tx + 1] !== null
+
+            const cx = tx + 0.5
+            const cy = ty + 0.5
+            const isIsolated = !hasTop && !hasBottom && !hasLeft && !hasRight
+
+            if (hasLeft || hasRight || isIsolated) {
+              const wMinX = hasLeft ? tx : cx - 0.1
+              const wMaxX = hasRight ? tx + 1 : cx + 0.1
+              const wMinY = cy - 0.1
+              const wMaxY = cy + 0.1
+              if (pMaxX > wMinX && pMinX < wMaxX && pMaxY > wMinY && pMinY < wMaxY) return true
+            }
+
+            if (hasTop || hasBottom) {
+              const wMinX = cx - 0.1
+              const wMaxX = cx + 0.1
+              const wMinY = hasTop ? ty : cy - 0.1
+              const wMaxY = hasBottom ? ty + 1 : cy + 0.1
+              if (pMaxX > wMinX && pMinX < wMaxX && pMaxY > wMinY && pMinY < wMaxY) return true
+            }
           }
         }
       }
@@ -365,7 +371,7 @@ export class CanvasEngine {
       PixelArtRenderer.drawFurniture(ctx, item)
     }
 
-    // 4. Draw Architectural Room Walls
+    // 4. Draw Walls (Back Wall is solid for mounting windows/decors, Side/Front/Divider walls are thin with seamless corners)
     for (let y = 0; y < map.height; y++) {
       for (let x = 0; x < map.width; x++) {
         const wall = map.walls[y]?.[x]
@@ -375,25 +381,7 @@ export class CanvasEngine {
           const hasLeft = x > 0 && map.walls[y]?.[x - 1] !== null
           const hasRight = x < map.width - 1 && map.walls[y]?.[x + 1] !== null
 
-          // Determine architectural role from zones
-          let wallRole: 'top_back' | 'bottom_front' | 'left_outer' | 'right_outer' | 'divider' | 'generic' = 'generic'
-
-          const topZones = map.zones.filter((z) => z.y === y && x >= z.x && x <= z.x + z.width - 1)
-          const bottomZones = map.zones.filter((z) => z.y + z.height - 1 === y && x >= z.x && x <= z.x + z.width - 1)
-          const leftZones = map.zones.filter((z) => z.x === x && y >= z.y && y <= z.y + z.height - 1)
-          const rightZones = map.zones.filter((z) => z.x + z.width - 1 === x && y >= z.y && y <= z.y + z.height - 1)
-
-          if (topZones.length > 0) {
-            wallRole = 'top_back'
-          } else if (bottomZones.length > 0) {
-            wallRole = 'bottom_front'
-          } else if (leftZones.length > 0 && rightZones.length > 0) {
-            wallRole = 'divider'
-          } else if (leftZones.length > 0) {
-            wallRole = 'left_outer'
-          } else if (rightZones.length > 0) {
-            wallRole = 'right_outer'
-          }
+          const isBackWall = map.zones.some((z) => z.y === y && x >= z.x && x <= z.x + z.width - 1) || y === 0
 
           PixelArtRenderer.drawThinWall(
             ctx,
@@ -401,7 +389,7 @@ export class CanvasEngine {
             x * TILE_SIZE,
             y * TILE_SIZE,
             TILE_SIZE,
-            wallRole,
+            isBackWall,
             hasLeft,
             hasRight,
             hasTop,
