@@ -132,7 +132,7 @@ export class PixelArtRenderer {
   }
 
   /**
-   * Draw Wall Tile (with full vertical back wall surface for wall items & thin partition dividers)
+   * Draw Architectural Room Walls with Flush Corners, Back Wall Surface & Dividers
    */
   static drawThinWall(
     ctx: CanvasRenderingContext2D,
@@ -140,27 +140,33 @@ export class PixelArtRenderer {
     x: number,
     y: number,
     size: number = TILE_SIZE,
-    hasTop: boolean = false,
-    hasBottom: boolean = false,
+    wallRole: 'top_back' | 'bottom_front' | 'left_outer' | 'right_outer' | 'divider' | 'generic' = 'generic',
     hasLeft: boolean = false,
-    hasRight: boolean = false
+    hasRight: boolean = false,
+    hasTop: boolean = false,
+    hasBottom: boolean = false
   ) {
     const px = Math.floor(x)
     const py = Math.floor(y)
 
     ctx.save()
 
-    // 1. TOP / BACK WALL SURFACE (Where windows, whiteboards & TVs are mounted)
-    // If it's a horizontal top wall without a wall above it, draw the full back wall face!
-    const isTopBackWall = !hasTop && (hasLeft || hasRight || (!hasTop && !hasBottom && !hasLeft && !hasRight))
+    // Base colors
+    const topCapColor = '#64748b'
+    const wallBodyColor = '#374151'
+    const shadowColor = 'rgba(0, 0, 0, 0.35)'
+    const outlineColor = '#1e293b'
 
-    if (isTopBackWall) {
-      // Solid Back Wall Face (Deep Charcoal Slate)
-      ctx.fillStyle = '#374151'
+    // ==========================================
+    // 1. TOP / NORTH BACK WALL (Full Wall Surface for Windows & Decors)
+    // ==========================================
+    if (wallRole === 'top_back') {
+      // Solid Back Wall Face
+      ctx.fillStyle = wallBodyColor
       ctx.fillRect(px, py, size, size)
 
       // Top Roof Ledge / Molding Trim
-      ctx.fillStyle = '#64748b'
+      ctx.fillStyle = topCapColor
       ctx.fillRect(px, py, size, 4)
       ctx.fillStyle = '#475569'
       ctx.fillRect(px, py + 4, size, 1)
@@ -169,110 +175,151 @@ export class PixelArtRenderer {
       ctx.fillStyle = '#2d3748'
       ctx.fillRect(px, py + 5, 1, size - 5)
 
-      // Bottom baseline drop shadow onto the floor
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
+      // Outer side borders if corner
+      if (!hasLeft) {
+        ctx.fillStyle = topCapColor
+        ctx.fillRect(px, py, 3, size)
+      }
+      if (!hasRight) {
+        ctx.fillStyle = topCapColor
+        ctx.fillRect(px + size - 3, py, 3, size)
+      }
+
+      // Bottom baseline drop shadow onto floor
+      ctx.fillStyle = shadowColor
       ctx.fillRect(px, py + size - 3, size, 3)
 
       ctx.restore()
       return
     }
 
-    // 2. SIDE DIVIDER PARTITIONS & LOWER WALLS (Thin sleek dividers)
-    const thickness = 6
-    const halfT = thickness / 2
-    const cx = px + size / 2
-    const cy = py + size / 2
-
-    let mainColor = '#475569'
-    let borderColor = '#1e293b'
-    let topColor = '#94a3b8'
-
-    switch (type) {
-      case 'habbo_hotel_gold':
-        mainColor = '#475569'
-        borderColor = '#1e293b'
-        topColor = '#64748b'
-        break
-      case 'habbo_brick_classic':
-      case 'brick_red':
-        mainColor = '#c85a32'
-        borderColor = '#7c2d12'
-        topColor = '#ff8759'
-        break
-      case 'habbo_nightclub_dark':
-        mainColor = '#0f172a'
-        borderColor = '#38bdf8'
-        topColor = '#ec4899'
-        break
-      case 'glass_modern':
-        mainColor = 'rgba(120, 180, 240, 0.65)'
-        borderColor = '#3b82f6'
-        topColor = '#ffffff'
-        break
-      case 'wood_panel':
-        mainColor = '#5c3a21'
-        borderColor = '#3b1d0c'
-        topColor = '#8c5e3c'
-        break
-      case 'drywall_white':
-      default:
-        mainColor = '#475569'
-        borderColor = '#1e293b'
-        topColor = '#94a3b8'
-        break
-    }
-
-    const isIsolated = !hasTop && !hasBottom && !hasLeft && !hasRight
-    const drawHoriz = hasLeft || hasRight || isIsolated
-    const drawVert = hasTop || hasBottom
-
-    // Horizontal beam (lower walls)
-    if (drawHoriz) {
-      const leftX = hasLeft ? px : cx - halfT
-      const rightX = hasRight ? px + size : cx + halfT
-      const width = rightX - leftX
+    // ==========================================
+    // 2. BOTTOM / SOUTH FRONT WALL (Flush Lower Partition)
+    // ==========================================
+    if (wallRole === 'bottom_front') {
+      const wallH = 14
+      const startY = py + size - wallH
 
       // Shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
-      ctx.fillRect(leftX, cy + halfT, width, 3)
+      ctx.fillStyle = shadowColor
+      ctx.fillRect(px, py + size - 2, size, 3)
 
-      // Main body
-      ctx.fillStyle = mainColor
-      ctx.fillRect(leftX, cy - halfT, width, thickness)
+      // Main front wall body
+      ctx.fillStyle = wallBodyColor
+      ctx.fillRect(px, startY, size, wallH)
 
-      // Top trim
-      ctx.fillStyle = topColor
-      ctx.fillRect(leftX, cy - halfT, width, 1.5)
+      // Top ledge
+      ctx.fillStyle = topCapColor
+      ctx.fillRect(px, startY, size, 2.5)
 
-      // Outline
-      ctx.strokeStyle = borderColor
+      // Outer corners
+      if (!hasLeft) {
+        ctx.fillStyle = topCapColor
+        ctx.fillRect(px, startY, 3, wallH)
+      }
+      if (!hasRight) {
+        ctx.fillStyle = topCapColor
+        ctx.fillRect(px + size - 3, startY, 3, wallH)
+      }
+
+      ctx.strokeStyle = outlineColor
       ctx.lineWidth = 1
-      ctx.strokeRect(leftX + 0.5, cy - halfT + 0.5, width - 1, thickness - 1)
+      ctx.strokeRect(px + 0.5, startY + 0.5, size - 1, wallH - 1)
+
+      ctx.restore()
+      return
     }
 
-    // Vertical beam (dividers)
-    if (drawVert) {
-      const topY = hasTop ? py : cy - halfT
-      const bottomY = hasBottom ? py + size : cy + halfT
-      const height = bottomY - topY
+    // ==========================================
+    // 3. LEFT OUTER WALL (Flush with Left Edge px)
+    // ==========================================
+    if (wallRole === 'left_outer') {
+      const wallW = 8
 
       // Shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
-      ctx.fillRect(cx + halfT, topY, 3, height)
+      ctx.fillStyle = shadowColor
+      ctx.fillRect(px + wallW, py, 3, size)
 
-      // Main body
-      ctx.fillStyle = mainColor
-      ctx.fillRect(cx - halfT, topY, thickness, height)
+      // Wall Body
+      ctx.fillStyle = wallBodyColor
+      ctx.fillRect(px, py, wallW, size)
 
-      // Top trim
-      ctx.fillStyle = topColor
-      ctx.fillRect(cx - halfT, topY, thickness, 1.5)
+      // Outer Left Border
+      ctx.fillStyle = topCapColor
+      ctx.fillRect(px, py, 2.5, size)
 
-      // Outline
-      ctx.strokeStyle = borderColor
+      ctx.strokeStyle = outlineColor
       ctx.lineWidth = 1
-      ctx.strokeRect(cx - halfT + 0.5, topY + 0.5, thickness - 1, height - 1)
+      ctx.strokeRect(px + 0.5, py + 0.5, wallW - 1, size - 1)
+
+      ctx.restore()
+      return
     }
+
+    // ==========================================
+    // 4. RIGHT OUTER WALL (Flush with Right Edge px + size)
+    // ==========================================
+    if (wallRole === 'right_outer') {
+      const wallW = 8
+      const startX = px + size - wallW
+
+      // Shadow
+      ctx.fillStyle = shadowColor
+      ctx.fillRect(startX - 3, py, 3, size)
+
+      // Wall Body
+      ctx.fillStyle = wallBodyColor
+      ctx.fillRect(startX, py, wallW, size)
+
+      // Outer Right Border
+      ctx.fillStyle = topCapColor
+      ctx.fillRect(px + size - 2.5, py, 2.5, size)
+
+      ctx.strokeStyle = outlineColor
+      ctx.lineWidth = 1
+      ctx.strokeRect(startX + 0.5, py + 0.5, wallW - 1, size - 1)
+
+      ctx.restore()
+      return
+    }
+
+    // ==========================================
+    // 5. INTERIOR DIVIDING WALL (Between Adjacent Rooms)
+    // ==========================================
+    if (wallRole === 'divider') {
+      const wallW = 8
+      const startX = px + size / 2 - wallW / 2
+
+      // Shadow
+      ctx.fillStyle = shadowColor
+      ctx.fillRect(startX + wallW, py, 3, size)
+
+      // Wall Body
+      ctx.fillStyle = wallBodyColor
+      ctx.fillRect(startX, py, wallW, size)
+
+      // Top Cap
+      ctx.fillStyle = topCapColor
+      ctx.fillRect(startX, py, wallW, 2)
+
+      ctx.strokeStyle = outlineColor
+      ctx.lineWidth = 1
+      ctx.strokeRect(startX + 0.5, py + 0.5, wallW - 1, size - 1)
+
+      ctx.restore()
+      return
+    }
+
+    // ==========================================
+    // 6. GENERIC / FALLBACK WALL (Outer Map Perimeter)
+    // ==========================================
+    ctx.fillStyle = wallBodyColor
+    ctx.fillRect(px, py, size, size)
+    ctx.fillStyle = topCapColor
+    ctx.fillRect(px, py, size, 3)
+    ctx.strokeStyle = outlineColor
+    ctx.lineWidth = 1
+    ctx.strokeRect(px + 0.5, py + 0.5, size - 1, size - 1)
 
     ctx.restore()
   }
@@ -281,7 +328,7 @@ export class PixelArtRenderer {
    * Draw Wall (Fallback / Thumbnail compatibility)
    */
   static drawWall(ctx: CanvasRenderingContext2D, type: WallType, x: number, y: number, size: number = TILE_SIZE) {
-    this.drawThinWall(ctx, type, x, y, size, false, false, true, true)
+    this.drawThinWall(ctx, type, x, y, size, 'top_back', false, false, true, true)
   }
 
   /**
@@ -312,7 +359,6 @@ export class PixelArtRenderer {
       // ==========================================
       case 'window_grid_large': {
         // 3-Pane Large Modern Office Window (as in screenshot)
-        // Outer dark frame
         ctx.fillStyle = '#0f172a'
         ctx.fillRect(px + 2, py + 2, w - 4, h - 4)
 
@@ -340,7 +386,7 @@ export class PixelArtRenderer {
 
         // Inner Mullion Bars
         ctx.fillStyle = '#0f172a'
-        ctx.fillRect(px + 2, py + 15, w - 4, 2) // horizontal bar
+        ctx.fillRect(px + 2, py + 15, w - 4, 2)
         break
       }
 
@@ -460,16 +506,14 @@ export class PixelArtRenderer {
       // ==========================================
       case 'desk_executive_clean': {
         // Large Clean Grey/White Meeting Table (3x1)
-        // Table top
         ctx.fillStyle = '#e2e8f0'
         ctx.fillRect(px + 2, py + 2, w - 4, h - 6)
         ctx.fillStyle = '#f8fafc'
-        ctx.fillRect(px + 3, py + 3, w - 6, 4) // top surface highlight
+        ctx.fillRect(px + 3, py + 3, w - 6, 4)
 
         // Table base & drawers
         ctx.fillStyle = '#475569'
         ctx.fillRect(px + 2, py + h - 6, w - 4, 4)
-        // Drawers left side
         ctx.fillStyle = '#94a3b8'
         ctx.fillRect(px + 6, py + h - 6, 16, 3)
         ctx.fillStyle = '#334155'
@@ -492,7 +536,6 @@ export class PixelArtRenderer {
 
       case 'potted_bonsai_tree': {
         // Corner Potted Tree (as in screenshot)
-        // Dark pot
         ctx.fillStyle = '#334155'
         ctx.beginPath()
         ctx.arc(px + w / 2, py + h - 6, 7, 0, Math.PI * 2)
@@ -540,18 +583,16 @@ export class PixelArtRenderer {
 
       case 'bookshelf_arcade': {
         // Bookshelf + Arcade Machine (as in screenshot)
-        // Arcade on left
         ctx.fillStyle = '#334155'
         ctx.fillRect(px + 2, py - 6, 24, h - 2)
         ctx.fillStyle = '#f59e0b'
-        ctx.fillRect(px + 4, py - 2, 20, 10) // screen
+        ctx.fillRect(px + 4, py - 2, 20, 10)
         ctx.fillStyle = '#ef4444'
-        ctx.fillRect(px + 6, py + 10, 4, 4) // button
+        ctx.fillRect(px + 6, py + 10, 4, 4)
 
         // Bookshelf on right
         ctx.fillStyle = '#e2e8f0'
         ctx.fillRect(px + 30, py - 6, w - 32, h - 2)
-        // Colorful book spines
         const bookColors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6']
         for (let i = 0; i < 6; i++) {
           ctx.fillStyle = bookColors[i % bookColors.length]

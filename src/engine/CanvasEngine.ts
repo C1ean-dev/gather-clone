@@ -236,45 +236,34 @@ export class CanvasEngine {
 
     const halfThickness = 0.1 // 6px / 32px ~ 0.1875 -> half thickness 0.1 tile
 
-    // 1. Precise Thin-Wall Collision
+    // 1. Precise Wall Collision by Architectural Role
     for (let ty = minTileY; ty <= maxTileY; ty++) {
       for (let tx = minTileX; tx <= maxTileX; tx++) {
         const wall = map.walls[ty]?.[tx]
         if (wall) {
-          const hasTop = ty > 0 && map.walls[ty - 1]?.[tx] !== null
-          const hasBottom = ty < map.height - 1 && map.walls[ty + 1]?.[tx] !== null
-          const hasLeft = tx > 0 && map.walls[ty]?.[tx - 1] !== null
-          const hasRight = tx < map.width - 1 && map.walls[ty]?.[tx + 1] !== null
+          const topZones = map.zones.filter((z) => z.y === ty && tx >= z.x && tx <= z.x + z.width - 1)
+          const bottomZones = map.zones.filter((z) => z.y + z.height - 1 === ty && tx >= z.x && tx <= z.x + z.width - 1)
+          const leftZones = map.zones.filter((z) => z.x === tx && ty >= z.y && ty <= z.y + z.height - 1)
+          const rightZones = map.zones.filter((z) => z.x + z.width - 1 === tx && ty >= z.y && ty <= z.y + z.height - 1)
 
-          const cx = tx + 0.5
-          const cy = ty + 0.5
-
-          const isIsolated = !hasTop && !hasBottom && !hasLeft && !hasRight
-          const drawHoriz = hasLeft || hasRight || isIsolated
-          const drawVert = hasTop || hasBottom
-
-          // Check horizontal thin wall beam
-          if (drawHoriz) {
-            const wMinX = hasLeft ? tx : cx - halfThickness
-            const wMaxX = hasRight ? tx + 1 : cx + halfThickness
-            const wMinY = cy - halfThickness
-            const wMaxY = cy + halfThickness
-
-            if (pMaxX > wMinX && pMinX < wMaxX && pMaxY > wMinY && pMinY < wMaxY) {
-              return true
-            }
-          }
-
-          // Check vertical thin wall beam
-          if (drawVert) {
-            const wMinX = cx - halfThickness
-            const wMaxX = cx + halfThickness
-            const wMinY = hasTop ? ty : cy - halfThickness
-            const wMaxY = hasBottom ? ty + 1 : cy + halfThickness
-
-            if (pMaxX > wMinX && pMinX < wMaxX && pMaxY > wMinY && pMinY < wMaxY) {
-              return true
-            }
+          if (topZones.length > 0) {
+            // Top back wall
+            if (pMaxX > tx && pMinX < tx + 1 && pMaxY > ty && pMinY < ty + 0.9) return true
+          } else if (bottomZones.length > 0) {
+            // Bottom front wall
+            if (pMaxX > tx && pMinX < tx + 1 && pMaxY > ty + 0.55 && pMinY < ty + 1.0) return true
+          } else if (leftZones.length > 0 && rightZones.length > 0) {
+            // Interior divider (centered column)
+            if (pMaxX > tx + 0.35 && pMinX < tx + 0.65 && pMaxY > ty && pMinY < ty + 1.0) return true
+          } else if (leftZones.length > 0) {
+            // Left outer wall (flush with tx)
+            if (pMaxX > tx && pMinX < tx + 0.28 && pMaxY > ty && pMinY < ty + 1.0) return true
+          } else if (rightZones.length > 0) {
+            // Right outer wall (flush with tx + 1)
+            if (pMaxX > tx + 0.72 && pMinX < tx + 1.0 && pMaxY > ty && pMinY < ty + 1.0) return true
+          } else {
+            // Generic wall
+            if (pMaxX > tx + 0.1 && pMinX < tx + 0.9 && pMaxY > ty + 0.1 && pMinY < ty + 0.9) return true
           }
         }
       }
@@ -376,7 +365,7 @@ export class CanvasEngine {
       PixelArtRenderer.drawFurniture(ctx, item)
     }
 
-    // 4. Draw Thin Partition Walls
+    // 4. Draw Architectural Room Walls
     for (let y = 0; y < map.height; y++) {
       for (let x = 0; x < map.width; x++) {
         const wall = map.walls[y]?.[x]
@@ -386,16 +375,37 @@ export class CanvasEngine {
           const hasLeft = x > 0 && map.walls[y]?.[x - 1] !== null
           const hasRight = x < map.width - 1 && map.walls[y]?.[x + 1] !== null
 
+          // Determine architectural role from zones
+          let wallRole: 'top_back' | 'bottom_front' | 'left_outer' | 'right_outer' | 'divider' | 'generic' = 'generic'
+
+          const topZones = map.zones.filter((z) => z.y === y && x >= z.x && x <= z.x + z.width - 1)
+          const bottomZones = map.zones.filter((z) => z.y + z.height - 1 === y && x >= z.x && x <= z.x + z.width - 1)
+          const leftZones = map.zones.filter((z) => z.x === x && y >= z.y && y <= z.y + z.height - 1)
+          const rightZones = map.zones.filter((z) => z.x + z.width - 1 === x && y >= z.y && y <= z.y + z.height - 1)
+
+          if (topZones.length > 0) {
+            wallRole = 'top_back'
+          } else if (bottomZones.length > 0) {
+            wallRole = 'bottom_front'
+          } else if (leftZones.length > 0 && rightZones.length > 0) {
+            wallRole = 'divider'
+          } else if (leftZones.length > 0) {
+            wallRole = 'left_outer'
+          } else if (rightZones.length > 0) {
+            wallRole = 'right_outer'
+          }
+
           PixelArtRenderer.drawThinWall(
             ctx,
             wall,
             x * TILE_SIZE,
             y * TILE_SIZE,
             TILE_SIZE,
-            hasTop,
-            hasBottom,
+            wallRole,
             hasLeft,
-            hasRight
+            hasRight,
+            hasTop,
+            hasBottom
           )
         }
       }
