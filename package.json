@@ -49,6 +49,12 @@
     },
     "win": {
       "target": "nsis"
-    }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "publish": null
   }
 }
