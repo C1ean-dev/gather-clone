@@ -9,6 +9,7 @@ import {
   Sparkles,
   Share2,
   Lock,
+  Globe,
   Volume2,
   VolumeX,
 } from 'lucide-react'
@@ -23,7 +24,7 @@ interface Props {
 }
 
 export const TopNavBar: React.FC<Props> = ({ onOpenAvatarModal }) => {
-  const { localPlayer, remotePlayers, roomId, isHost } = useGameStore()
+  const { localPlayer, remotePlayers, roomId, isHost, isRoomPublic, toggleRoomPrivacy } = useGameStore()
   const { mapData, isEditorOpen, toggleEditor } = useMapStore()
   const { isChatOpen, toggleChat, channels } = useChatStore()
   const { isMuted, toggleMute } = useMediaStore()
@@ -56,8 +57,8 @@ export const TopNavBar: React.FC<Props> = ({ onOpenAvatarModal }) => {
 
   return (
     <header className="h-14 bg-[#12151d]/90 backdrop-blur-md border-b border-[#2a3142] px-4 flex items-center justify-between z-30 select-none">
-      {/* Left: Brand + Room Code */}
-      <div className="flex items-center gap-4">
+      {/* Left: Brand + Room Code + Privacy Toggle */}
+      <div className="flex items-center gap-3">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-500/20">
             <span className="text-white font-extrabold text-sm">G</span>
@@ -82,6 +83,45 @@ export const TopNavBar: React.FC<Props> = ({ onOpenAvatarModal }) => {
               <Check className="w-3.5 h-3.5 text-emerald-400" />
             ) : (
               <Copy className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200" />
+            )}
+          </button>
+        )}
+
+        {/* Room Privacy Toggle Badge (Host can switch Public / Private) */}
+        {roomId && (
+          <button
+            onClick={isHost ? toggleRoomPrivacy : undefined}
+            disabled={!isHost}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+              isRoomPublic
+                ? 'bg-blue-500/15 border-blue-500/40 text-blue-300 hover:bg-blue-500/25'
+                : 'bg-[#1b202c] border-[#2a3142] text-slate-300 hover:bg-slate-800'
+            } ${!isHost ? 'cursor-default opacity-80' : 'cursor-pointer hover:scale-105 active:scale-95'}`}
+            title={
+              isHost
+                ? isRoomPublic
+                  ? 'Esta sala está Pública (visível na lista de Salas Disponíveis). Clique para torná-la Privada.'
+                  : 'Esta sala está Privada (somente via código). Clique para torná-la Pública na lista de Salas Disponíveis.'
+                : isRoomPublic
+                ? 'Sala Pública'
+                : 'Sala Privada'
+            }
+          >
+            {isRoomPublic ? (
+              <>
+                <Globe className="w-3.5 h-3.5 text-blue-400" />
+                <span>Pública</span>
+              </>
+            ) : (
+              <>
+                <Lock className="w-3.5 h-3.5 text-slate-400" />
+                <span>Privada</span>
+              </>
+            )}
+            {isHost && (
+              <span className="text-[9px] bg-white/10 px-1 py-0.2 rounded text-slate-300 ml-0.5">
+                Host
+              </span>
             )}
           </button>
         )}

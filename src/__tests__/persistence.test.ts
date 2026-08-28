@@ -147,5 +147,27 @@ describe('Storage Persistence - Expected Behaviors', () => {
     expect(parsed[0].name).toBe('Servidor Geral de Estudos')
     expect(parsed[0].code).toBe('GATHER-ESTUDOS-01')
   })
+
+  it('should allow host to toggle room privacy and sync with available rooms', () => {
+    const { setRoomSession, toggleRoomPrivacy } = useGameStore.getState()
+    
+    // 1. Start room as host
+    setRoomSession('GATHER-HOST-ROOM', true)
+    expect(useGameStore.getState().isRoomPublic).toBe(false)
+
+    // 2. Toggle to public
+    toggleRoomPrivacy()
+    expect(useGameStore.getState().isRoomPublic).toBe(true)
+    let raw = localStorageMock.getItem('gather_v2_available_rooms')
+    let parsed = JSON.parse(raw!)
+    expect(parsed.some((r: any) => r.code === 'GATHER-HOST-ROOM')).toBe(true)
+
+    // 3. Toggle back to private
+    toggleRoomPrivacy()
+    expect(useGameStore.getState().isRoomPublic).toBe(false)
+    raw = localStorageMock.getItem('gather_v2_available_rooms')
+    parsed = JSON.parse(raw!)
+    expect(parsed.some((r: any) => r.code === 'GATHER-HOST-ROOM')).toBe(false)
+  })
 })
 

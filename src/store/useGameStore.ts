@@ -3,6 +3,7 @@ import { Player, PresenceStatus, ReactionItem, AvatarConfig } from '../types/gam
 import { DEFAULT_AVATAR } from '../engine/Constants'
 
 const PROFILE_STORAGE_KEY = 'gather_v2_user_profile'
+const AVAILABLE_ROOMS_KEY = 'gather_v2_available_rooms'
 
 interface SavedProfile {
   id?: string
@@ -38,6 +39,36 @@ const saveProfile = (data: Partial<SavedProfile>) => {
   }
 }
 
+const syncPublicRoomRegistration = (roomId: string | null, isPublic: boolean, roomName?: string) => {
+  if (!roomId || typeof window === 'undefined' || typeof window.localStorage !== 'undefined' === false) return
+  try {
+    const raw = window.localStorage.getItem(AVAILABLE_ROOMS_KEY)
+    let rooms: any[] = raw ? JSON.parse(raw) : []
+    if (!Array.isArray(rooms)) rooms = []
+
+    if (isPublic) {
+      const existingIdx = rooms.findIndex((r) => r.code === roomId)
+      const roomEntry = {
+        id: 'avail-' + roomId,
+        name: roomName || `Espaço Público (${roomId})`,
+        code: roomId,
+        color: '#3b82f6',
+        description: 'Sala pública aberta para todos',
+      }
+      if (existingIdx >= 0) {
+        rooms[existingIdx] = roomEntry
+      } else {
+        rooms.unshift(roomEntry)
+      }
+    } else {
+      rooms = rooms.filter((r) => r.code !== roomId)
+    }
+    window.localStorage.setItem(AVAILABLE_ROOMS_KEY, JSON.stringify(rooms))
+  } catch (e) {
+    // Ignore
+  }
+}
+
 const saved = loadSavedProfile() || {}
 
 interface GameStore {
@@ -59,8 +90,11 @@ interface GameStore {
   roomId: string | null
   isHost: boolean
   isConnected: boolean
+  isRoomPublic: boolean
   setRoomSession: (roomId: string, isHost: boolean) => void
   setConnected: (connected: boolean) => void
+  setIsRoomPublic: (isPublic: boolean) => void
+  toggleRoomPrivacy: () => void
 
   // Floating Reactions
   reactions: ReactionItem[]
@@ -177,9 +211,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
   roomId: null,
   isHost: false,
   isConnected: false,
+  isRoomPublic: false,
 
-  setRoomSession: (roomId, isHost) => set({ roomId, isHost }),
+  setRoomSession: (roomId, isHost) => set({ roomId, isHost, isRoomPublic: false }),
   setConnected: (isConnected) => set({ isConnected }),
+
+  setIsRoomPublic: (isRoomPublic) => {
+    const { roomId } = get()
+    syncPublicRoomRegistration(roomId, isRoomPublic)
+    set({ isRoomPublic })
+  },
+
+  toggleRoomPrivacy: () => {
+    const { roomId, isRoomPublic } = get()
+    const nextState = !isRoomPublic
+    syncPublicRoomRegistration(roomId, nextState)
+    set({ isRoomPublic: nextState })
+  },
 
   reactions: [],
 
