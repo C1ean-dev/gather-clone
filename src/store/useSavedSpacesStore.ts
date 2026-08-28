@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { MapData } from '../types/map'
 import { createEmptyWorkspace } from '../editor/templates'
+import nativeSpacesData from '../data/nativeSpaces.json'
 
 export interface SavedSpace {
   id: string
@@ -15,14 +16,26 @@ export interface SavedSpace {
 const STORAGE_KEY = 'gather_v2_saved_spaces'
 const ACTIVE_SPACE_ID_KEY = 'gather_v2_active_space_id'
 
+const syncSpacesToNativeFile = (spaces: SavedSpace[]) => {
+  try {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.saveNativeSpaces) {
+      ;(window as any).electronAPI.saveNativeSpaces(spaces)
+    }
+  } catch (err) {
+    console.error('Failed to sync native spaces to file:', err)
+  }
+}
+
 const loadSavedSpaces = (): SavedSpace[] => {
+  const nativeSpaces: SavedSpace[] = (nativeSpacesData as SavedSpace[]) || []
+  let savedSpaces: SavedSpace[] = []
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const raw = window.localStorage.getItem(STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const validated = parsed
+          savedSpaces = parsed
             .filter((s: any) => s && typeof s === 'object' && s.id !== 'space-default' && s.name !== 'Meu Espaço Principal')
             .map((s: any) => {
               const base = createEmptyWorkspace()
@@ -45,14 +58,18 @@ const loadSavedSpaces = (): SavedSpace[] => {
                 color: s.color || '#4c6ef5',
               }
             })
-          return validated
         }
       }
     }
   } catch (e) {
     console.error('Failed to load saved spaces:', e)
   }
-  return []
+
+  // Merge native and saved spaces (saved takes precedence)
+  const map = new Map<string, SavedSpace>()
+  nativeSpaces.forEach((s) => map.set(s.id, s))
+  savedSpaces.forEach((s) => map.set(s.id, s))
+  return Array.from(map.values())
 }
 
 const persistSpaces = (spaces: SavedSpace[]) => {
@@ -123,6 +140,7 @@ export const useSavedSpacesStore = create<SavedSpacesState>((set, get) => {
         window.localStorage.setItem(ACTIVE_SPACE_ID_KEY, newSpace.id)
       }
       set({ savedSpaces: updated, activeSpaceId: newSpace.id })
+      syncSpacesToNativeFile(updated)
       return newSpace
     },
 
@@ -139,6 +157,7 @@ export const useSavedSpacesStore = create<SavedSpacesState>((set, get) => {
       })
       persistSpaces(updated)
       set({ savedSpaces: updated })
+      syncSpacesToNativeFile(updated)
     },
 
     saveCurrentMapToSpace: (spaceId, mapData) => {
@@ -154,6 +173,7 @@ export const useSavedSpacesStore = create<SavedSpacesState>((set, get) => {
       })
       persistSpaces(updated)
       set({ savedSpaces: updated })
+      syncSpacesToNativeFile(updated)
     },
 
     duplicateSavedSpace: (id) => {
@@ -171,6 +191,7 @@ export const useSavedSpacesStore = create<SavedSpacesState>((set, get) => {
       const updated = [duplicated, ...get().savedSpaces]
       persistSpaces(updated)
       set({ savedSpaces: updated })
+      syncSpacesToNativeFile(updated)
       return duplicated
     },
 
@@ -189,6 +210,7 @@ export const useSavedSpacesStore = create<SavedSpacesState>((set, get) => {
         savedSpaces: updated,
         activeSpaceId: nextActiveId,
       })
+      syncSpacesToNativeFile(updated)
     },
 
     getSpaceById: (id) => {

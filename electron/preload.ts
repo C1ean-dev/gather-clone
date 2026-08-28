@@ -23,6 +23,10 @@ export interface IElectronAPI {
   downloadAndInstallUpdate: (downloadUrl: string) => Promise<boolean>
   onUpdateProgress: (callback: (progress: UpdateProgress) => void) => () => void
   openExternal: (url: string) => Promise<void>
+  saveNativeAssets: (data: { categories: string[]; assets: any[] }) => Promise<boolean>
+  loadNativeAssets: () => Promise<{ categories: string[]; assets: any[] } | null>
+  saveNativeSpaces: (spaces: any[]) => Promise<boolean>
+  loadNativeSpaces: () => Promise<any[] | null>
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -38,4 +42,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+  saveNativeAssets: (data: { categories: string[]; assets: any[] }) => ipcRenderer.invoke('save-native-assets', data),
+  loadNativeAssets: () => ipcRenderer.invoke('load-native-assets'),
+  saveNativeSpaces: (spaces: any[]) => ipcRenderer.invoke('save-native-spaces', spaces),
+  loadNativeSpaces: () => ipcRenderer.invoke('load-native-spaces'),
 })

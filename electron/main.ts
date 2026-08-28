@@ -265,6 +265,79 @@ ipcMain.handle('open-external', async (event, url: string) => {
   }
 })
 
+function getDataDirectory(): string {
+  // In development, write directly to the project's src/data folder
+  const projectSrcData = path.join(process.cwd(), 'src', 'data')
+  if (fs.existsSync(path.join(process.cwd(), 'src'))) {
+    if (!fs.existsSync(projectSrcData)) {
+      fs.mkdirSync(projectSrcData, { recursive: true })
+    }
+    return projectSrcData
+  }
+  // In production package, use userData directory
+  const userDataDir = path.join(app.getPath('userData'), 'data')
+  if (!fs.existsSync(userDataDir)) {
+    fs.mkdirSync(userDataDir, { recursive: true })
+  }
+  return userDataDir
+}
+
+// 5. IPC handlers to save and load native project assets
+ipcMain.handle('save-native-assets', async (_event, data: { categories: string[]; assets: any[] }) => {
+  try {
+    const dataDir = getDataDirectory()
+    const filePath = path.join(dataDir, 'nativeAssets.json')
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
+    console.log('[NativeAssets] Saved to', filePath)
+    return true
+  } catch (err) {
+    console.error('[NativeAssets] Save error:', err)
+    return false
+  }
+})
+
+ipcMain.handle('load-native-assets', async () => {
+  try {
+    const dataDir = getDataDirectory()
+    const filePath = path.join(dataDir, 'nativeAssets.json')
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf-8')
+      return JSON.parse(raw)
+    }
+  } catch (err) {
+    console.error('[NativeAssets] Load error:', err)
+  }
+  return null
+})
+
+// 6. IPC handlers to save and load native spaces
+ipcMain.handle('save-native-spaces', async (_event, spaces: any[]) => {
+  try {
+    const dataDir = getDataDirectory()
+    const filePath = path.join(dataDir, 'nativeSpaces.json')
+    fs.writeFileSync(filePath, JSON.stringify(spaces, null, 2), 'utf-8')
+    console.log('[NativeSpaces] Saved to', filePath)
+    return true
+  } catch (err) {
+    console.error('[NativeSpaces] Save error:', err)
+    return false
+  }
+})
+
+ipcMain.handle('load-native-spaces', async () => {
+  try {
+    const dataDir = getDataDirectory()
+    const filePath = path.join(dataDir, 'nativeSpaces.json')
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf-8')
+      return JSON.parse(raw)
+    }
+  } catch (err) {
+    console.error('[NativeSpaces] Load error:', err)
+  }
+  return null
+})
+
 app.whenReady().then(() => {
   createWindow()
 

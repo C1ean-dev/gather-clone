@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { CustomAsset } from '../types/customAsset'
 import { FurnitureDefinition } from '../types/map'
 import { PeerManager } from '../p2p/PeerManager'
+import nativeAssetsData from '../data/nativeAssets.json'
 
 const ASSETS_STORAGE_KEY = 'gather_v2_custom_user_assets'
 const CATEGORIES_STORAGE_KEY = 'gather_v2_custom_categories'
@@ -21,27 +22,45 @@ export function getCustomAssetImage(dataUrl: string): HTMLImageElement {
   return img
 }
 
+const syncToNativeFile = (assets: CustomAsset[], categories: string[]) => {
+  try {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.saveNativeAssets) {
+      ;(window as any).electronAPI.saveNativeAssets({ categories, assets })
+    }
+  } catch (err) {
+    console.error('Failed to sync native assets to file:', err)
+  }
+}
+
 const loadSavedCustomAssets = (): CustomAsset[] => {
+  const nativeAssets: CustomAsset[] = (nativeAssetsData?.assets as CustomAsset[]) || []
+  let savedAssets: CustomAsset[] = []
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const raw = window.localStorage.getItem(ASSETS_STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed)) {
-          // Preload images into cache
-          parsed.forEach((asset: CustomAsset) => {
-            if (Array.isArray(asset.frames)) {
-              asset.frames.forEach(getCustomAssetImage)
-            }
-          })
-          return parsed
+          savedAssets = parsed
         }
       }
     }
   } catch (e) {
     console.error('Failed to load custom assets:', e)
   }
-  return []
+
+  // Merge native and saved assets (saved assets take precedence)
+  const map = new Map<string, CustomAsset>()
+  nativeAssets.forEach((a) => map.set(a.id, a))
+  savedAssets.forEach((a) => map.set(a.id, a))
+  const merged = Array.from(map.values())
+
+  merged.forEach((asset: CustomAsset) => {
+    if (Array.isArray(asset.frames)) {
+      asset.frames.forEach(getCustomAssetImage)
+    }
+  })
+  return merged
 }
 
 const saveCustomAssets = (assets: CustomAsset[]) => {
@@ -55,20 +74,22 @@ const saveCustomAssets = (assets: CustomAsset[]) => {
 }
 
 const loadSavedCategories = (): string[] => {
+  const nativeCats: string[] = (nativeAssetsData?.categories as string[]) || DEFAULT_CATEGORIES
+  let savedCats: string[] = []
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const raw = window.localStorage.getItem(CATEGORIES_STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed
+          savedCats = parsed
         }
       }
     }
   } catch (e) {
     console.error('Failed to load custom categories:', e)
   }
-  return DEFAULT_CATEGORIES
+  return Array.from(new Set([...DEFAULT_CATEGORIES, ...nativeCats, ...savedCats]))
 }
 
 const saveCategories = (cats: string[]) => {
@@ -127,6 +148,7 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
     }
 
     set({ customAssets: updated, customCategories: newCats })
+    syncToNativeFile(updated, newCats)
 
     // Broadcast new custom asset across P2P mesh
     PeerManager.getInstance().sendCustomAssetAddOrUpdate(asset)
@@ -147,6 +169,7 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
     })
     saveCustomAssets(updated)
     set({ customAssets: updated })
+    syncToNativeFile(updated, get().customCategories)
 
     // Broadcast updated custom asset across P2P mesh
     if (fullAsset) {
@@ -158,6 +181,7 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
     const updated = get().customAssets.filter((a) => a.id !== id)
     saveCustomAssets(updated)
     set({ customAssets: updated })
+    syncToNativeFile(updated, get().customCategories)
 
     // Broadcast asset deletion across P2P mesh
     PeerManager.getInstance().sendCustomAssetDelete(id)
@@ -228,6 +252,7 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
       const updated = [...get().customCategories, trimmed]
       saveCategories(updated)
       set({ customCategories: updated })
+      syncToNativeFile(get().customAssets, updated)
     }
   },
 
@@ -235,6 +260,7 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
     const updated = get().customCategories.filter((c) => c !== categoryName)
     saveCategories(updated)
     set({ customCategories: updated })
+    syncToNativeFile(get().customAssets, updated)
   },
 
   getAllCategories: () => {
