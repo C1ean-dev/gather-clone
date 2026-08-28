@@ -14,6 +14,9 @@ export type FloorType =
   | 'tile_checker' 
   | 'grass' 
   | 'concrete'
+  | 'forge_cobblestone'
+  | 'forge_soot_stone'
+  | 'forge_iron_plates'
 
 export type WallType = 
   | 'habbo_hotel_gold'
@@ -24,8 +27,10 @@ export type WallType =
   | 'wood_panel' 
   | 'glass_modern' 
   | 'stone_dark'
+  | 'forge_stone_wall'
+  | 'forge_dark_brick'
 
-export type FurnitureCategory = 'habbo' | 'walls_windows' | 'desks' | 'chairs' | 'tech' | 'lounge' | 'decor' | 'meeting'
+export type FurnitureCategory = 'habbo' | 'blacksmith' | 'walls_windows' | 'desks' | 'chairs' | 'tech' | 'lounge' | 'decor' | 'meeting'
 
 export interface FurnitureDefinition {
   id: string
@@ -56,6 +61,8 @@ export interface PrivateZone {
   height: number // tile height
   description?: string
   maxCapacity?: number
+  hasWalls?: boolean // whether this zone has perimeter walls (default true)
+  wallType?: WallType | string // texture/material for the zone walls
 }
 
 export interface MapData {

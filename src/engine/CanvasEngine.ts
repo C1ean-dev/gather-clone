@@ -7,6 +7,8 @@ import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
 import { useChatStore } from '../store/useChatStore'
 import { PeerManager } from '../p2p/PeerManager'
+import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
+import { useSettingsStore } from '../store/useSettingsStore'
 
 export class CanvasEngine {
   private canvas: HTMLCanvasElement
@@ -19,7 +21,10 @@ export class CanvasEngine {
   private keysPressed: Set<string> = new Set()
   private targetTile: { x: number; y: number } | null = null
   private lastTime: number = performance.now()
-  private moveSpeed = 4.5 // tiles per second
+  private lastRenderTime: number = performance.now()
+  private frameCount: number = 0
+  private lastFpsUpdate: number = performance.now()
+  private fps: number = 60
 
   // Editor hover preview & Drag-to-Draw Zone
   public hoverTile: { x: number; y: number } | null = null
@@ -91,7 +96,10 @@ export class CanvasEngine {
     if (this.isRunning) return
     this.isRunning = true
     this.lastTime = performance.now()
-    this.loop(this.lastTime)
+    this.lastRenderTime = performance.now()
+    this.lastFpsUpdate = performance.now()
+    this.frameCount = 0
+    this.loop(performance.now())
   }
 
   public stop() {
@@ -111,8 +119,32 @@ export class CanvasEngine {
   private loop = (currentTime: number) => {
     if (!this.isRunning) return
 
+    const settings = useSettingsStore.getState()
+    const targetFps = settings.targetFps
+
+    // FPS Limiter (if targetFps > 0)
+    if (targetFps > 0) {
+      const minInterval = 1000 / targetFps
+      const elapsed = currentTime - this.lastRenderTime
+      if (elapsed < minInterval - 1.0) {
+        this.animationFrameId = requestAnimationFrame(this.loop)
+        return
+      }
+    }
+
     const deltaTime = Math.min((currentTime - this.lastTime) / 1000, 0.1)
     this.lastTime = currentTime
+    this.lastRenderTime = currentTime
+
+    // Compute live FPS
+    this.frameCount++
+    if (currentTime - this.lastFpsUpdate >= 500) {
+      const liveFps = Math.round((this.frameCount * 1000) / (currentTime - this.lastFpsUpdate))
+      this.fps = liveFps
+      this.frameCount = 0
+      this.lastFpsUpdate = currentTime
+      settings.setCurrentFps(liveFps)
+    }
 
     this.update(deltaTime, currentTime)
     this.render(currentTime)
@@ -128,6 +160,7 @@ export class CanvasEngine {
     const mapStore = useMapStore.getState()
     const local = gameStore.localPlayer
     const map = mapStore.mapData
+    const moveSpeed = useSettingsStore.getState().moveSpeed || 4.5
 
     let dx = 0
     let dy = 0
@@ -181,7 +214,7 @@ export class CanvasEngine {
     // 3. Collision Detection & Step Validation
     if (dx !== 0 || dy !== 0) {
       isMoving = true
-      const stepDist = this.moveSpeed * deltaTime
+      const stepDist = moveSpeed * deltaTime
       const targetX = local.x + dx * stepDist
       const targetY = local.y + dy * stepDist
 
@@ -246,6 +279,8 @@ export class CanvasEngine {
 
     // 1. Precise Room Architecture Collision (Exact 1:1 Gather Photo)
     for (const zone of map.zones) {
+      if (zone.hasWalls === false) continue
+
       const minX = zone.x
       const maxX = zone.x + zone.width
       const minY = zone.y
@@ -261,19 +296,76 @@ export class CanvasEngine {
       const doorStartX = minX + (w - doorW) / 2
       const doorEndX = doorStartX + doorW
 
+      // Helper to find adjacent neighbor zones
+      const leftNeighbor = (map.zones || []).find(
+        (z) =>
+          z.id !== zone.id &&
+          z.hasWalls !== false &&
+          Math.abs(z.x + z.width - minX) <= 0.15 &&
+          Math.max(z.y, zone.y) < Math.min(z.y + z.height, zone.y + zone.height)
+      )
+
+      const rightNeighbor = (map.zones || []).find(
+        (z) =>
+          z.id !== zone.id &&
+          z.hasWalls !== false &&
+          Math.abs(maxX - z.x) <= 0.15 &&
+          Math.max(z.y, zone.y) < Math.min(z.y + z.height, zone.y + zone.height)
+      )
+
       // A. Back Wall Collision (Top block)
       if (pMaxX > minX && pMinX < maxX && pMaxY > minY && pMinY < minY + backWallH) {
         return true
       }
 
-      // B. Left Thin Side Wall Collision
-      if (pMaxX > minX && pMinX < minX + 0.15 && pMaxY > minY + backWallH && pMinY < frontWallY) {
-        return true
+      // B. Left Thin Side Wall Collision (Respects Doorway Opening to Left Room)
+      if (leftNeighbor) {
+        const overlapMinY = Math.max(minY, leftNeighbor.y)
+        const overlapMaxY = Math.min(maxY, leftNeighbor.y + leftNeighbor.height)
+        const overlapH = overlapMaxY - overlapMinY
+        const doorH = Math.min(overlapH * 0.65, 2.25)
+        const doorStartY = overlapMinY + (overlapH - doorH) / 2
+        const doorEndY = doorStartY + doorH
+
+        if (doorStartY > minY + backWallH) {
+          if (pMaxX > minX && pMinX < minX + 0.15 && pMaxY > minY + backWallH && pMinY < doorStartY) {
+            return true
+          }
+        }
+        if (frontWallY > doorEndY) {
+          if (pMaxX > minX && pMinX < minX + 0.15 && pMaxY > doorEndY && pMinY < frontWallY) {
+            return true
+          }
+        }
+      } else {
+        if (pMaxX > minX && pMinX < minX + 0.15 && pMaxY > minY + backWallH && pMinY < frontWallY) {
+          return true
+        }
       }
 
-      // C. Right Thin Side Wall Collision
-      if (pMaxX > maxX - 0.15 && pMinX < maxX && pMaxY > minY + backWallH && pMinY < frontWallY) {
-        return true
+      // C. Right Thin Side Wall Collision (Respects Doorway Opening to Right Room)
+      if (rightNeighbor) {
+        const overlapMinY = Math.max(minY, rightNeighbor.y)
+        const overlapMaxY = Math.min(maxY, rightNeighbor.y + rightNeighbor.height)
+        const overlapH = overlapMaxY - overlapMinY
+        const doorH = Math.min(overlapH * 0.65, 2.25)
+        const doorStartY = overlapMinY + (overlapH - doorH) / 2
+        const doorEndY = doorStartY + doorH
+
+        if (doorStartY > minY + backWallH) {
+          if (pMaxX > maxX - 0.15 && pMinX < maxX && pMaxY > minY + backWallH && pMinY < doorStartY) {
+            return true
+          }
+        }
+        if (frontWallY > doorEndY) {
+          if (pMaxX > maxX - 0.15 && pMinX < maxX && pMaxY > doorEndY && pMinY < frontWallY) {
+            return true
+          }
+        }
+      } else {
+        if (pMaxX > maxX - 0.15 && pMinX < maxX && pMaxY > minY + backWallH && pMinY < frontWallY) {
+          return true
+        }
       }
 
       // D. Left Front Wall Block Collision
@@ -292,10 +384,27 @@ export class CanvasEngine {
       return true
     }
 
-    // 2. Check Furniture Obstacle Collisions
-    for (const furn of map.furniture) {
-      const def = FURNITURE_CATALOG.find((f) => f.id === furn.defId)
-      if (def && def.isObstacle) {
+    // 2. Check Furniture Obstacle Collisions (Supports Per-Tile Collision Grid)
+    for (const furn of map.furniture || []) {
+      const customAsset = useCustomAssetsStore.getState().getAssetById(furn.defId)
+      const def = customAsset || FURNITURE_CATALOG.find((f) => f.id === furn.defId)
+
+      if (customAsset && customAsset.collisionGrid && customAsset.collisionGrid.length > 0) {
+        for (let r = 0; r < customAsset.height; r++) {
+          for (let c = 0; c < customAsset.width; c++) {
+            if (customAsset.collisionGrid[r]?.[c]) {
+              const tileMinX = furn.x + c + 0.05
+              const tileMaxX = furn.x + c + 1 - 0.05
+              const tileMinY = furn.y + r + 0.05
+              const tileMaxY = furn.y + r + 1 - 0.05
+
+              if (pMaxX > tileMinX && pMinX < tileMaxX && pMaxY > tileMinY && pMinY < tileMaxY) {
+                return true
+              }
+            }
+          }
+        }
+      } else if (def && def.isObstacle) {
         const furnMinX = furn.x + 0.05
         const furnMaxX = furn.x + def.width - 0.05
         const furnMinY = furn.y + 0.05
@@ -318,7 +427,7 @@ export class CanvasEngine {
     let detectedZone: string | null = null
     let detectedZoneName: string = ''
 
-    for (const zone of map.zones) {
+    for (const zone of map.zones || []) {
       if (
         playerX >= zone.x &&
         playerX <= zone.x + zone.width &&
@@ -357,43 +466,79 @@ export class CanvasEngine {
     ctx.fillStyle = '#0c0e14'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
+    // Ensure camera values are sane
+    if (isNaN(this.camera.zoom) || this.camera.zoom <= 0) this.camera.zoom = 1.0
+    if (isNaN(this.camera.x)) this.camera.x = 34 * TILE_SIZE
+    if (isNaN(this.camera.y)) this.camera.y = 20 * TILE_SIZE
+
     ctx.save()
 
-    // Center camera on player
-    const viewWidth = canvas.width / this.camera.zoom
-    const viewHeight = canvas.height / this.camera.zoom
+    try {
+      // Center camera on player
+      const viewWidth = canvas.width / this.camera.zoom
+      const viewHeight = canvas.height / this.camera.zoom
 
-    ctx.scale(this.camera.zoom, this.camera.zoom)
-    ctx.translate(
-      Math.floor(viewWidth / 2 - this.camera.x),
-      Math.floor(viewHeight / 2 - this.camera.y)
-    )
+      ctx.scale(this.camera.zoom, this.camera.zoom)
+      ctx.translate(
+        Math.floor(viewWidth / 2 - this.camera.x),
+        Math.floor(viewHeight / 2 - this.camera.y)
+      )
 
-    // 1. Draw Floors
-    for (let y = 0; y < map.height; y++) {
-      for (let x = 0; x < map.width; x++) {
-        const floor = map.floors[y]?.[x] || 'habbo_parquet'
-        PixelArtRenderer.drawFloor(ctx, floor, x * TILE_SIZE, y * TILE_SIZE)
+      // 1. Draw Floors (Optimized with Viewport Culling for high FPS)
+      const mapH = map.height || 40
+      const mapW = map.width || 68
+      const enableCulling = useSettingsStore.getState().enableCulling
+
+      let startX = 0
+      let endX = mapW
+      let startY = 0
+      let endY = mapH
+
+      if (enableCulling) {
+        const camMinX = this.camera.x - viewWidth / 2
+        const camMaxX = this.camera.x + viewWidth / 2
+        const camMinY = this.camera.y - viewHeight / 2
+        const camMaxY = this.camera.y + viewHeight / 2
+
+        startX = Math.max(0, Math.floor(camMinX / TILE_SIZE) - 1)
+        endX = Math.min(mapW, Math.ceil(camMaxX / TILE_SIZE) + 1)
+        startY = Math.max(0, Math.floor(camMinY / TILE_SIZE) - 1)
+        endY = Math.min(mapH, Math.ceil(camMaxY / TILE_SIZE) + 1)
       }
-    }
 
-    // 2. Draw Gather Room Architecture (1:1 Exact Photo Replica)
-    for (const zone of map.zones) {
-      PixelArtRenderer.drawGatherRoom(ctx, zone, map.zones)
-    }
+      // Base solid underlay to guarantee zero subpixel background bleed across entire visible area
+      ctx.fillStyle = '#f6e7d2'
+      ctx.fillRect(
+        startX * TILE_SIZE,
+        startY * TILE_SIZE,
+        (endX - startX) * TILE_SIZE + 2,
+        (endY - startY) * TILE_SIZE + 2
+      )
 
-    // 3. Draw Zone Header Badges & Dashed Overlays (Only in Editor Mode)
-    if (isEditorOpen) {
-      for (const zone of map.zones) {
-        const isCurrent = localPlayer.currentZoneId === zone.id
-        PixelArtRenderer.drawPrivateZone(ctx, zone, isCurrent)
+      for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+          const floor = map.floors?.[y]?.[x] || 'habbo_parquet'
+          PixelArtRenderer.drawFloor(ctx, floor, x * TILE_SIZE, y * TILE_SIZE)
+        }
       }
-    }
 
-    // 4. Draw Placed Furniture & Wall Windows
-    for (const item of map.furniture) {
-      PixelArtRenderer.drawFurniture(ctx, item)
-    }
+      // 2. Draw Gather Room Architecture (1:1 Exact Photo Replica)
+      for (const zone of map.zones || []) {
+        PixelArtRenderer.drawGatherRoom(ctx, zone, map.zones || [])
+      }
+
+      // 3. Draw Zone Header Badges & Dashed Overlays (Only in Editor Mode)
+      if (isEditorOpen) {
+        for (const zone of map.zones || []) {
+          const isCurrent = localPlayer.currentZoneId === zone.id
+          PixelArtRenderer.drawPrivateZone(ctx, zone, isCurrent)
+        }
+      }
+
+      // 4. Draw Placed Furniture & Wall Windows
+      for (const item of map.furniture || []) {
+        PixelArtRenderer.drawFurniture(ctx, item)
+      }
 
     // 5. Sort and Draw Players by Y-depth
     const allPlayers: { player: Player; isLocal: boolean }[] = [
@@ -476,7 +621,8 @@ export class CanvasEngine {
       const ty = this.hoverTile.y
 
       if (activeTool === 'place_furniture') {
-        const furnDef = FURNITURE_CATALOG.find((f) => f.id === mapStore.selectedFurnitureDefId)
+        const customAsset = useCustomAssetsStore.getState().getAssetById(mapStore.selectedFurnitureDefId)
+        const furnDef = customAsset || FURNITURE_CATALOG.find((f) => f.id === mapStore.selectedFurnitureDefId)
         const w = (furnDef?.width || 1) * TILE_SIZE
         const h = (furnDef?.height || 1) * TILE_SIZE
 
@@ -511,8 +657,35 @@ export class CanvasEngine {
       }
       ctx.restore()
     }
+    } catch (e) {
+      console.error('Error in CanvasEngine render:', e)
+    } finally {
+      ctx.restore()
+    }
 
-    ctx.restore()
+    // 8. On-Screen FPS Counter HUD Overlay
+    if (useSettingsStore.getState().showFpsCounter) {
+      ctx.save()
+      const fpsText = `${this.fps} FPS`
+      ctx.font = 'bold 12px monospace'
+      const textMetrics = ctx.measureText(fpsText)
+      const badgeW = textMetrics.width + 18
+      const badgeH = 24
+      const bx = canvas.width - badgeW - 14
+      const by = 14
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)'
+      ctx.beginPath()
+      ctx.roundRect(bx, by, badgeW, badgeH, 6)
+      ctx.fill()
+      ctx.strokeStyle = this.fps >= 50 ? '#22c55e' : this.fps >= 25 ? '#eab308' : '#ef4444'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+
+      ctx.fillStyle = this.fps >= 50 ? '#4ade80' : this.fps >= 25 ? '#fde047' : '#f87171'
+      ctx.fillText(fpsText, bx + 9, by + 16)
+      ctx.restore()
+    }
   }
 
   public screenToTile(screenX: number, screenY: number): { x: number; y: number } {

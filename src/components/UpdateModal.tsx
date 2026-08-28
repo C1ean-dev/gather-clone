@@ -71,7 +71,7 @@ export const UpdateModal: React.FC<Props> = ({ updateInfo, isOpen, onClose }) =>
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 select-none animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 select-none animate-in fade-in duration-200">
       <div className="bg-[#1b202c] border border-indigo-500/40 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
         {/* Header with gradient badge */}
         <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 p-6 text-center relative overflow-hidden">

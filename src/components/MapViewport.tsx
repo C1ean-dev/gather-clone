@@ -52,6 +52,20 @@ export const MapViewport: React.FC = () => {
     }
   }, [])
 
+  const isMouseDownRef = useRef(false)
+  const lastPaintedTileRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      isMouseDownRef.current = false
+      lastPaintedTileRef.current = null
+    }
+    window.addEventListener('mouseup', handleGlobalMouseUp)
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp)
+    }
+  }, [])
+
   // Auto-fit when mapData template changes
   useEffect(() => {
     if (engineRef.current) {
@@ -69,6 +83,9 @@ export const MapViewport: React.FC = () => {
     const mouseY = (e.clientY - rect.top) * scaleY
 
     const tile = engineRef.current.screenToTile(mouseX, mouseY)
+
+    isMouseDownRef.current = true
+    lastPaintedTileRef.current = `${tile.x},${tile.y}`
 
     if (isEditorOpen) {
       if (activeTool === 'draw_zone') {
@@ -112,6 +129,26 @@ export const MapViewport: React.FC = () => {
     const tile = engineRef.current.screenToTile(mouseX, mouseY)
     engineRef.current.hoverTile = tile
 
+    // Continuous drag painting when mouse button is held down
+    if (isEditorOpen && isMouseDownRef.current) {
+      const tileKey = `${tile.x},${tile.y}`
+      if (lastPaintedTileRef.current !== tileKey) {
+        lastPaintedTileRef.current = tileKey
+        if (activeTool === 'paint_floor') {
+          setFloorTile(tile.x, tile.y, selectedFloor)
+          PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: selectedFloor })
+        } else if (activeTool === 'paint_wall') {
+          setWallTile(tile.x, tile.y, selectedWall)
+          PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: selectedWall })
+        } else if (activeTool === 'eraser') {
+          removeFurnitureAt(tile.x, tile.y)
+          setWallTile(tile.x, tile.y, null)
+          PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
+          PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: null })
+        }
+      }
+    }
+
     // Update drag preview if drawing zone
     if (isEditorOpen && activeTool === 'draw_zone' && engineRef.current.zoneDragStart) {
       engineRef.current.zoneDragCurrent = tile
@@ -119,6 +156,9 @@ export const MapViewport: React.FC = () => {
   }
 
   const handleCanvasMouseUp = () => {
+    isMouseDownRef.current = false
+    lastPaintedTileRef.current = null
+
     if (!engineRef.current) return
 
     // Finalize drag-to-draw zone
@@ -163,12 +203,14 @@ export const MapViewport: React.FC = () => {
       if (width >= 2 && height >= 2 && !hasOverlap) {
         const newZone: PrivateZone = {
           id: 'zone-' + Math.random().toString(36).substring(2, 7),
-          name: zoneDraft.name.trim() || 'Nova Zona',
+          name: zoneDraft.name.trim() || 'Nova Sala Privada',
           color: zoneDraft.color || '#4c6ef5',
           x: minX,
           y: minY,
           width,
           height,
+          hasWalls: zoneDraft.hasWalls !== false,
+          wallType: zoneDraft.wallType || 'drywall_white',
           description: 'Zona de chamada privada demarcada com mouse',
         }
 

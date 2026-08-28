@@ -5,6 +5,9 @@ import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
 import { useChatStore } from '../store/useChatStore'
 import { useMediaStore } from '../store/useMediaStore'
+import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
+import { CustomAsset } from '../types/customAsset'
+import { PublicRoomsService } from '../services/publicRoomsService'
 
 export class PeerManager {
   private static instance: PeerManager
@@ -26,7 +29,18 @@ export class PeerManager {
   /**
    * Host a new Room
    */
-  public async createRoom(roomCode: string, localPlayer: Player): Promise<string> {
+  public async createRoom(
+    roomCode: string,
+    localPlayer: Player,
+    options?: {
+      roomName?: string
+      roomDescription?: string
+      roomCategory?: 'work' | 'coffee' | 'games' | 'study' | 'general'
+      isPublic?: boolean
+      maxPlayers?: number
+      color?: string
+    }
+  ): Promise<string> {
     this.roomCode = roomCode.toUpperCase()
     this.isHost = true
     const hostPeerId = `gather-v2-${this.roomCode}-host`
@@ -43,7 +57,7 @@ export class PeerManager {
 
       this.peer.on('open', (id) => {
         console.log('[P2P] Room created with Host ID:', id)
-        useGameStore.getState().setRoomSession(this.roomCode!, true)
+        useGameStore.getState().setRoomSession(this.roomCode!, true, options)
         useGameStore.getState().setConnected(true)
         this.setupPeerListeners()
         resolve(this.roomCode!)
@@ -147,7 +161,7 @@ export class PeerManager {
         timestamp: Date.now(),
       })
 
-      // If we are Host, send current map and all existing players to the newcomer
+      // If we are Host, send current map, custom assets, and all existing players to the newcomer
       if (this.isHost) {
         const currentMap = useMapStore.getState().mapData
         this.sendToPeer(conn, {
@@ -156,6 +170,17 @@ export class PeerManager {
           payload: { mapData: currentMap },
           timestamp: Date.now(),
         })
+
+        const customAssets = useCustomAssetsStore.getState().customAssets
+        const customCategories = useCustomAssetsStore.getState().customCategories
+        if (customAssets && customAssets.length > 0) {
+          this.sendToPeer(conn, {
+            type: 'CUSTOM_ASSETS_SYNC',
+            senderId: this.peer!.id,
+            payload: { customAssets, categories: customCategories },
+            timestamp: Date.now(),
+          })
+        }
 
         // Also broadcast newcomer to other peers
         const remotePlayers = useGameStore.getState().remotePlayers
@@ -190,6 +215,10 @@ export class PeerManager {
           id: peerId,
         }
         useGameStore.getState().setRemotePlayer(player)
+        if (this.isHost && useGameStore.getState().isRoomPublic) {
+          const totalPlayers = Object.keys(useGameStore.getState().remotePlayers).length + 1
+          PublicRoomsService.getInstance().updateHosting({ playerCount: totalPlayers })
+        }
         // Check if we should initiate Zone call
         this.checkZoneCallEligibility(player)
         break
@@ -227,6 +256,30 @@ export class PeerManager {
         break
       }
 
+      case 'CUSTOM_ASSETS_SYNC': {
+        if (msg.payload.customAssets) {
+          useCustomAssetsStore.getState().syncRemoteCustomAssets(
+            msg.payload.customAssets,
+            msg.payload.categories
+          )
+        }
+        break
+      }
+
+      case 'CUSTOM_ASSET_ADD_OR_UPDATE': {
+        if (msg.payload.asset) {
+          useCustomAssetsStore.getState().syncRemoteAssetAddOrUpdate(msg.payload.asset)
+        }
+        break
+      }
+
+      case 'CUSTOM_ASSET_DELETE': {
+        if (msg.payload.id) {
+          useCustomAssetsStore.getState().syncRemoteAssetDelete(msg.payload.id)
+        }
+        break
+      }
+
       case 'MAP_EDIT': {
         const { action, data } = msg.payload
         if (action === 'set_floor') {
@@ -257,7 +310,7 @@ export class PeerManager {
     }
 
     // If host, forward to other peers in mesh
-    if (this.isHost && msg.type !== 'MAP_SYNC') {
+    if (this.isHost && msg.type !== 'MAP_SYNC' && msg.type !== 'CUSTOM_ASSETS_SYNC') {
       this.broadcast(msg, peerId)
     }
   }
@@ -429,6 +482,48 @@ export class PeerManager {
   }
 
   /**
+   * Broadcast Custom Asset Creation or Update across P2P Mesh
+   */
+  public sendCustomAssetAddOrUpdate(asset: CustomAsset) {
+    if (!this.peer) return
+    const msg: NetworkMessage = {
+      type: 'CUSTOM_ASSET_ADD_OR_UPDATE',
+      senderId: this.peer.id,
+      payload: { asset },
+      timestamp: Date.now(),
+    }
+    this.broadcast(msg)
+  }
+
+  /**
+   * Broadcast Custom Asset Deletion across P2P Mesh
+   */
+  public sendCustomAssetDelete(id: string) {
+    if (!this.peer) return
+    const msg: NetworkMessage = {
+      type: 'CUSTOM_ASSET_DELETE',
+      senderId: this.peer.id,
+      payload: { id },
+      timestamp: Date.now(),
+    }
+    this.broadcast(msg)
+  }
+
+  /**
+   * Broadcast Full Custom Assets List
+   */
+  public sendCustomAssetsSync(customAssets: CustomAsset[], categories?: string[]) {
+    if (!this.peer) return
+    const msg: NetworkMessage = {
+      type: 'CUSTOM_ASSETS_SYNC',
+      senderId: this.peer.id,
+      payload: { customAssets, categories },
+      timestamp: Date.now(),
+    }
+    this.broadcast(msg)
+  }
+
+  /**
    * Broadcast Map Edit
    */
   public sendMapEdit(action: string, data: any) {
@@ -471,6 +566,7 @@ export class PeerManager {
   }
 
   public disconnect() {
+    PublicRoomsService.getInstance().stopHosting()
     this.mediaCalls.forEach((call) => call.close())
     this.mediaCalls.clear()
     this.connections.forEach((conn) => conn.close())

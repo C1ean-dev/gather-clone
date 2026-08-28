@@ -102,3 +102,25 @@ export interface PublicSpaceInfo {
   tags: string[]
   isOfficial?: boolean
 }
+
+export type PublicRoomCategory = 'all' | 'work' | 'coffee' | 'games' | 'study' | 'general'
+
+export interface PublicRoomInfo {
+  id: string
+  code: string
+  name: string
+  description?: string
+  category: 'work' | 'coffee' | 'games' | 'study' | 'general'
+  hostId: string
+  hostName: string
+  hostAvatar?: AvatarConfig
+  hostColor?: string
+  playerCount: number
+  maxPlayers: number
+  color: string
+  createdAt: number
+  lastHeartbeat: number
+  zonesCount?: number
+  isOfficial?: boolean
+}
+

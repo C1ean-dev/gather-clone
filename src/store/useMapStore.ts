@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { MapData, FloorType, WallType, PlacedFurniture, PrivateZone, EditorTool } from '../types/map'
-import { createEmptyWorkspace } from '../editor/templates'
+import { createEmptyWorkspace, createBlacksmithWorkshopTemplate } from '../editor/templates'
 import { generateWallsAndDoorsForZones, snapAndAlignZone } from '../editor/zoneWallGenerator'
 
 const MAP_STORAGE_KEY = 'gather_v2_custom_map'
@@ -11,8 +11,22 @@ const loadSavedMap = (): MapData | null => {
       const raw = window.localStorage.getItem(MAP_STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
-        if (parsed && Array.isArray(parsed.floors) && Array.isArray(parsed.zones)) {
-          return parsed
+        if (parsed && Array.isArray(parsed.floors)) {
+          if (parsed.id === 'blacksmith_workshop') {
+            return createEmptyWorkspace()
+          }
+          return {
+            id: parsed.id || 'custom_map',
+            name: parsed.name || 'Espaço de Trabalho',
+            width: parsed.width || 68,
+            height: parsed.height || 40,
+            tileSize: parsed.tileSize || 32,
+            spawnPoint: parsed.spawnPoint || { x: 34, y: 20 },
+            floors: parsed.floors || [],
+            walls: Array.isArray(parsed.walls) ? parsed.walls : [],
+            furniture: Array.isArray(parsed.furniture) ? parsed.furniture : [],
+            zones: Array.isArray(parsed.zones) ? parsed.zones : [],
+          }
         }
       }
     }
@@ -54,8 +68,8 @@ interface MapStore {
   setSelectedFurnitureDefId: (defId: string) => void
 
   // Zone Draft (for click-and-drag drawing)
-  zoneDraft: { name: string; color: string }
-  setZoneDraft: (draft: { name: string; color: string }) => void
+  zoneDraft: { name: string; color: string; hasWalls: boolean; wallType: WallType | string }
+  setZoneDraft: (draft: { name: string; color: string; hasWalls: boolean; wallType: WallType | string }) => void
 
   // Editing Actions
   setFloorTile: (x: number, y: number, floor: FloorType) => void
@@ -63,9 +77,11 @@ interface MapStore {
   addFurniture: (furniture: PlacedFurniture) => void
   removeFurnitureAt: (tileX: number, tileY: number) => void
   addOrUpdateZone: (zone: PrivateZone) => void
+  updateZone: (id: string, partial: Partial<PrivateZone>) => void
   renameZone: (id: string, newName: string) => void
   removeZone: (id: string) => void
   resetEmptyWorkspace: () => void
+  loadBlacksmithTemplate: () => void
 }
 
 export const useMapStore = create<MapStore>((set, get) => ({
@@ -87,15 +103,17 @@ export const useMapStore = create<MapStore>((set, get) => ({
   selectedFloor: 'habbo_parquet',
   setSelectedFloor: (floor) => set({ selectedFloor: floor, activeTool: 'paint_floor' }),
 
-  selectedWall: 'habbo_hotel_gold',
+  selectedWall: 'drywall_white',
   setSelectedWall: (wall) => set({ selectedWall: wall, activeTool: 'paint_wall' }),
 
   selectedFurnitureDefId: 'window_grid_large',
   setSelectedFurnitureDefId: (defId) => set({ selectedFurnitureDefId: defId, activeTool: 'place_furniture' }),
 
   zoneDraft: {
-    name: 'Nova Mesa Privada',
+    name: 'Nova Sala Privada',
     color: '#4c6ef5',
+    hasWalls: true,
+    wallType: 'drywall_white',
   },
   setZoneDraft: (zoneDraft) => set({ zoneDraft }),
 
@@ -184,6 +202,19 @@ export const useMapStore = create<MapStore>((set, get) => ({
       return { mapData: updatedMap }
     }),
 
+  updateZone: (id, partial) =>
+    set((state) => {
+      const updatedZones = state.mapData.zones.map((z) =>
+        z.id === id ? { ...z, ...partial } : z
+      )
+      const updatedMap = {
+        ...state.mapData,
+        zones: updatedZones,
+      }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
+    }),
+
   renameZone: (id, newName) =>
     set((state) => {
       const updatedZones = state.mapData.zones.map((z) =>
@@ -220,5 +251,11 @@ export const useMapStore = create<MapStore>((set, get) => ({
     const fresh = createEmptyWorkspace()
     saveMap(fresh)
     set({ mapData: fresh })
+  },
+
+  loadBlacksmithTemplate: () => {
+    const forge = createBlacksmithWorkshopTemplate()
+    saveMap(forge)
+    set({ mapData: forge })
   },
 }))

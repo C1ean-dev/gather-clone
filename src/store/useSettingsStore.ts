@@ -1,0 +1,72 @@
+import { create } from 'zustand'
+
+const SETTINGS_STORAGE_KEY = 'gather_v2_graphics_settings'
+
+export interface GraphicsSettings {
+  targetFps: number // 30, 60, 120, 144, 0 (0 = uncapped / monitor refresh)
+  showFpsCounter: boolean
+  enableCulling: boolean
+  moveSpeed: number // tiles per second, default 4.5
+  currentFps: number
+}
+
+interface SettingsStore extends GraphicsSettings {
+  setTargetFps: (fps: number) => void
+  setShowFpsCounter: (show: boolean) => void
+  setEnableCulling: (enable: boolean) => void
+  setMoveSpeed: (speed: number) => void
+  setCurrentFps: (fps: number) => void
+}
+
+const loadSavedSettings = (): Partial<GraphicsSettings> => {
+  try {
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY)
+      if (raw) return JSON.parse(raw)
+    }
+  } catch (e) {
+    // Ignore in non-browser
+  }
+  return {}
+}
+
+const saved = loadSavedSettings()
+
+export const useSettingsStore = create<SettingsStore>((set) => ({
+  targetFps: saved.targetFps ?? 0, // Default: native monitor V-Sync
+  showFpsCounter: saved.showFpsCounter ?? false,
+  enableCulling: saved.enableCulling ?? true,
+  moveSpeed: saved.moveSpeed ?? 4.5,
+  currentFps: 60,
+
+  setTargetFps: (fps: number) => {
+    set({ targetFps: fps })
+    saveSettings({ targetFps: fps })
+  },
+  setShowFpsCounter: (show: boolean) => {
+    set({ showFpsCounter: show })
+    saveSettings({ showFpsCounter: show })
+  },
+  setEnableCulling: (enable: boolean) => {
+    set({ enableCulling: enable })
+    saveSettings({ enableCulling: enable })
+  },
+  setMoveSpeed: (speed: number) => {
+    set({ moveSpeed: speed })
+    saveSettings({ moveSpeed: speed })
+  },
+  setCurrentFps: (fps: number) => {
+    set({ currentFps: fps })
+  },
+}))
+
+function saveSettings(partial: Partial<GraphicsSettings>) {
+  try {
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      const current = loadSavedSettings()
+      window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ ...current, ...partial }))
+    }
+  } catch (e) {
+    // Ignore
+  }
+}

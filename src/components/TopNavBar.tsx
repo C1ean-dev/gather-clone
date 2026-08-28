@@ -31,7 +31,7 @@ export const TopNavBar: React.FC<Props> = ({
   onOpenUpdateModal,
   hasUpdate,
 }) => {
-  const { localPlayer, remotePlayers, roomId, isHost, isRoomPublic, toggleRoomPrivacy } = useGameStore()
+  const { localPlayer, remotePlayers, roomId, isHost, isRoomPublic, toggleRoomPrivacy, roomName } = useGameStore()
   const { mapData, isEditorOpen, toggleEditor } = useMapStore()
   const { isChatOpen, toggleChat, channels } = useChatStore()
   const { isMuted, toggleMute } = useMediaStore()
@@ -77,14 +77,18 @@ export const TopNavBar: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Room Code Badge */}
+        {/* Room Name & Code Badge */}
         {roomId && (
           <button
             onClick={handleCopyCode}
             className="flex items-center gap-2 px-3 py-1.5 bg-[#1b202c] hover:bg-slate-800 border border-[#2a3142] rounded-xl text-xs font-semibold text-slate-200 transition-all group"
             title="Clique para copiar código da sala para seus amigos"
           >
-            <span className="text-slate-400 font-normal">Sala:</span>
+            {roomName && roomName !== 'Espaço Principal' ? (
+              <span className="text-slate-200 font-bold max-w-[120px] truncate">{roomName}:</span>
+            ) : (
+              <span className="text-slate-400 font-normal">Sala:</span>
+            )}
             <span className="font-mono text-indigo-400 font-bold">{roomId}</span>
             {copied ? (
               <Check className="w-3.5 h-3.5 text-emerald-400" />

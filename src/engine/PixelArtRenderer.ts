@@ -1,28 +1,194 @@
 import { FloorType, WallType, PlacedFurniture, PrivateZone } from '../types/map'
 import { FURNITURE_CATALOG, TILE_SIZE } from './Constants'
+import { useCustomAssetsStore, getCustomAssetImage } from '../store/useCustomAssetsStore'
+
+
+
+export interface ZoneWallTheme {
+  wallBody: string
+  trimColor: string
+  bevelColor: string
+  shadowLine: string
+  baseboard: string
+  isBrick?: boolean
+  isWood?: boolean
+  isGlass?: boolean
+  isStone?: boolean
+}
+
+export function getZoneWallTheme(wallType: WallType | string = 'drywall_white'): ZoneWallTheme {
+  switch (wallType) {
+    case 'habbo_hotel_gold':
+      return {
+        wallBody: '#eab308',
+        trimColor: '#fef08a',
+        bevelColor: '#ca8a04',
+        shadowLine: '#854d0e',
+        baseboard: '#713f12',
+      }
+    case 'habbo_brick_classic':
+    case 'brick_red':
+      return {
+        wallBody: '#991b1b',
+        trimColor: '#f87171',
+        bevelColor: '#7f1d1d',
+        shadowLine: '#450a0a',
+        baseboard: '#57534e',
+        isBrick: true,
+      }
+    case 'habbo_nightclub_dark':
+      return {
+        wallBody: '#1e1b4b',
+        trimColor: '#818cf8',
+        bevelColor: '#312e81',
+        shadowLine: '#0f172a',
+        baseboard: '#4f46e5',
+      }
+    case 'wood_panel':
+      return {
+        wallBody: '#78350f',
+        trimColor: '#d97706',
+        bevelColor: '#92400e',
+        shadowLine: '#451a03',
+        baseboard: '#292524',
+        isWood: true,
+      }
+    case 'glass_modern':
+      return {
+        wallBody: 'rgba(186, 230, 253, 0.55)',
+        trimColor: '#38bdf8',
+        bevelColor: '#0284c7',
+        shadowLine: '#0369a1',
+        baseboard: '#0c4a6e',
+        isGlass: true,
+      }
+    case 'forge_stone_wall':
+    case 'stone_dark':
+      return {
+        wallBody: '#334155',
+        trimColor: '#94a3b8',
+        bevelColor: '#1e293b',
+        shadowLine: '#0f172a',
+        baseboard: '#475569',
+        isStone: true,
+      }
+    case 'forge_dark_brick':
+      return {
+        wallBody: '#292524',
+        trimColor: '#a8a29e',
+        bevelColor: '#1c1917',
+        shadowLine: '#0c0a09',
+        baseboard: '#ea580c',
+        isBrick: true,
+      }
+    case 'drywall_white':
+    default:
+      return {
+        wallBody: '#d5dee5',
+        trimColor: '#ffffff',
+        bevelColor: '#b8c9d9',
+        shadowLine: '#7d91a3',
+        baseboard: '#deb887',
+      }
+  }
+}
 
 export class PixelArtRenderer {
   /**
    * Draw 2D Floor Tile
    */
-  static drawFloor(ctx: CanvasRenderingContext2D, type: FloorType, x: number, y: number, size: number = TILE_SIZE) {
+  static drawFloor(ctx: CanvasRenderingContext2D, type: FloorType | string, x: number, y: number, size: number = TILE_SIZE) {
     const px = Math.floor(x)
     const py = Math.floor(y)
+    // 0.75px subpixel bleed overlap completely eliminates tile seams / grid lines when camera zooms out
+    const s = size + 0.75
 
     ctx.save()
+
+    // 1. Check custom user floor element
+    const customAsset = useCustomAssetsStore.getState().getAssetById(type)
+    if (customAsset && customAsset.frames && customAsset.frames.length > 0) {
+      const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
+      const img = getCustomAssetImage(customAsset.frames[frameIdx])
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, px, py, s, s)
+      } else {
+        ctx.fillStyle = customAsset.iconColor || '#4c6ef5'
+        ctx.fillRect(px, py, s, s)
+      }
+      ctx.restore()
+      return
+    }
+
     switch (type) {
+      case 'forge_cobblestone':
+        // Medieval Blacksmith Cobblestone floor
+        ctx.fillStyle = '#474a51'
+        ctx.fillRect(px, py, s, s)
+        // Individual stones with mortar
+        ctx.fillStyle = '#5c6069'
+        ctx.fillRect(px + 2, py + 2, size / 2 - 3, size / 2 - 3)
+        ctx.fillRect(px + size / 2 + 1, py + 2, size / 2 - 3, size / 2 - 3)
+        ctx.fillRect(px + 2, py + size / 2 + 1, size / 2 - 3, size / 2 - 3)
+        ctx.fillRect(px + size / 2 + 1, py + size / 2 + 1, size / 2 - 3, size / 2 - 3)
+        // Stone highlights
+        ctx.fillStyle = '#787d8a'
+        ctx.fillRect(px + 3, py + 3, size / 2 - 6, 2)
+        ctx.fillRect(px + size / 2 + 2, py + size / 2 + 2, size / 2 - 6, 2)
+        // Soft Mortar lines
+        ctx.fillStyle = 'rgba(47, 49, 54, 0.6)'
+        ctx.fillRect(px, py + size / 2, size, 1)
+        ctx.fillRect(px + size / 2, py, 1, size)
+        break
+
+      case 'forge_soot_stone':
+        // Charred stone floor with soot and burning ember flecks
+        ctx.fillStyle = '#202225'
+        ctx.fillRect(px, py, s, s)
+        ctx.fillStyle = '#2f3136'
+        ctx.fillRect(px + 3, py + 3, size - 6, size - 6)
+        // Soot stains
+        ctx.fillStyle = '#16181b'
+        ctx.fillRect(px + 6, py + 8, 12, 10)
+        // Glowing ember flecks
+        ctx.fillStyle = '#ff6b35'
+        ctx.fillRect(px + 8, py + 12, 2, 2)
+        ctx.fillStyle = '#ffa94d'
+        ctx.fillRect(px + 22, py + 18, 2, 2)
+        break
+
+      case 'forge_iron_plates':
+        // Riveted Heavy Iron / Steel floor plating
+        ctx.fillStyle = '#343a40'
+        ctx.fillRect(px, py, s, s)
+        ctx.fillStyle = '#495057'
+        ctx.fillRect(px + 2, py + 2, size - 4, size - 4)
+        // Diagonal grip texture
+        ctx.fillStyle = '#212529'
+        ctx.fillRect(px + 6, py + 6, size - 12, 2)
+        ctx.fillRect(px + 6, py + 14, size - 12, 2)
+        ctx.fillRect(px + 6, py + 22, size - 12, 2)
+        // Corner steel rivets
+        ctx.fillStyle = '#ced4da'
+        ctx.fillRect(px + 3, py + 3, 2, 2)
+        ctx.fillRect(px + size - 5, py + 3, 2, 2)
+        ctx.fillRect(px + 3, py + size - 5, 2, 2)
+        ctx.fillRect(px + size - 5, py + size - 5, 2, 2)
+        break
+
       case 'habbo_parquet':
       case 'wood_light':
-        // Exact Gather Wood Plank Floor (as seen in photo)
+        // Soft, elegant Gather Wood Plank Floor (seamless without harsh grid borders)
         ctx.fillStyle = '#f6e7d2'
-        ctx.fillRect(px, py, size, size)
-        ctx.fillStyle = '#ebcca8'
-        ctx.fillRect(px, py + size / 2, size, 1)
-        ctx.fillRect(px, py + size - 1, size, 1)
-        ctx.fillStyle = '#e4be96'
-        ctx.fillRect(px + size / 2, py, 1, size / 2)
-        ctx.fillRect(px + size / 4, py + size / 2, 1, size / 2)
-        ctx.fillRect(px + (size * 3) / 4, py + size / 2, 1, size / 2)
+        ctx.fillRect(px, py, s, s)
+        // Soft alternating plank highlights (subtle grain, no harsh perimeter borders)
+        ctx.fillStyle = 'rgba(235, 204, 168, 0.45)'
+        ctx.fillRect(px, py + 8, size, 1)
+        ctx.fillRect(px, py + 24, size, 1)
+        ctx.fillStyle = 'rgba(228, 190, 150, 0.35)'
+        ctx.fillRect(px + 16, py, 1, 8)
+        ctx.fillRect(px + 8, py + 8, 1, 16)
+        ctx.fillRect(px + 24, py + 24, 1, 8)
         break
 
       case 'habbo_hc_carpet':
@@ -127,12 +293,139 @@ export class PixelArtRenderer {
   }
 
   /**
-   * Draw Exact Gather Room Architecture (1:1 Replica of Photo):
-   * 1. Tall Soft Slate Back Wall with white outer border & wooden baseboard trim.
-   * 2. Minimalist White/Slate Thin Side Glass Partitions.
-   * 3. Solid 3D Front Wall Blocks with white top ledge and open central doorway.
+   * Draw 2D Wall Tile
+   */
+  static drawWall(ctx: CanvasRenderingContext2D, type: WallType | string, x: number, y: number, size: number = TILE_SIZE) {
+    const px = Math.floor(x)
+    const py = Math.floor(y)
+
+    ctx.save()
+
+    // 1. Check custom user wall element
+    const customAsset = useCustomAssetsStore.getState().getAssetById(type)
+    if (customAsset && customAsset.frames && customAsset.frames.length > 0) {
+      const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
+      const img = getCustomAssetImage(customAsset.frames[frameIdx])
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, px, py, size, size)
+      } else {
+        ctx.fillStyle = customAsset.iconColor || '#212529'
+        ctx.fillRect(px, py, size, size)
+      }
+      ctx.restore()
+      return
+    }
+
+    switch (type) {
+      case 'forge_stone_wall':
+        // Heavy Medieval Stone Wall
+        ctx.fillStyle = '#2b2d31'
+        ctx.fillRect(px, py, size, size)
+        ctx.fillStyle = '#474b53'
+        ctx.fillRect(px + 1, py + 1, size / 2 - 2, size / 2 - 2)
+        ctx.fillRect(px + size / 2, py + 1, size / 2 - 1, size / 2 - 2)
+        ctx.fillRect(px + 1, py + size / 2, size - 2, size / 2 - 1)
+        // Stone Highlights & Shadows
+        ctx.fillStyle = '#686d76'
+        ctx.fillRect(px + 2, py + 2, size / 2 - 4, 2)
+        ctx.fillStyle = '#1e1f22'
+        ctx.fillRect(px + 1, py + size / 2 - 2, size - 2, 1)
+        break
+
+      case 'forge_dark_brick':
+        // Dark Soot Refractory Brick Wall
+        ctx.fillStyle = '#1a1b1e'
+        ctx.fillRect(px, py, size, size)
+        ctx.fillStyle = '#5c2b29'
+        ctx.fillRect(px + 1, py + 2, size - 2, 7)
+        ctx.fillRect(px + 1, py + 11, size / 2 - 2, 7)
+        ctx.fillRect(px + size / 2 + 1, py + 11, size / 2 - 2, 7)
+        ctx.fillRect(px + 1, py + 20, size - 2, 7)
+        // Mortar lines
+        ctx.fillStyle = '#2c2e33'
+        ctx.fillRect(px, py + 9, size, 2)
+        ctx.fillRect(px, py + 18, size, 2)
+        ctx.fillRect(px + size / 2, py + 9, 2, 9)
+        break
+
+      case 'habbo_hotel_gold':
+        ctx.fillStyle = '#d4af37'
+        ctx.fillRect(px, py, size, size)
+        ctx.fillStyle = '#f3e5ab'
+        ctx.fillRect(px + 2, py + 2, size - 4, 4)
+        ctx.fillStyle = '#aa820a'
+        ctx.fillRect(px + 2, py + size - 4, size - 4, 3)
+        break
+
+      case 'habbo_brick_classic':
+        ctx.fillStyle = '#c92a2a'
+        ctx.fillRect(px, py, size, size)
+        ctx.fillStyle = '#e03131'
+        ctx.fillRect(px + 1, py + 2, size - 2, 6)
+        ctx.fillRect(px + 1, py + 10, size / 2 - 2, 6)
+        ctx.fillRect(px + size / 2 + 1, py + 10, size / 2 - 2, 6)
+        ctx.fillStyle = '#f8f9fa'
+        ctx.fillRect(px, py + 8, size, 2)
+        ctx.fillRect(px, py + 16, size, 2)
+        break
+
+      case 'habbo_nightclub_dark':
+        ctx.fillStyle = '#1e1b4b'
+        ctx.fillRect(px, py, size, size)
+        ctx.fillStyle = '#4338ca'
+        ctx.fillRect(px + 2, py + 2, size - 4, size - 4)
+        ctx.fillStyle = '#818cf8'
+        ctx.fillRect(px + 4, py + size / 2, size - 8, 2)
+        break
+
+      case 'brick_red':
+        ctx.fillStyle = '#8b0000'
+        ctx.fillRect(px, py, size, size)
+        ctx.fillStyle = '#a52a2a'
+        ctx.fillRect(px + 2, py + 2, size - 4, size - 4)
+        break
+
+      case 'drywall_white':
+        ctx.fillStyle = '#e2e8f0'
+        ctx.fillRect(px, py, size, size)
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(px + 2, py + 2, size - 4, size - 4)
+        break
+
+      case 'wood_panel':
+        ctx.fillStyle = '#78350f'
+        ctx.fillRect(px, py, size, size)
+        ctx.fillStyle = '#92400e'
+        ctx.fillRect(px + 2, py + 2, size - 4, size - 4)
+        break
+
+      case 'glass_modern':
+        ctx.fillStyle = 'rgba(186, 230, 253, 0.6)'
+        ctx.fillRect(px, py, size, size)
+        ctx.strokeStyle = '#0284c7'
+        ctx.strokeRect(px + 1, py + 1, size - 2, size - 2)
+        break
+
+      case 'stone_dark':
+      default:
+        ctx.fillStyle = '#334155'
+        ctx.fillRect(px, py, size, size)
+        ctx.fillStyle = '#475569'
+        ctx.fillRect(px + 2, py + 2, size - 4, size - 4)
+        break
+    }
+    ctx.restore()
+  }
+
+  /**
+   * Draw Exact Gather Room Architecture Textured with Zone Wall Type:
+   * 1. Tall Themed Back Wall with trim & baseboard.
+   * 2. Side Partitions with corresponding material.
+   * 3. Solid 3D Front Wall Blocks with doorway.
    */
   static drawGatherRoom(ctx: CanvasRenderingContext2D, zone: PrivateZone, zones: PrivateZone[] = []) {
+    if (zone.hasWalls === false) return
+
     const minX = Math.floor(zone.x * TILE_SIZE)
     const maxX = Math.floor((zone.x + zone.width) * TILE_SIZE)
     const minY = Math.floor(zone.y * TILE_SIZE)
@@ -142,11 +435,20 @@ export class PixelArtRenderer {
 
     ctx.save()
 
-    const wallBodyColor = '#d5dee5'
-    const whiteBorderColor = '#ffffff'
-    const bevelColor = '#b8c9d9'
-    const shadowLineColor = '#7d91a3'
-    const baseboardColor = '#deb887'
+    // 1. Check custom user wall texture
+    const customAsset = useCustomAssetsStore.getState().getAssetById(zone.wallType || '')
+    let customPattern: CanvasPattern | null = null
+
+    if (customAsset && customAsset.frames && customAsset.frames.length > 0) {
+      const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
+      const img = getCustomAssetImage(customAsset.frames[frameIdx])
+      if (img && img.complete && img.naturalWidth > 0) {
+        customPattern = ctx.createPattern(img, 'repeat')
+      }
+    }
+
+    const theme = getZoneWallTheme(zone.wallType || 'drywall_white')
+    const wallBodyColor = theme.wallBody
 
     // Height of back wall (approx 2 tiles = 64px)
     const backWallH = Math.min(Math.floor(h * 0.32), 64)
@@ -159,108 +461,139 @@ export class PixelArtRenderer {
     const doorStartX = minX + Math.floor((w - doorW) / 2)
     const doorEndX = doorStartX + doorW
 
-    // ==========================================
-    // 1. TALL BACK WALL (Parte de Trás para Janelas/Decorações)
-    // ==========================================
-    // Solid Back Wall Body
-    ctx.fillStyle = wallBodyColor
-    ctx.fillRect(minX, minY, w, backWallH)
+    // Unified helper to render the wall material/texture seamlessly
+    const fillWallTexture = (rx: number, ry: number, rw: number, rh: number) => {
+      if (customPattern) {
+        ctx.fillStyle = customPattern
+        ctx.fillRect(rx, ry, rw, rh)
+      } else {
+        ctx.fillStyle = wallBodyColor
+        ctx.fillRect(rx, ry, rw, rh)
 
-    // Outer White Trim (Top, Left, Right)
-    ctx.fillStyle = whiteBorderColor
-    ctx.fillRect(minX, minY, w, 2.5) // Top border
-    ctx.fillRect(minX, minY, 2.5, backWallH) // Left border
-    ctx.fillRect(maxX - 2.5, minY, 2.5, backWallH) // Right border
-
-    // Bottom Shadow Line & Wooden Baseboard Trim
-    ctx.fillStyle = shadowLineColor
-    ctx.fillRect(minX + 2.5, minY + backWallH - 4, w - 5, 1)
-    ctx.fillStyle = baseboardColor
-    ctx.fillRect(minX + 2.5, minY + backWallH - 3, w - 5, 3)
-
-    // ==========================================
-    // 2. THIN SIDE WALLS (Paredes Laterais Minimalistas de Vidro/Brancas)
-    // ==========================================
-    const sideTopY = minY + backWallH
-    const sideBottomY = frontWallY
-    const sideHeight = sideBottomY - sideTopY
-
-    if (sideHeight > 0) {
-      // Left Thin Side Wall
-      ctx.fillStyle = whiteBorderColor
-      ctx.fillRect(minX, sideTopY, 2.5, sideHeight)
-      ctx.fillStyle = bevelColor
-      ctx.fillRect(minX + 2.5, sideTopY, 1.5, sideHeight)
-
-      // Right Thin Side Wall
-      ctx.fillStyle = whiteBorderColor
-      ctx.fillRect(maxX - 2.5, sideTopY, 2.5, sideHeight)
-      ctx.fillStyle = bevelColor
-      ctx.fillRect(maxX - 4, sideTopY, 1.5, sideHeight)
+        if (theme.isBrick) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
+          for (let by = ry + 6; by < ry + rh - 4; by += 8) {
+            ctx.fillRect(rx, by, rw, 1)
+          }
+        } else if (theme.isWood) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'
+          for (let bx = rx + 16; bx < rx + rw; bx += 16) {
+            ctx.fillRect(bx, ry, 1, rh)
+          }
+        } else if (theme.isGlass) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.35)'
+          ctx.fillRect(rx + 2, ry + 2, rw - 4, rh - 4)
+        }
+      }
     }
 
     // ==========================================
-    // 3. FRONT WALL BLOCKS (Paredes da Frente com Porta Central)
+    // 1. TALL BACK WALL (Parede de Fundo 100% com a Textura da Parede)
+    // ==========================================
+    fillWallTexture(minX, minY, w, backWallH)
+
+    // Subtle natural depth shadows (ceiling top shadow & floor contact shadow)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
+    ctx.fillRect(minX, minY, w, 2)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)'
+    ctx.fillRect(minX, minY + backWallH - 3, w, 3)
+
+    // ==========================================
+    // 2. SIDE WALLS (Paredes Laterais com a Textura Real)
+    // ==========================================
+    const sideTopY = minY + backWallH
+    const sideBottomY = frontWallY
+
+    // Check adjacent neighbor zones on Left & Right
+    const leftNeighbor = zones.find(
+      (z) =>
+        z.id !== zone.id &&
+        z.hasWalls !== false &&
+        Math.abs(Math.floor((z.x + z.width) * TILE_SIZE) - minX) <= 4 &&
+        Math.max(z.y, zone.y) < Math.min(z.y + z.height, zone.y + zone.height)
+    )
+
+    const rightNeighbor = zones.find(
+      (z) =>
+        z.id !== zone.id &&
+        z.hasWalls !== false &&
+        Math.abs(maxX - Math.floor(z.x * TILE_SIZE)) <= 4 &&
+        Math.max(z.y, zone.y) < Math.min(z.y + z.height, zone.y + zone.height)
+    )
+
+    // --- LEFT SIDE WALL ---
+    if (leftNeighbor) {
+      const overlapMinY = Math.max(minY, Math.floor(leftNeighbor.y * TILE_SIZE))
+      const overlapMaxY = Math.min(maxY, Math.floor((leftNeighbor.y + leftNeighbor.height) * TILE_SIZE))
+      const overlapH = overlapMaxY - overlapMinY
+      const doorH = Math.min(Math.floor(overlapH * 0.65), 72)
+      const doorStartY = overlapMinY + Math.floor((overlapH - doorH) / 2)
+      const doorEndY = doorStartY + doorH
+
+      if (doorStartY > sideTopY) {
+        fillWallTexture(minX, sideTopY, 6, doorStartY - sideTopY)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+        ctx.fillRect(minX + 5, sideTopY, 1, doorStartY - sideTopY)
+      }
+      if (sideBottomY > doorEndY) {
+        fillWallTexture(minX, doorEndY, 6, sideBottomY - doorEndY)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+        ctx.fillRect(minX + 5, doorEndY, 1, sideBottomY - doorEndY)
+      }
+    } else if (sideBottomY > sideTopY) {
+      fillWallTexture(minX, sideTopY, 6, sideBottomY - sideTopY)
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+      ctx.fillRect(minX + 5, sideTopY, 1, sideBottomY - sideTopY)
+    }
+
+    // --- RIGHT SIDE WALL ---
+    if (rightNeighbor) {
+      const overlapMinY = Math.max(minY, Math.floor(rightNeighbor.y * TILE_SIZE))
+      const overlapMaxY = Math.min(maxY, Math.floor((rightNeighbor.y + rightNeighbor.height) * TILE_SIZE))
+      const overlapH = overlapMaxY - overlapMinY
+      const doorH = Math.min(Math.floor(overlapH * 0.65), 72)
+      const doorStartY = overlapMinY + Math.floor((overlapH - doorH) / 2)
+      const doorEndY = doorStartY + doorH
+
+      if (doorStartY > sideTopY) {
+        fillWallTexture(maxX - 6, sideTopY, 6, doorStartY - sideTopY)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+        ctx.fillRect(maxX - 6, sideTopY, 1, doorStartY - sideTopY)
+      }
+      if (sideBottomY > doorEndY) {
+        fillWallTexture(maxX - 6, doorEndY, 6, sideBottomY - doorEndY)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+        ctx.fillRect(maxX - 6, doorEndY, 1, sideBottomY - doorEndY)
+      }
+    } else if (sideBottomY > sideTopY) {
+      fillWallTexture(maxX - 6, sideTopY, 6, sideBottomY - sideTopY)
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+      ctx.fillRect(maxX - 6, sideTopY, 1, sideBottomY - sideTopY)
+    }
+
+    // ==========================================
+    // 3. FRONT WALL BLOCKS (Paredes da Frente com a Textura Real)
     // ==========================================
     // Left Front Block
     const leftBlockW = doorStartX - minX
     if (leftBlockW > 0) {
-      // Front Body
-      ctx.fillStyle = wallBodyColor
-      ctx.fillRect(minX, frontWallY, leftBlockW, frontWallH)
-
-      // Top White Ledge & Bevel
-      ctx.fillStyle = whiteBorderColor
-      ctx.fillRect(minX, frontWallY, leftBlockW, 3.5)
-      ctx.fillStyle = bevelColor
-      ctx.fillRect(minX, frontWallY + 3.5, leftBlockW, 2)
-
-      // Outer White Borders
-      ctx.fillStyle = whiteBorderColor
-      ctx.fillRect(minX, frontWallY, 2.5, frontWallH) // Left
-      ctx.fillRect(doorStartX - 2, frontWallY, 2, frontWallH) // Door jamb right
-      ctx.fillStyle = bevelColor
-      ctx.fillRect(minX, maxY - 1.5, leftBlockW, 1.5) // Bottom line
+      fillWallTexture(minX, frontWallY, leftBlockW, frontWallH)
+      // Top rim & doorway shadows
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.28)'
+      ctx.fillRect(minX, frontWallY, leftBlockW, 2)
+      ctx.fillRect(doorStartX - 2, frontWallY, 2, frontWallH)
     }
 
     // Right Front Block
     const rightBlockW = maxX - doorEndX
     if (rightBlockW > 0) {
-      // Front Body
-      ctx.fillStyle = wallBodyColor
-      ctx.fillRect(doorEndX, frontWallY, rightBlockW, frontWallH)
-
-      // Top White Ledge & Bevel
-      ctx.fillStyle = whiteBorderColor
-      ctx.fillRect(doorEndX, frontWallY, rightBlockW, 3.5)
-      ctx.fillStyle = bevelColor
-      ctx.fillRect(doorEndX, frontWallY + 3.5, rightBlockW, 2)
-
-      // Outer White Borders
-      ctx.fillStyle = whiteBorderColor
-      ctx.fillRect(doorEndX, frontWallY, 2, frontWallH) // Door jamb left
-      ctx.fillRect(maxX - 2.5, frontWallY, 2.5, frontWallH) // Right
-      ctx.fillStyle = bevelColor
-      ctx.fillRect(doorEndX, maxY - 1.5, rightBlockW, 1.5) // Bottom line
+      fillWallTexture(doorEndX, frontWallY, rightBlockW, frontWallH)
+      // Top rim & doorway shadows
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.28)'
+      ctx.fillRect(doorEndX, frontWallY, rightBlockW, 2)
+      ctx.fillRect(doorEndX, frontWallY, 2, frontWallH)
     }
 
-    ctx.restore()
-  }
-
-  /**
-   * Draw Wall Tile (Fallback / Palette preview)
-   */
-  static drawWall(ctx: CanvasRenderingContext2D, type: WallType, x: number, y: number, size: number = TILE_SIZE) {
-    const px = Math.floor(x)
-    const py = Math.floor(y)
-
-    ctx.save()
-    ctx.fillStyle = '#d5dee5'
-    ctx.fillRect(px, py, size, size)
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(px, py, size, 3)
-    ctx.fillStyle = '#b8c9d9'
-    ctx.fillRect(px, py + size - 2, size, 2)
     ctx.restore()
   }
 
@@ -268,6 +601,34 @@ export class PixelArtRenderer {
    * Draw 2D Furniture & Wall Decors
    */
   static drawFurniture(ctx: CanvasRenderingContext2D, furn: PlacedFurniture) {
+    // 1. Check custom user element
+    const customAsset = useCustomAssetsStore.getState().getAssetById(furn.defId)
+    if (customAsset && customAsset.frames && customAsset.frames.length > 0) {
+      const px = Math.floor(furn.x * TILE_SIZE)
+      const py = Math.floor(furn.y * TILE_SIZE)
+      const w = customAsset.width * TILE_SIZE
+      const h = customAsset.height * TILE_SIZE
+
+      ctx.save()
+      if (customAsset.category !== 'walls_windows') {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
+        ctx.beginPath()
+        ctx.ellipse(px + w / 2, py + h - 2, w / 2 - 2, 5, 0, 0, Math.PI * 2)
+        ctx.fill()
+      }
+
+      const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
+      const img = getCustomAssetImage(customAsset.frames[frameIdx])
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, px, py, w, h)
+      } else {
+        ctx.fillStyle = customAsset.iconColor || '#e03131'
+        ctx.fillRect(px + 2, py + 2, w - 4, h - 4)
+      }
+      ctx.restore()
+      return
+    }
+
     const def = FURNITURE_CATALOG.find((f) => f.id === furn.defId)
     if (!def) return
 
@@ -689,6 +1050,39 @@ export class PixelArtRenderer {
         ctx.fillStyle = '#495057'
         ctx.fillRect(px + 6, py + 6, w - 12, h - 12)
         break
+
+      // ==========================================
+      // 4. FORJA ANTIGA / BLACKSMITH WORKSHOP (LPC)
+      // ==========================================
+      case 'forge_kiln_tall_chimney': {
+        const fireFrames = ['forge_kiln_tall_chimney_f1', 'forge_kiln_tall_chimney_f2', 'forge_kiln_tall_chimney_f3', 'forge_kiln_tall_chimney_f2']
+        const frameIdx = Math.floor((Date.now() / 150) % fireFrames.length)
+        const img = getBlacksmithItemImage(fireFrames[frameIdx]) || getBlacksmithItemImage('forge_kiln_tall_chimney_f2')
+        if (img && img.complete && img.naturalWidth > 0) {
+          ctx.drawImage(img, px, py, w, h)
+        } else {
+          ctx.fillStyle = '#2b2d31'
+          ctx.fillRect(px + 4, py + 4, w - 8, h - 8)
+          ctx.fillStyle = '#ff6b35'
+          ctx.fillRect(px + w / 2 - 12, py + h - 36, 24, 24)
+        }
+        break
+      }
+
+      case 'forge_conical_smelter': {
+        const fireFrames = ['forge_conical_smelter_f0', 'forge_conical_smelter_f1', 'forge_conical_smelter_f2', 'forge_conical_smelter_f1']
+        const frameIdx = Math.floor((Date.now() / 160) % fireFrames.length)
+        const img = getBlacksmithItemImage(fireFrames[frameIdx]) || getBlacksmithItemImage('forge_conical_smelter_f1')
+        if (img && img.complete && img.naturalWidth > 0) {
+          ctx.drawImage(img, px, py, w, h)
+        } else {
+          ctx.fillStyle = '#5c3a21'
+          ctx.fillRect(px + 8, py + 8, w - 16, h - 16)
+          ctx.fillStyle = '#ff6b35'
+          ctx.fillRect(px + w / 2 - 20, py + h - 40, 40, 28)
+        }
+        break
+      }
 
       case 'ping_pong_table':
         ctx.fillStyle = '#2b8a3e'

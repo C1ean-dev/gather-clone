@@ -1,9 +1,9 @@
 import { create } from 'zustand'
-import { Player, PresenceStatus, ReactionItem, AvatarConfig } from '../types/game'
+import { Player, PresenceStatus, ReactionItem, AvatarConfig, PublicRoomCategory } from '../types/game'
 import { DEFAULT_AVATAR } from '../engine/Constants'
+import { PublicRoomsService } from '../services/publicRoomsService'
 
 const PROFILE_STORAGE_KEY = 'gather_v2_user_profile'
-const AVAILABLE_ROOMS_KEY = 'gather_v2_available_rooms'
 
 interface SavedProfile {
   id?: string
@@ -39,37 +39,16 @@ const saveProfile = (data: Partial<SavedProfile>) => {
   }
 }
 
-const syncPublicRoomRegistration = (roomId: string | null, isPublic: boolean, roomName?: string) => {
-  if (!roomId || typeof window === 'undefined' || typeof window.localStorage !== 'undefined' === false) return
-  try {
-    const raw = window.localStorage.getItem(AVAILABLE_ROOMS_KEY)
-    let rooms: any[] = raw ? JSON.parse(raw) : []
-    if (!Array.isArray(rooms)) rooms = []
-
-    if (isPublic) {
-      const existingIdx = rooms.findIndex((r) => r.code === roomId)
-      const roomEntry = {
-        id: 'avail-' + roomId,
-        name: roomName || `Espaço Público (${roomId})`,
-        code: roomId,
-        color: '#3b82f6',
-        description: 'Sala pública aberta para todos',
-      }
-      if (existingIdx >= 0) {
-        rooms[existingIdx] = roomEntry
-      } else {
-        rooms.unshift(roomEntry)
-      }
-    } else {
-      rooms = rooms.filter((r) => r.code !== roomId)
-    }
-    window.localStorage.setItem(AVAILABLE_ROOMS_KEY, JSON.stringify(rooms))
-  } catch (e) {
-    // Ignore
-  }
-}
-
 const saved = loadSavedProfile() || {}
+
+interface RoomSessionOptions {
+  roomName?: string
+  roomDescription?: string
+  roomCategory?: 'work' | 'coffee' | 'games' | 'study' | 'general'
+  isPublic?: boolean
+  maxPlayers?: number
+  color?: string
+}
 
 interface GameStore {
   // Local Player
@@ -91,10 +70,16 @@ interface GameStore {
   isHost: boolean
   isConnected: boolean
   isRoomPublic: boolean
-  setRoomSession: (roomId: string, isHost: boolean) => void
+  roomName: string
+  roomDescription: string
+  roomCategory: 'work' | 'coffee' | 'games' | 'study' | 'general'
+  maxPlayers: number
+  roomColor: string
+  setRoomSession: (roomId: string, isHost: boolean, options?: RoomSessionOptions) => void
   setConnected: (connected: boolean) => void
   setIsRoomPublic: (isPublic: boolean) => void
   toggleRoomPrivacy: () => void
+  updatePublicRoomDetails: (details: Partial<RoomSessionOptions>) => void
 
   // Floating Reactions
   reactions: ReactionItem[]
@@ -203,30 +188,130 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set((state) => {
       const next = { ...state.remotePlayers }
       delete next[id]
+      if (state.isHost && state.isRoomPublic) {
+        PublicRoomsService.getInstance().updateHosting({
+          playerCount: Object.keys(next).length + 1,
+        })
+      }
       return { remotePlayers: next }
     }),
 
-  clearRemotePlayers: () => set({ remotePlayers: {} }),
+  clearRemotePlayers: () => {
+    const { isHost, isRoomPublic } = get()
+    if (isHost && isRoomPublic) {
+      PublicRoomsService.getInstance().updateHosting({
+        playerCount: 1,
+      })
+    }
+    set({ remotePlayers: {} })
+  },
 
   roomId: null,
   isHost: false,
   isConnected: false,
   isRoomPublic: false,
+  roomName: 'Espaço Principal',
+  roomDescription: 'Sala aberta e compartilhada',
+  roomCategory: 'general',
+  maxPlayers: 20,
+  roomColor: '#3b82f6',
 
-  setRoomSession: (roomId, isHost) => set({ roomId, isHost, isRoomPublic: false }),
-  setConnected: (isConnected) => set({ isConnected }),
+  setRoomSession: (roomId, isHost, options) => {
+    const isPublic = options?.isPublic ?? false
+    const name = options?.roomName || `Espaço de ${get().localPlayer.name}`
+    const description = options?.roomDescription || 'Espaço virtual Gather V2'
+    const category = options?.roomCategory || 'general'
+    const maxPlayers = options?.maxPlayers || 20
+    const color = options?.color || '#3b82f6'
+
+    set({
+      roomId,
+      isHost,
+      isRoomPublic: isPublic,
+      roomName: name,
+      roomDescription: description,
+      roomCategory: category,
+      maxPlayers,
+      roomColor: color,
+    })
+
+    if (isHost && isPublic) {
+      PublicRoomsService.getInstance().startHosting({
+        id: 'room-' + roomId,
+        code: roomId,
+        name,
+        description,
+        category,
+        hostId: get().localPlayer.id,
+        hostName: get().localPlayer.name,
+        hostAvatar: get().localPlayer.avatar,
+        hostColor: get().localPlayer.avatar?.shirtColor || '#4c6ef5',
+        playerCount: 1,
+        maxPlayers,
+        color,
+      })
+    } else {
+      PublicRoomsService.getInstance().stopHosting()
+    }
+  },
+
+  setConnected: (isConnected) => {
+    set({ isConnected })
+    if (!isConnected) {
+      PublicRoomsService.getInstance().stopHosting()
+    }
+  },
 
   setIsRoomPublic: (isRoomPublic) => {
-    const { roomId } = get()
-    syncPublicRoomRegistration(roomId, isRoomPublic)
+    const state = get()
+    if (!state.roomId || !state.isHost) return
+
     set({ isRoomPublic })
+
+    if (isRoomPublic) {
+      PublicRoomsService.getInstance().startHosting({
+        id: 'room-' + state.roomId,
+        code: state.roomId,
+        name: state.roomName,
+        description: state.roomDescription,
+        category: state.roomCategory,
+        hostId: state.localPlayer.id,
+        hostName: state.localPlayer.name,
+        hostAvatar: state.localPlayer.avatar,
+        hostColor: state.localPlayer.avatar?.shirtColor || '#4c6ef5',
+        playerCount: Object.keys(state.remotePlayers).length + 1,
+        maxPlayers: state.maxPlayers,
+        color: state.roomColor,
+      })
+    } else {
+      PublicRoomsService.getInstance().stopHosting()
+    }
   },
 
   toggleRoomPrivacy: () => {
-    const { roomId, isRoomPublic } = get()
-    const nextState = !isRoomPublic
-    syncPublicRoomRegistration(roomId, nextState)
-    set({ isRoomPublic: nextState })
+    const { isRoomPublic, setIsRoomPublic } = get()
+    setIsRoomPublic(!isRoomPublic)
+  },
+
+  updatePublicRoomDetails: (details) => {
+    set((state) => ({
+      roomName: details.roomName ?? state.roomName,
+      roomDescription: details.roomDescription ?? state.roomDescription,
+      roomCategory: details.roomCategory ?? state.roomCategory,
+      maxPlayers: details.maxPlayers ?? state.maxPlayers,
+      roomColor: details.color ?? state.roomColor,
+    }))
+
+    const state = get()
+    if (state.isHost && state.isRoomPublic) {
+      PublicRoomsService.getInstance().updateHosting({
+        name: state.roomName,
+        description: state.roomDescription,
+        category: state.roomCategory,
+        maxPlayers: state.maxPlayers,
+        color: state.roomColor,
+      })
+    }
   },
 
   reactions: [],
