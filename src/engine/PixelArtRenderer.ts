@@ -1055,32 +1055,22 @@ export class PixelArtRenderer {
       // 4. FORJA ANTIGA / BLACKSMITH WORKSHOP (LPC)
       // ==========================================
       case 'forge_kiln_tall_chimney': {
-        const fireFrames = ['forge_kiln_tall_chimney_f1', 'forge_kiln_tall_chimney_f2', 'forge_kiln_tall_chimney_f3', 'forge_kiln_tall_chimney_f2']
-        const frameIdx = Math.floor((Date.now() / 150) % fireFrames.length)
-        const img = getBlacksmithItemImage(fireFrames[frameIdx]) || getBlacksmithItemImage('forge_kiln_tall_chimney_f2')
-        if (img && img.complete && img.naturalWidth > 0) {
-          ctx.drawImage(img, px, py, w, h)
-        } else {
-          ctx.fillStyle = '#2b2d31'
-          ctx.fillRect(px + 4, py + 4, w - 8, h - 8)
-          ctx.fillStyle = '#ff6b35'
-          ctx.fillRect(px + w / 2 - 12, py + h - 36, 24, 24)
-        }
+        ctx.fillStyle = '#2b2d31'
+        ctx.fillRect(px + 4, py + 4, w - 8, h - 8)
+        ctx.fillStyle = '#ff6b35'
+        ctx.fillRect(px + w / 2 - 12, py + h - 36, 24, 24)
+        ctx.fillStyle = '#ffd43b'
+        ctx.fillRect(px + w / 2 - 6, py + h - 28, 12, 12)
         break
       }
 
       case 'forge_conical_smelter': {
-        const fireFrames = ['forge_conical_smelter_f0', 'forge_conical_smelter_f1', 'forge_conical_smelter_f2', 'forge_conical_smelter_f1']
-        const frameIdx = Math.floor((Date.now() / 160) % fireFrames.length)
-        const img = getBlacksmithItemImage(fireFrames[frameIdx]) || getBlacksmithItemImage('forge_conical_smelter_f1')
-        if (img && img.complete && img.naturalWidth > 0) {
-          ctx.drawImage(img, px, py, w, h)
-        } else {
-          ctx.fillStyle = '#5c3a21'
-          ctx.fillRect(px + 8, py + 8, w - 16, h - 16)
-          ctx.fillStyle = '#ff6b35'
-          ctx.fillRect(px + w / 2 - 20, py + h - 40, 40, 28)
-        }
+        ctx.fillStyle = '#5c3a21'
+        ctx.fillRect(px + 8, py + 8, w - 16, h - 16)
+        ctx.fillStyle = '#ff6b35'
+        ctx.fillRect(px + w / 2 - 20, py + h - 40, 40, 28)
+        ctx.fillStyle = '#ffd43b'
+        ctx.fillRect(px + w / 2 - 10, py + h - 30, 20, 16)
         break
       }
 

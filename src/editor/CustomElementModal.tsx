@@ -214,8 +214,7 @@ export const CustomElementModal: React.FC = () => {
     if (newType === 'floor') {
       // Floors: Default 1x1 (32x32) tile, 0 collision
       setBoardSizeInTiles(1, 1)
-      setCropWidth(32)
-      setCropHeight(32)
+      setSelection((prev) => ({ ...prev, w: 32, h: 32 }))
       setComposeTool('move')
       setShowCollisionOverlay(false)
       handleSetAllCollision(false)
@@ -225,8 +224,7 @@ export const CustomElementModal: React.FC = () => {
     } else if (newType === 'wall') {
       // Walls: Default 1x1 (32x32) tile texture, collision handled by zones
       setBoardSizeInTiles(1, 1)
-      setCropWidth(32)
-      setCropHeight(32)
+      setSelection((prev) => ({ ...prev, w: 32, h: 32 }))
       setComposeTool('move')
       setShowCollisionOverlay(false)
       handleSetAllCollision(false)
