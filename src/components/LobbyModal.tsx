@@ -33,76 +33,19 @@ import { PublicSpaceInfo } from '../types/game'
 
 const PUBLIC_SPACES_KEY = 'gather_v2_public_spaces'
 
-const DEFAULT_PUBLIC_SPACES: PublicSpaceInfo[] = [
-  {
-    id: 'pub-tech-hub',
-    name: '🏢 Gather Central Hub - Tech & Devs',
-    description: 'Espaço principal da comunidade para troca de ideias sobre programação, IA e projetos.',
-    category: 'tech',
-    onlineCount: 14,
-    code: 'GATHER-PUBLIC-TECH',
-    color: '#3b82f6',
-    tags: ['#programação', '#tecnologia', '#ia', '#devs'],
-    isOfficial: true,
-  },
-  {
-    id: 'pub-lounge-cafe',
-    name: '☕ Lounge & Café Co-work',
-    description: 'Ambiente descontraído para bater papo, networking informal e relaxar com um cafezinho virtual.',
-    category: 'lounge',
-    onlineCount: 8,
-    code: 'GATHER-PUBLIC-LOUNGE',
-    color: '#f59e0b',
-    tags: ['#café', '#chill', '#conversa', '#networking'],
-    isOfficial: true,
-  },
-  {
-    id: 'pub-gaming-chill',
-    name: '🎮 Sala Gamer & Boardgames',
-    description: 'Encontro para quem curte conversar sobre jogos retrô, indie games e jogatinas multiplayer.',
-    category: 'gaming',
-    onlineCount: 11,
-    code: 'GATHER-PUBLIC-GAMES',
-    color: '#ec4899',
-    tags: ['#jogos', '#pixelart', '#rpg', '#diversão'],
-    isOfficial: true,
-  },
-  {
-    id: 'pub-startup-hq',
-    name: '🚀 Startup HQ & Coworking 24/7',
-    description: 'Escritório colaborativo com mesas para sprints, pitch de projetos e foco em equipe.',
-    category: 'office',
-    onlineCount: 6,
-    code: 'GATHER-PUBLIC-STARTUP',
-    color: '#10b981',
-    tags: ['#startups', '#empreendedorismo', '#foco'],
-    isOfficial: true,
-  },
-  {
-    id: 'pub-study-library',
-    name: '📚 Biblioteca & Modo Foco Silencioso',
-    description: 'Sala de estudos Pomodoro silenciosa. Microfones fechados e concentração total.',
-    category: 'study',
-    onlineCount: 9,
-    code: 'GATHER-PUBLIC-STUDY',
-    color: '#8b5cf6',
-    tags: ['#estudos', '#pomodoro', '#silêncio', '#livros'],
-    isOfficial: true,
-  },
-]
-
 const loadSavedPublicSpaces = (): PublicSpaceInfo[] => {
   try {
     if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
       const raw = window.localStorage.getItem(PUBLIC_SPACES_KEY)
       if (raw) {
-        return JSON.parse(raw)
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) return parsed
       }
     }
   } catch (e) {
     // Ignore
   }
-  return DEFAULT_PUBLIC_SPACES
+  return []
 }
 
 const savePublicSpaces = (spaces: PublicSpaceInfo[]) => {
@@ -233,6 +176,12 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
     setIsCreatingPublicSpace(false)
     setNewSpaceName('')
     setNewSpaceDesc('')
+  }
+
+  const handleDeletePublicSpace = (id: string) => {
+    const updated = publicSpaces.filter((s) => s.id !== id)
+    setPublicSpaces(updated)
+    savePublicSpaces(updated)
   }
 
   const handleStart = async (e: React.FormEvent) => {
@@ -594,7 +543,9 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
             <div className="space-y-2.5 max-h-[260px] overflow-y-auto pr-1">
               {filteredPublicSpaces.length === 0 ? (
                 <div className="text-center py-8 text-slate-400 text-xs bg-[#12151d] rounded-2xl border border-[#2a3142] p-4">
-                  Nenhum servidor público encontrado com esse termo.
+                  {publicSpaces.length === 0
+                    ? 'Nenhuma sala pública disponível no momento. Clique em "+ Criar Espaço Público" para criar uma sala aberta!'
+                    : 'Nenhuma sala encontrada para esta busca/categoria.'}
                 </div>
               ) : (
                 filteredPublicSpaces.map((space) => (
@@ -611,20 +562,25 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-slate-100 truncate">{space.name}</span>
-                            {space.isOfficial && (
-                              <span className="text-[9px] bg-blue-500/20 text-blue-300 font-extrabold px-1.5 py-0.2 rounded border border-blue-500/30">
-                                OFICIAL
-                              </span>
-                            )}
                           </div>
                           <p className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">{space.description}</p>
                         </div>
                       </div>
 
-                      {/* Online count */}
-                      <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full shrink-0 border border-emerald-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        <span>{space.onlineCount} online</span>
+                      {/* Online count & Delete */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span>{space.onlineCount} online</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePublicSpace(space.id)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                          title="Excluir Espaço Público"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
 
