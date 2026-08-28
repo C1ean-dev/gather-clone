@@ -44,7 +44,7 @@ export function applyBackgroundRemoval(
   sourceCanvas: HTMLCanvasElement,
   targetColor: RGBColor,
   tolerance: number, // 0 to 100
-  removeWhiteFringe: boolean = true
+  removeWhiteFringe: boolean = false
 ): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.width = sourceCanvas.width
@@ -57,9 +57,11 @@ export function applyBackgroundRemoval(
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const data = imgData.data
 
-  // Calculate distance threshold based on tolerance (0 to 100)
-  // Max Manhattan distance in RGB is 255 * 3 = 765
-  const maxDistance = (tolerance / 100) * 180
+  // Calculate Euclidean distance threshold based on tolerance (0 to 100)
+  // Max Euclidean distance in RGB is sqrt(255^2 * 3) ~= 441.67
+  const maxDistance = (tolerance / 100) * 260
+
+  const isTargetWhite = targetColor.r > 230 && targetColor.g > 230 && targetColor.b > 230
 
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i]
@@ -69,13 +71,16 @@ export function applyBackgroundRemoval(
 
     if (a === 0) continue
 
-    // Manhattan color distance
-    const dist = Math.abs(r - targetColor.r) + Math.abs(g - targetColor.g) + Math.abs(b - targetColor.b)
+    // Euclidean color distance for superior chroma keying
+    const dr = r - targetColor.r
+    const dg = g - targetColor.g
+    const db = b - targetColor.b
+    const dist = Math.sqrt(dr * dr + dg * dg + db * db)
 
     if (dist <= maxDistance) {
       data[i + 3] = 0 // Transparent
-    } else if (removeWhiteFringe && r > 215 && g > 215 && b > 215 && tolerance > 15) {
-      // Clean high-contrast white edge artifacts
+    } else if (removeWhiteFringe && isTargetWhite && r > 240 && g > 240 && b > 240) {
+      // Only clean white fringe if background was white
       data[i + 3] = 0
     }
   }

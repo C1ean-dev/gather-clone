@@ -479,6 +479,7 @@ export class CanvasEngine {
     if (isNaN(this.camera.y)) this.camera.y = 20 * TILE_SIZE
 
     ctx.save()
+    ctx.imageSmoothingEnabled = false
 
     try {
       // Center camera on player
@@ -486,6 +487,7 @@ export class CanvasEngine {
       const viewHeight = canvas.height / this.camera.zoom
 
       ctx.scale(this.camera.zoom, this.camera.zoom)
+      ctx.imageSmoothingEnabled = false
       ctx.translate(
         Math.floor(viewWidth / 2 - this.camera.x),
         Math.floor(viewHeight / 2 - this.camera.y)

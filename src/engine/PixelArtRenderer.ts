@@ -610,6 +610,8 @@ export class PixelArtRenderer {
       const h = customAsset.height * TILE_SIZE
 
       ctx.save()
+      ctx.imageSmoothingEnabled = false
+
       if (customAsset.category !== 'walls_windows') {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
         ctx.beginPath()
@@ -620,7 +622,22 @@ export class PixelArtRenderer {
       const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
       const img = getCustomAssetImage(customAsset.frames[frameIdx])
       if (img && img.complete && img.naturalWidth > 0) {
-        ctx.drawImage(img, px, py, w, h)
+        const imgW = img.naturalWidth
+        const imgH = img.naturalHeight
+
+        if (imgW === w && imgH === h) {
+          ctx.drawImage(img, px, py, w, h)
+        } else {
+          // Calculate proportional scale to fit within bounding box without distortion
+          const scale = Math.min(w / imgW, h / imgH)
+          // If image is smaller than tile box, keep 1:1 crisp scale or integer scale
+          const drawW = Math.round(imgW * (scale < 1 ? scale : 1))
+          const drawH = Math.round(imgH * (scale < 1 ? scale : 1))
+          const offX = px + Math.floor((w - drawW) / 2)
+          const offY = py + (h - drawH) // Bottom-aligned to floor
+
+          ctx.drawImage(img, offX, offY, drawW, drawH)
+        }
       } else {
         ctx.fillStyle = customAsset.iconColor || '#e03131'
         ctx.fillRect(px + 2, py + 2, w - 4, h - 4)
