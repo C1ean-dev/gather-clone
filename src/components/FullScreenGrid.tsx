@@ -64,40 +64,28 @@ const GridParticipantTile: React.FC<GridParticipantTileProps> = ({
   onOpenLiveFullscreen,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const screenRef = useRef<HTMLVideoElement | null>(null)
   const { outputVolume, selectedAudioOutput } = useMediaStore()
 
-  useEffect(() => {
-    if (videoRef.current && user.stream) {
-      videoRef.current.srcObject = user.stream
-    }
-  }, [user.stream])
+  const isLive = user.isScreenSharing || !!user.screenStream
+  const effectiveStream = user.isLocal
+    ? user.screenStream || user.stream
+    : user.stream || user.screenStream
 
   useEffect(() => {
-    if (screenRef.current && user.screenStream) {
-      screenRef.current.srcObject = user.screenStream
+    if (videoRef.current && effectiveStream) {
+      videoRef.current.srcObject = effectiveStream
     }
-  }, [user.screenStream])
+  }, [effectiveStream])
 
   useEffect(() => {
-    if (!user.isLocal) {
+    if (!user.isLocal && videoRef.current) {
       const vol = Math.max(0, Math.min(1, outputVolume / 100))
-      if (videoRef.current) {
-        videoRef.current.volume = vol
-        if (typeof (videoRef.current as any).setSinkId === 'function' && selectedAudioOutput) {
-          ;(videoRef.current as any).setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput).catch(() => {})
-        }
-      }
-      if (screenRef.current) {
-        screenRef.current.volume = vol
-        if (typeof (screenRef.current as any).setSinkId === 'function' && selectedAudioOutput) {
-          ;(screenRef.current as any).setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput).catch(() => {})
-        }
+      videoRef.current.volume = vol
+      if (typeof (videoRef.current as any).setSinkId === 'function' && selectedAudioOutput) {
+        ;(videoRef.current as any).setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput).catch(() => {})
       }
     }
   }, [outputVolume, selectedAudioOutput, user.isLocal])
-
-  const hasLive = user.isScreenSharing || !!user.screenStream
 
   const handleFullscreenClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -114,13 +102,21 @@ const GridParticipantTile: React.FC<GridParticipantTileProps> = ({
         className={`group relative w-full h-28 bg-[#12151d] rounded-2xl overflow-hidden border-2 transition-all flex items-center justify-center shadow-lg cursor-pointer select-none shrink-0 ${
           user.isSpeaking
             ? 'border-emerald-500 ring-2 ring-emerald-500/30'
+            : isLive
+            ? 'border-rose-500/80 hover:border-rose-400'
             : 'border-[#2a3142] hover:border-indigo-500'
         }`}
         title={`Clique para focar em ${user.name}`}
       >
-        {/* Screen / Video */}
-        {user.screenStream ? (
-          <video ref={screenRef} autoPlay playsInline className="w-full h-full object-contain bg-black" />
+        {/* Screen / Video Feed */}
+        {isLive ? (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted={user.isLocal}
+            className="w-full h-full object-contain bg-black"
+          />
         ) : (
           <>
             <video
@@ -144,7 +140,7 @@ const GridParticipantTile: React.FC<GridParticipantTileProps> = ({
         )}
 
         {/* Live Badge if sharing in sidebar */}
-        {hasLive && (
+        {isLive && (
           <div className="absolute top-1.5 left-1.5 flex items-center gap-1 px-1.5 py-0.5 bg-rose-600 text-white rounded-md text-[8px] font-bold shadow animate-pulse">
             <Radio className="w-2.5 h-2.5" />
             <span>AO VIVO</span>
@@ -153,8 +149,10 @@ const GridParticipantTile: React.FC<GridParticipantTileProps> = ({
 
         {/* Small Bottom Name Tag */}
         <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between px-2 py-0.5 bg-black/70 backdrop-blur-md rounded-lg text-[10px] text-white">
-          <span className="truncate font-semibold">{user.isLocal ? `${user.name} (Você)` : user.name}</span>
-          {user.isMuted && <MicOff className="w-2.5 h-2.5 text-rose-400 shrink-0" />}
+          <span className="truncate font-semibold">
+            {isLive ? `Tela (${user.name})` : user.isLocal ? `${user.name} (Você)` : user.name}
+          </span>
+          {user.isMuted && !isLive && <MicOff className="w-2.5 h-2.5 text-rose-400 shrink-0" />}
         </div>
       </div>
     )
@@ -173,9 +171,15 @@ const GridParticipantTile: React.FC<GridParticipantTileProps> = ({
           : 'border-[#2a3142] hover:border-slate-500'
       }`}
     >
-      {/* Screen Share Layer if active */}
-      {user.screenStream ? (
-        <video ref={screenRef} autoPlay playsInline className="w-full h-full object-contain bg-black" />
+      {/* Screen Share or Video Content */}
+      {isLive ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={user.isLocal}
+          className="w-full h-full object-contain bg-black"
+        />
       ) : (
         <>
           {/* Main Camera Video */}
@@ -209,10 +213,10 @@ const GridParticipantTile: React.FC<GridParticipantTileProps> = ({
 
       {/* Top Badges: LIVE indicator + Expand Fullscreen Button */}
       <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none z-10">
-        {hasLive ? (
+        {isLive ? (
           <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-600/95 text-white rounded-xl text-xs font-bold shadow-lg flex-shrink-0 animate-pulse pointer-events-auto">
             <Radio className="w-3.5 h-3.5" />
-            <span>TRANSMISSÃO AO VIVO</span>
+            <span>TRANSMISSÃO AO VIVO DE TELA</span>
           </div>
         ) : (
           <div />
@@ -249,11 +253,11 @@ const GridParticipantTile: React.FC<GridParticipantTileProps> = ({
       {/* Bottom Name Pill & Live Expand Button */}
       <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none z-10">
         <div className="bg-black/80 backdrop-blur-md px-3.5 py-1.5 rounded-xl flex items-center gap-2 border border-white/10 text-xs font-semibold text-white pointer-events-auto">
-          <span>{user.isLocal ? `${user.name} (Você)` : user.name}</span>
-          {user.isMuted && <MicOff className="w-3.5 h-3.5 text-rose-400" />}
+          <span>{isLive ? `Tela de ${user.name}` : user.isLocal ? `${user.name} (Você)` : user.name}</span>
+          {user.isMuted && !isLive && <MicOff className="w-3.5 h-3.5 text-rose-400" />}
         </div>
 
-        {hasLive && (
+        {isLive && (
           <button
             onClick={handleFullscreenClick}
             className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-2xl flex items-center gap-2 pointer-events-auto backdrop-blur-md transition-transform hover:scale-105 active:scale-95"

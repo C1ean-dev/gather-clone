@@ -396,28 +396,52 @@ export class PeerManager {
         const pc = (call as any).peerConnection as RTCPeerConnection
         if (pc) {
           const senders = pc.getSenders()
-          const videoSender = senders.find((s) => s.track && s.track.kind === 'video')
-          if (videoSender && newTrack) {
-            videoSender.replaceTrack(newTrack).then(() => {
-              try {
-                const params = videoSender.getParameters()
-                if (params && params.encodings && params.encodings.length > 0) {
-                  if (isScreenShare) {
-                    params.encodings[0].maxBitrate = maxBitrate // 5000kbps, 6000kbps, 7000kbps, 8000kbps
-                    params.encodings[0].maxFramerate = maxFramerate
-                    params.encodings[0].scaleResolutionDownBy = 1.0
-                    ;(params as any).degradationPreference = 'maintain-resolution'
-                  } else {
-                    params.encodings[0].maxBitrate = 2_000_000
-                    params.encodings[0].maxFramerate = 30
-                    delete (params as any).degradationPreference
+          let videoSender = senders.find((s) => s.track && s.track.kind === 'video')
+          if (!videoSender) {
+            videoSender = senders.find((s) => (s as any).kind === 'video' || (s as any).track?.kind === 'video')
+          }
+          if (!videoSender && pc.getTransceivers) {
+            const videoTransceiver = pc.getTransceivers().find(
+              (t) => (t.sender && t.sender.track?.kind === 'video') || (t.receiver && t.receiver.track?.kind === 'video')
+            )
+            if (videoTransceiver) {
+              videoSender = videoTransceiver.sender
+            }
+          }
+
+          if (videoSender) {
+            videoSender
+              .replaceTrack(newTrack)
+              .then(() => {
+                if (newTrack) {
+                  try {
+                    const params = videoSender.getParameters()
+                    if (params && params.encodings && params.encodings.length > 0) {
+                      if (isScreenShare) {
+                        params.encodings[0].maxBitrate = maxBitrate // 5000kbps, 6000kbps, 7000kbps, 8000kbps
+                        params.encodings[0].maxFramerate = maxFramerate
+                        params.encodings[0].scaleResolutionDownBy = 1.0
+                        ;(params as any).degradationPreference = 'maintain-resolution'
+                      } else {
+                        params.encodings[0].maxBitrate = 2_000_000
+                        params.encodings[0].maxFramerate = 30
+                        delete (params as any).degradationPreference
+                      }
+                      videoSender.setParameters(params).catch(() => {})
+                    }
+                  } catch (paramErr) {
+                    // Ignore on unsupported browsers
                   }
-                  videoSender.setParameters(params).catch(() => {})
                 }
-              } catch (paramErr) {
-                // Ignore on unsupported browsers
-              }
-            }).catch((err) => console.warn('Could not replace video track:', err))
+              })
+              .catch((err) => console.warn('Could not replace video track:', err))
+          } else if (newTrack) {
+            try {
+              const localStream = useMediaStore.getState().localStream || new MediaStream()
+              pc.addTrack(newTrack, localStream)
+            } catch (addErr) {
+              console.warn('Could not addTrack on PeerConnection:', addErr)
+            }
           }
         }
       } catch (err) {

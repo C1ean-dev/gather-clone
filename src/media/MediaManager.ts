@@ -217,18 +217,29 @@ export class MediaManager {
           },
         }
 
-        const audioConstraints: any = includeAudio
-          ? {
-              mandatory: {
-                chromeMediaSource: 'desktop',
+        try {
+          if (includeAudio) {
+            screenStream = await (navigator.mediaDevices as any).getUserMedia({
+              video: videoConstraints,
+              audio: {
+                mandatory: {
+                  chromeMediaSource: 'desktop',
+                },
               },
-            }
-          : false
-
-        screenStream = await (navigator.mediaDevices as any).getUserMedia({
-          video: videoConstraints,
-          audio: audioConstraints,
-        })
+            })
+          } else {
+            screenStream = await (navigator.mediaDevices as any).getUserMedia({
+              video: videoConstraints,
+              audio: false,
+            })
+          }
+        } catch (audioErr) {
+          console.warn('Desktop capture with audio failed, retrying video only:', audioErr)
+          screenStream = await (navigator.mediaDevices as any).getUserMedia({
+            video: videoConstraints,
+            audio: false,
+          })
+        }
       } else {
         screenStream = await navigator.mediaDevices.getDisplayMedia({
           video: {
