@@ -10,6 +10,7 @@ import {
   Share2,
   Lock,
   Globe,
+  Rocket,
   Volume2,
   VolumeX,
 } from 'lucide-react'
@@ -21,9 +22,15 @@ import { PeerManager } from '../p2p/PeerManager'
 
 interface Props {
   onOpenAvatarModal: () => void
+  onOpenUpdateModal?: () => void
+  hasUpdate?: boolean
 }
 
-export const TopNavBar: React.FC<Props> = ({ onOpenAvatarModal }) => {
+export const TopNavBar: React.FC<Props> = ({
+  onOpenAvatarModal,
+  onOpenUpdateModal,
+  hasUpdate,
+}) => {
   const { localPlayer, remotePlayers, roomId, isHost, isRoomPublic, toggleRoomPrivacy } = useGameStore()
   const { mapData, isEditorOpen, toggleEditor } = useMapStore()
   const { isChatOpen, toggleChat, channels } = useChatStore()
@@ -195,6 +202,18 @@ export const TopNavBar: React.FC<Props> = ({ onOpenAvatarModal }) => {
           <Users className="w-3.5 h-3.5 text-emerald-400" />
           <span>{remotePlayerList.length + 1}</span>
         </div>
+
+        {/* Available Update Notification Rocket */}
+        {hasUpdate && onOpenUpdateModal && (
+          <button
+            onClick={onOpenUpdateModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 animate-pulse transition-all hover:scale-105"
+            title="Nova atualização disponível! Clique para ver e atualizar"
+          >
+            <Rocket className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">Atualização!</span>
+          </button>
+        )}
 
         {/* Audio & Video Settings Button */}
         <button

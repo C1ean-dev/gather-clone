@@ -8,21 +8,42 @@ import { ChatDrawer } from './components/ChatDrawer'
 import { AvatarCustomizerModal } from './components/AvatarCustomizerModal'
 import { LobbyModal } from './components/LobbyModal'
 import { AudioSettingsModal } from './components/AudioSettingsModal'
+import { UpdateModal } from './components/UpdateModal'
 import { useGameStore } from './store/useGameStore'
 import { useMediaStore } from './store/useMediaStore'
 import { useChatStore } from './store/useChatStore'
 import { useMapStore } from './store/useMapStore'
+import { UpdateService, UpdateInfo } from './services/updateService'
 
 export const App: React.FC = () => {
   const [inLobby, setInLobby] = useState(true)
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
 
   const { isConnected } = useGameStore()
   const { toggleMute, toggleCamera } = useMediaStore()
   const { toggleChat } = useChatStore()
   const { toggleEditor } = useMapStore()
 
-  // Global Keyboard Shortcuts (M for Mic, V for Video, C for Chat)
+  // 1. Check for updates on startup automatically
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      try {
+        const info = await UpdateService.checkForUpdates()
+        if (info.hasUpdate) {
+          setUpdateInfo(info)
+          setIsUpdateModalOpen(true)
+        }
+      } catch (err) {
+        console.error('Error checking updates on startup:', err)
+      }
+    }, 1500)
+
+    return () => clearTimeout(timer)
+  }, [])
+
+  // 2. Global Keyboard Shortcuts (M for Mic, V for Video, C for Chat)
   useEffect(() => {
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
@@ -47,7 +68,11 @@ export const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0c0e14] text-slate-100 overflow-hidden font-sans select-none">
       {/* Top Bar */}
-      <TopNavBar onOpenAvatarModal={() => setIsAvatarModalOpen(true)} />
+      <TopNavBar
+        onOpenAvatarModal={() => setIsAvatarModalOpen(true)}
+        onOpenUpdateModal={updateInfo?.hasUpdate ? () => setIsUpdateModalOpen(true) : undefined}
+        hasUpdate={!!updateInfo?.hasUpdate}
+      />
 
       {/* Main 2D Virtual Space */}
       <main className="relative flex-1 w-full overflow-hidden flex">
@@ -67,6 +92,13 @@ export const App: React.FC = () => {
       <AvatarCustomizerModal
         isOpen={isAvatarModalOpen}
         onClose={() => setIsAvatarModalOpen(false)}
+      />
+
+      {/* Automatic Update Modal */}
+      <UpdateModal
+        updateInfo={updateInfo}
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
       />
 
       {/* Start Lobby Screen */}
