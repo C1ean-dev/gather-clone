@@ -25,6 +25,8 @@ const localStorageMock = {
 
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
+import { useSavedSpacesStore } from '../store/useSavedSpacesStore'
+import { createEmptyWorkspace } from '../editor/templates'
 
 describe('Storage Persistence - Expected Behaviors', () => {
   beforeEach(() => {
@@ -168,6 +170,22 @@ describe('Storage Persistence - Expected Behaviors', () => {
     raw = localStorageMock.getItem('gather_v2_available_rooms')
     parsed = JSON.parse(raw!)
     expect(parsed.some((r: any) => r.code === 'GATHER-HOST-ROOM')).toBe(false)
+  })
+
+  it('should persist fixed UUID roomCode in saved spaces across reloads', () => {
+    const { createSavedSpace } = useSavedSpacesStore.getState()
+    const map = createEmptyWorkspace()
+    const customUUID = '4fa89bc0-1234-4567-89ab-cdef01234567'
+
+    const space = createSavedSpace('Espaço com UUID', map, 'Descrição do espaço', customUUID)
+    expect(space.roomCode).toBe(customUUID)
+
+    const raw = localStorageMock.getItem('gather_v2_saved_spaces')
+    expect(raw).toBeTruthy()
+    const parsed = JSON.parse(raw!)
+    const target = parsed.find((s: any) => s.id === space.id)
+    expect(target).toBeTruthy()
+    expect(target.roomCode).toBe(customUUID)
   })
 })
 

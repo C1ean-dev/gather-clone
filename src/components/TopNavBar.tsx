@@ -93,18 +93,18 @@ export const TopNavBar: React.FC<Props> = ({
           <button
             onClick={handleCopyCode}
             className="flex items-center gap-2 px-3 py-1.5 bg-[#1b202c] hover:bg-slate-800 border border-[#2a3142] rounded-xl text-xs font-semibold text-slate-200 transition-all group"
-            title="Clique para copiar código da sala para seus amigos"
+            title={`Código Fixo da Sala: ${roomId}\n(Clique para copiar)`}
           >
             {roomName && roomName !== 'Espaço Principal' ? (
-              <span className="text-slate-200 font-bold max-w-[120px] truncate">{roomName}:</span>
+              <span className="text-slate-200 font-bold max-w-[100px] sm:max-w-[140px] truncate">{roomName}:</span>
             ) : (
               <span className="text-slate-400 font-normal">Sala:</span>
             )}
-            <span className="font-mono text-indigo-400 font-bold">{roomId}</span>
+            <span className="font-mono text-indigo-400 font-bold max-w-[110px] sm:max-w-[200px] truncate">{roomId}</span>
             {copied ? (
-              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             ) : (
-              <Copy className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200" />
+              <Copy className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 shrink-0" />
             )}
           </button>
         )}

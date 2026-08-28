@@ -30,6 +30,7 @@ import { PublicRoomInfo } from '../types/game'
 import { PublicRoomsService } from '../services/publicRoomsService'
 import { createEmptyWorkspace } from '../editor/templates'
 import { useSavedSpacesStore, SavedSpace } from '../store/useSavedSpacesStore'
+import { generateUUID } from '../utils/uuid'
 
 interface Props {
   onJoined: () => void
@@ -179,11 +180,14 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
         newMap.id = 'room-' + Math.random().toString(36).substring(2, 8)
         newMap.name = roomTitle
 
-        // Create new saved space so it appears in Salas Salvas and tracks future edits
+        const persistentRoomCode = generateUUID()
+
+        // Create new saved space with persistent roomCode so it appears in Salas Salvas and keeps the same code forever
         const createdSpace = createSavedSpace(
           roomTitle,
           newMap,
-          createDescription.trim() || 'Espaço criado via Conectar'
+          createDescription.trim() || 'Espaço criado via Conectar',
+          persistentRoomCode
         )
 
         setActiveSpaceId(createdSpace.id)
@@ -197,12 +201,11 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
           currentZoneId: null,
         })
 
-        const generatedCode = 'GATHER-' + Math.random().toString(36).substring(2, 7).toUpperCase()
         const randomColors = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4']
         const color = randomColors[Math.floor(Math.random() * randomColors.length)]
 
         await PeerManager.getInstance().createRoom(
-          generatedCode,
+          persistentRoomCode,
           {
             ...localPlayer,
             name: userName.trim(),
@@ -273,9 +276,16 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       })
 
       await MediaManager.getInstance().startMedia(true, true)
-      const generatedCode = 'GATHER-' + Math.random().toString(36).substring(2, 7).toUpperCase()
+
+      // Use persistent roomCode from saved space or generate & persist one
+      let persistentCode = targetSpace.roomCode
+      if (!persistentCode) {
+        persistentCode = generateUUID()
+        updateSavedSpace(targetSpace.id, { roomCode: persistentCode })
+      }
+
       await PeerManager.getInstance().createRoom(
-        generatedCode,
+        persistentCode,
         {
           ...localPlayer,
           name: userName.trim(),
@@ -841,9 +851,26 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                                 </span>
                               )}
                             </div>
-                            <span className="text-[10px] text-slate-400">
-                              {totalZones} {totalZones === 1 ? 'zona privada' : 'zonas privadas'} • {totalFurniture} {totalFurniture === 1 ? 'móvel' : 'móveis'} • {space.mapData.width}x{space.mapData.height} tiles
-                            </span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] text-slate-400">
+                                {totalZones} {totalZones === 1 ? 'zona privada' : 'zonas privadas'} • {totalFurniture} {totalFurniture === 1 ? 'móvel' : 'móveis'}
+                              </span>
+                              {space.roomCode && (
+                                <span
+                                  onClick={(e) => handleCopyCode(e, space.roomCode)}
+                                  className="text-[10px] font-mono text-slate-400 hover:text-white bg-slate-900/90 hover:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-800 flex items-center gap-1 cursor-pointer transition-colors"
+                                  title="Clique para copiar o ID Fixo desta sala para seus amigos"
+                                >
+                                  <Shield className="w-2.5 h-2.5 text-indigo-400 shrink-0" />
+                                  <span className="truncate max-w-[110px] sm:max-w-[160px]">{space.roomCode}</span>
+                                  {copiedRoomCode === space.roomCode ? (
+                                    <Check className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                                  ) : (
+                                    <Copy className="w-2.5 h-2.5 text-slate-500 shrink-0" />
+                                  )}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>

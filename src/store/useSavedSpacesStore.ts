@@ -2,9 +2,11 @@ import { create } from 'zustand'
 import { MapData } from '../types/map'
 import { createEmptyWorkspace } from '../editor/templates'
 import nativeSpacesData from '../data/nativeSpaces.json'
+import { generateUUID } from '../utils/uuid'
 
 export interface SavedSpace {
   id: string
+  roomCode: string // Persistent Room UUID code
   name: string
   description?: string
   createdAt: number
@@ -27,7 +29,10 @@ const syncSpacesToNativeFile = (spaces: SavedSpace[]) => {
 }
 
 const loadSavedSpaces = (): SavedSpace[] => {
-  const nativeSpaces: SavedSpace[] = (nativeSpacesData as SavedSpace[]) || []
+  const nativeSpaces: SavedSpace[] = ((nativeSpacesData as any[]) || []).map((s: any) => ({
+    ...s,
+    roomCode: s.roomCode || generateUUID(),
+  }))
   let savedSpaces: SavedSpace[] = []
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -50,6 +55,7 @@ const loadSavedSpaces = (): SavedSpace[] => {
 
               return {
                 id: s.id || 'space-' + Math.random().toString(36).substring(2, 9),
+                roomCode: s.roomCode || generateUUID(),
                 name: s.name || 'Meu Espaço',
                 description: s.description || '',
                 createdAt: s.createdAt || Date.now(),
@@ -86,7 +92,7 @@ interface SavedSpacesState {
   savedSpaces: SavedSpace[]
   activeSpaceId: string | null
   setActiveSpaceId: (id: string | null) => void
-  createSavedSpace: (name: string, mapData: MapData, description?: string) => SavedSpace
+  createSavedSpace: (name: string, mapData: MapData, description?: string, roomCode?: string) => SavedSpace
   updateSavedSpace: (id: string, partial: Partial<SavedSpace>) => void
   saveCurrentMapToSpace: (spaceId: string, mapData: MapData) => void
   duplicateSavedSpace: (id: string) => SavedSpace | null
@@ -121,11 +127,14 @@ export const useSavedSpacesStore = create<SavedSpacesState>((set, get) => {
       set({ activeSpaceId: id })
     },
 
-    createSavedSpace: (name, mapData, description) => {
+    createSavedSpace: (name, mapData, description, roomCode) => {
       const randomColors = ['#4c6ef5', '#20c997', '#fa5252', '#fab005', '#be4bdb', '#15aabf', '#e8590c']
       const color = randomColors[Math.floor(Math.random() * randomColors.length)]
+      const finalRoomCode = roomCode || generateUUID()
+
       const newSpace: SavedSpace = {
         id: 'space-' + Math.random().toString(36).substring(2, 9),
+        roomCode: finalRoomCode,
         name: name.trim() || `Novo Espaço ${get().savedSpaces.length + 1}`,
         description: description || 'Espaço virtual completo salvo',
         createdAt: Date.now(),
@@ -183,6 +192,7 @@ export const useSavedSpacesStore = create<SavedSpacesState>((set, get) => {
       const duplicated: SavedSpace = {
         ...JSON.parse(JSON.stringify(original)),
         id: 'space-' + Math.random().toString(36).substring(2, 9),
+        roomCode: generateUUID(),
         name: `${original.name} (Cópia)`,
         createdAt: Date.now(),
         updatedAt: Date.now(),
