@@ -4,6 +4,7 @@ import { DEFAULT_AVATAR } from '../engine/Constants'
 import { PublicRoomsService } from '../services/publicRoomsService'
 
 const PROFILE_STORAGE_KEY = 'gather_v2_user_profile'
+const AVAILABLE_ROOMS_KEY = 'gather_v2_available_rooms'
 
 interface SavedProfile {
   id?: string
@@ -14,10 +15,21 @@ interface SavedProfile {
   statusEmoji?: string
 }
 
+const getStorage = () => {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    return window.localStorage
+  }
+  if (typeof globalThis !== 'undefined' && (globalThis as any).localStorage) {
+    return (globalThis as any).localStorage
+  }
+  return null
+}
+
 const loadSavedProfile = (): SavedProfile | null => {
   try {
-    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
-      const raw = window.localStorage.getItem(PROFILE_STORAGE_KEY)
+    const storage = getStorage()
+    if (storage) {
+      const raw = storage.getItem(PROFILE_STORAGE_KEY)
       if (raw) {
         return JSON.parse(raw)
       }
@@ -30,12 +42,46 @@ const loadSavedProfile = (): SavedProfile | null => {
 
 const saveProfile = (data: Partial<SavedProfile>) => {
   try {
-    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+    const storage = getStorage()
+    if (storage) {
       const current = loadSavedProfile() || {}
-      window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({ ...current, ...data }))
+      storage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({ ...current, ...data }))
     }
   } catch (e) {
     // Ignore in non-browser env
+  }
+}
+
+const syncPublicRoomRegistration = (roomId: string | null, isPublic: boolean, roomName?: string) => {
+  if (!roomId) return
+  try {
+    const storage = getStorage()
+    if (!storage) return
+
+    const raw = storage.getItem(AVAILABLE_ROOMS_KEY)
+    let rooms: any[] = raw ? JSON.parse(raw) : []
+    if (!Array.isArray(rooms)) rooms = []
+
+    if (isPublic) {
+      const existingIdx = rooms.findIndex((r) => r.code === roomId)
+      const roomEntry = {
+        id: 'avail-' + roomId,
+        name: roomName || `Espaço Público (${roomId})`,
+        code: roomId,
+        color: '#3b82f6',
+        description: 'Sala pública aberta para todos',
+      }
+      if (existingIdx >= 0) {
+        rooms[existingIdx] = roomEntry
+      } else {
+        rooms.unshift(roomEntry)
+      }
+    } else {
+      rooms = rooms.filter((r) => r.code !== roomId)
+    }
+    storage.setItem(AVAILABLE_ROOMS_KEY, JSON.stringify(rooms))
+  } catch (e) {
+    // Ignore
   }
 }
 
@@ -230,6 +276,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       roomColor: color,
     })
 
+    syncPublicRoomRegistration(roomId, isPublic, name)
+
     if (isHost && isPublic) {
       PublicRoomsService.getInstance().startHosting({
         id: 'room-' + roomId,
@@ -261,6 +309,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!state.roomId || !state.isHost) return
 
     set({ isRoomPublic })
+    syncPublicRoomRegistration(state.roomId, isRoomPublic, state.roomName)
 
     if (isRoomPublic) {
       PublicRoomsService.getInstance().startHosting({

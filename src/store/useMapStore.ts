@@ -7,10 +7,21 @@ import { useGameStore } from './useGameStore'
 
 const MAP_STORAGE_KEY = 'gather_v2_custom_map'
 
+const getStorage = () => {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    return window.localStorage
+  }
+  if (typeof globalThis !== 'undefined' && (globalThis as any).localStorage) {
+    return (globalThis as any).localStorage
+  }
+  return null
+}
+
 const loadSavedMap = (): MapData | null => {
   try {
-    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
-      const raw = window.localStorage.getItem(MAP_STORAGE_KEY)
+    const storage = getStorage()
+    if (storage) {
+      const raw = storage.getItem(MAP_STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (
@@ -47,8 +58,9 @@ const loadSavedMap = (): MapData | null => {
 
 const saveMap = (mapData: MapData) => {
   try {
-    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
-      window.localStorage.setItem(MAP_STORAGE_KEY, JSON.stringify(mapData))
+    const storage = getStorage()
+    if (storage) {
+      storage.setItem(MAP_STORAGE_KEY, JSON.stringify(mapData))
     }
   } catch (e) {
     // Ignore in non-browser env
