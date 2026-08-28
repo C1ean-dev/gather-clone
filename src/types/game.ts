@@ -2,15 +2,63 @@ export type Direction = 'up' | 'down' | 'left' | 'right'
 
 export type PresenceStatus = 'available' | 'busy' | 'focusing' | 'away'
 
+export type SkinDetailType = 'smooth' | 'vitiligo1' | 'vitiligo2' | 'freckles' | 'blush'
+export type HairStyleType = 'messy' | 'anime' | 'long_bangs' | 'short_wavy' | 'curly_afro' | 'twin_tails' | 'ponytail' | 'bob' | 'buzz' | 'bald' | 'short' | 'spiky' | 'long' | 'curly'
+export type FacialHairType = 'none' | 'full_beard' | 'mustache' | 'goatee' | 'stubble'
+export type TopType = 'kimono' | 'yukata' | 'tshirt' | 'sweater' | 'dress_shirt' | 'hoodie' | 'suit' | 'tank'
+export type JacketType = 'none' | 'hoodie_open' | 'cardigan' | 'blazer' | 'denim'
+export type BottomType = 'kimono_skirt' | 'jeans' | 'sweatpants' | 'skirt' | 'shorts'
+export type ShoesType = 'sneakers' | 'boots' | 'loafers' | 'sandals'
+export type HatType = 'none' | 'ribbon_bow' | 'cap_forward' | 'cap_backward' | 'beanie' | 'headband'
+export type GlassesType = 'none' | 'round' | 'square' | 'sunglasses' | 'wireframe' | 'glasses'
+export type OtherType = 'none' | 'headphones' | 'mask' | 'badge'
+
 export interface AvatarConfig {
-  skinColor: string        // e.g. '#ffd1a4', '#f5b080', '#ba6c48', '#733e24'
-  hairStyle: 'short' | 'long' | 'spiky' | 'curly' | 'bald' | 'ponytail' | 'buzz'
-  hairColor: string        // e.g. '#2b2b2b', '#8b5a2b', '#f4d06f', '#c0392b', '#9b59b6', '#3498db'
-  shirtType: 'tshirt' | 'hoodie' | 'suit' | 'sweater' | 'tank'
-  shirtColor: string       // e.g. '#3498db', '#e74c3c', '#2ecc71', '#9b59b6', '#34495e', '#ffffff'
-  pantsColor: string       // e.g. '#2c3e50', '#34495e', '#7f8c8d', '#2980b9'
-  accessory: 'none' | 'glasses' | 'sunglasses' | 'headphones' | 'cap' | 'beanie'
-  accessoryColor: string
+  // 1. Skin & Face Details
+  skinTone: string
+  skinColor?: string // backward compatibility
+  skinDetail: SkinDetailType
+
+  // 2. Hair
+  hairStyle: HairStyleType
+  hairColor: string
+
+  // 3. Facial Hair
+  facialHair: FacialHairType
+  facialHairColor: string
+
+  // 4. Tops
+  topType: TopType
+  shirtType?: string // backward compatibility
+  topColor: string
+  shirtColor?: string // backward compatibility
+
+  // 5. Jackets
+  jacketType: JacketType
+  jacketColor: string
+
+  // 6. Bottoms
+  bottomType: BottomType
+  bottomColor: string
+  pantsColor?: string // backward compatibility
+
+  // 7. Shoes
+  shoesType: ShoesType
+  shoesColor: string
+
+  // 8. Hats & Head Accessories
+  hatType: HatType
+  hatColor: string
+
+  // 9. Glasses
+  glassesType: GlassesType
+  glassesColor: string
+  accessory?: string // backward compatibility
+  accessoryColor?: string // backward compatibility
+
+  // 10. Other / Extras
+  otherType: OtherType
+  otherColor: string
 }
 
 export interface Player {

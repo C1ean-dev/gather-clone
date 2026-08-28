@@ -188,7 +188,14 @@ export const MapViewport: React.FC = () => {
 
   const handleZoom = (delta: number) => {
     if (!engineRef.current) return
-    engineRef.current.camera.zoom = Math.max(0.6, Math.min(3.0, engineRef.current.camera.zoom + delta))
+    engineRef.current.camera.zoom = Math.max(0.4, Math.min(4.0, Number((engineRef.current.camera.zoom + delta).toFixed(2))))
+  }
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (!engineRef.current) return
+    // Smooth zoom in / out with mouse scroll
+    const delta = e.deltaY < 0 ? 0.15 : -0.15
+    handleZoom(delta)
   }
 
   const handleFitScreen = () => {
@@ -197,7 +204,10 @@ export const MapViewport: React.FC = () => {
   }
 
   return (
-    <div className="relative flex-1 w-full h-[calc(100vh-56px)] overflow-hidden bg-[#0c0e14]">
+    <div
+      onWheel={handleWheel}
+      className="relative flex-1 w-full h-[calc(100vh-56px)] overflow-hidden bg-[#0c0e14]"
+    >
       {/* Canvas */}
       <canvas
         ref={canvasRef}
@@ -205,6 +215,7 @@ export const MapViewport: React.FC = () => {
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
         onMouseLeave={handleCanvasMouseUp}
+        onWheel={handleWheel}
         className="w-full h-full cursor-crosshair pixelated block"
       />
 

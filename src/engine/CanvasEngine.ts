@@ -40,6 +40,13 @@ export class CanvasEngine {
   private setupInputs() {
     window.addEventListener('keydown', this.handleKeyDown)
     window.addEventListener('keyup', this.handleKeyUp)
+    this.canvas.addEventListener('wheel', this.handleWheel, { passive: false })
+  }
+
+  private handleWheel = (e: WheelEvent) => {
+    e.preventDefault()
+    const zoomDelta = e.deltaY < 0 ? 0.15 : -0.15
+    this.camera.zoom = Math.max(0.4, Math.min(4.0, Number((this.camera.zoom + zoomDelta).toFixed(2))))
   }
 
   private handleKeyDown = (e: KeyboardEvent) => {
@@ -98,6 +105,7 @@ export class CanvasEngine {
     this.stop()
     window.removeEventListener('keydown', this.handleKeyDown)
     window.removeEventListener('keyup', this.handleKeyUp)
+    this.canvas.removeEventListener('wheel', this.handleWheel)
   }
 
   private loop = (currentTime: number) => {
