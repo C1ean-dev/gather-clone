@@ -128,27 +128,24 @@ describe('Storage Persistence - Expected Behaviors', () => {
     expect(renamed?.name).toBe('Sala Nova da Diretoria')
   })
 
-  it('should persist created public community spaces to localStorage', () => {
-    const customSpace = {
-      id: 'pub-test-ai',
-      name: '🤖 Laboratório de IA & Agentes',
-      description: 'Discussão sobre LLMs e automação',
-      category: 'tech' as const,
-      onlineCount: 4,
-      code: 'GATHER-PUBLIC-AI',
+  it('should persist available rooms (salas disponíveis) to localStorage', () => {
+    const customRoom = {
+      id: 'avail-test-1',
+      name: 'Servidor Geral de Estudos',
+      code: 'GATHER-ESTUDOS-01',
       color: '#3b82f6',
-      tags: ['#ia', '#llm'],
+      description: 'Sala pública disponível para todos',
     }
 
-    const initialSpaces = [customSpace]
-    localStorageMock.setItem('gather_v2_public_spaces', JSON.stringify(initialSpaces))
+    const rooms = [customRoom]
+    localStorageMock.setItem('gather_v2_available_rooms', JSON.stringify(rooms))
 
-    const raw = localStorageMock.getItem('gather_v2_public_spaces')
+    const raw = localStorageMock.getItem('gather_v2_available_rooms')
     expect(raw).toBeTruthy()
     const parsed = JSON.parse(raw!)
     expect(parsed.length).toBe(1)
-    expect(parsed[0].name).toBe('🤖 Laboratório de IA & Agentes')
-    expect(parsed[0].code).toBe('GATHER-PUBLIC-AI')
+    expect(parsed[0].name).toBe('Servidor Geral de Estudos')
+    expect(parsed[0].code).toBe('GATHER-ESTUDOS-01')
   })
 })
 

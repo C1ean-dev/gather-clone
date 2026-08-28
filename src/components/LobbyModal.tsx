@@ -13,6 +13,7 @@ import {
   Trash2,
   Plus,
   ArrowRight,
+  Globe,
 } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
@@ -20,6 +21,41 @@ import { useMediaStore } from '../store/useMediaStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { MediaManager } from '../media/MediaManager'
 import { PrivateZone } from '../types/map'
+
+export interface AvailableRoomItem {
+  id: string
+  name: string
+  code: string
+  color: string
+  description?: string
+}
+
+const AVAILABLE_ROOMS_KEY = 'gather_v2_available_rooms'
+
+const loadAvailableRooms = (): AvailableRoomItem[] => {
+  try {
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      const raw = window.localStorage.getItem(AVAILABLE_ROOMS_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) return parsed
+      }
+    }
+  } catch (e) {
+    // Ignore
+  }
+  return []
+}
+
+const saveAvailableRooms = (rooms: AvailableRoomItem[]) => {
+  try {
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      window.localStorage.setItem(AVAILABLE_ROOMS_KEY, JSON.stringify(rooms))
+    }
+  } catch (e) {
+    // Ignore
+  }
+}
 
 interface Props {
   onJoined: () => void
@@ -30,30 +66,30 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
   const { localPlayer, setLocalPlayer } = useGameStore()
   const { mapData, renameZone, removeZone, addOrUpdateZone } = useMapStore()
 
-  const [activeTab, setActiveTab] = useState<'connect' | 'rooms'>('connect')
+  const [activeTab, setActiveTab] = useState<'connect' | 'saved_rooms' | 'available_rooms'>('connect')
   const [mode, setMode] = useState<'create' | 'join'>('create')
   const [roomInput, setRoomInput] = useState('')
   const [userName, setUserName] = useState(localPlayer.name)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Rooms inline editing
+  // 1. Saved Rooms inline editing
   const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
   const [editingZoneName, setEditingZoneName] = useState('')
 
-  const handleStartEditing = (zone: PrivateZone) => {
+  const handleStartEditingZone = (zone: PrivateZone) => {
     setEditingZoneId(zone.id)
     setEditingZoneName(zone.name)
   }
 
-  const handleSaveEditing = (zoneId: string) => {
+  const handleSaveEditingZone = (zoneId: string) => {
     if (editingZoneName.trim()) {
       renameZone(zoneId, editingZoneName.trim())
     }
     setEditingZoneId(null)
   }
 
-  const handleCreateQuickRoom = () => {
+  const handleCreateQuickZone = () => {
     const randomColors = ['#4c6ef5', '#20c997', '#fa5252', '#fab005', '#be4bdb', '#15aabf']
     const color = randomColors[Math.floor(Math.random() * randomColors.length)]
     const newZone: PrivateZone = {
@@ -69,6 +105,77 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
     addOrUpdateZone(newZone)
     setEditingZoneId(newZone.id)
     setEditingZoneName(newZone.name)
+  }
+
+  // 2. Available Rooms (Salas Disponíveis) state & inline editing
+  const [availableRooms, setAvailableRooms] = useState<AvailableRoomItem[]>(loadAvailableRooms)
+  const [editingAvailableId, setEditingAvailableId] = useState<string | null>(null)
+  const [editingAvailableName, setEditingAvailableName] = useState('')
+
+  const handleStartEditingAvailable = (room: AvailableRoomItem) => {
+    setEditingAvailableId(room.id)
+    setEditingAvailableName(room.name)
+  }
+
+  const handleSaveEditingAvailable = (roomId: string) => {
+    if (editingAvailableName.trim()) {
+      const updated = availableRooms.map((r) =>
+        r.id === roomId ? { ...r, name: editingAvailableName.trim() } : r
+      )
+      setAvailableRooms(updated)
+      saveAvailableRooms(updated)
+    }
+    setEditingAvailableId(null)
+  }
+
+  const handleCreateAvailableRoom = () => {
+    const randomColors = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4']
+    const color = randomColors[Math.floor(Math.random() * randomColors.length)]
+    const code = 'GATHER-' + Math.random().toString(36).substring(2, 7).toUpperCase()
+    const newRoom: AvailableRoomItem = {
+      id: 'avail-' + Math.random().toString(36).substring(2, 7),
+      name: `Servidor Disponível ${availableRooms.length + 1}`,
+      code,
+      color,
+      description: 'Sala pública disponível para todos',
+    }
+    const updated = [newRoom, ...availableRooms]
+    setAvailableRooms(updated)
+    saveAvailableRooms(updated)
+    setEditingAvailableId(newRoom.id)
+    setEditingAvailableName(newRoom.name)
+  }
+
+  const handleDeleteAvailableRoom = (id: string) => {
+    const updated = availableRooms.filter((r) => r.id !== id)
+    setAvailableRooms(updated)
+    saveAvailableRooms(updated)
+  }
+
+  const handleJoinAvailableRoom = async (code: string) => {
+    if (!userName.trim()) {
+      setError('Por favor, informe seu nickname.')
+      setActiveTab('connect')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      setLocalPlayer({ name: userName.trim() })
+      await MediaManager.getInstance().startMedia(true, true)
+      await PeerManager.getInstance().joinRoom(code, {
+        ...localPlayer,
+        name: userName.trim(),
+      })
+      onJoined()
+    } catch (err: any) {
+      console.error(err)
+      setError('Não foi possível conectar a esta sala disponível.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleStart = async (e: React.FormEvent) => {
@@ -116,7 +223,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
     }
   }
 
-  // 1-Click Join Space from Rooms tab
+  // 1-Click Join Space from Saved Rooms tab
   const handleQuickEnterSpace = async () => {
     if (!userName.trim()) {
       setError('Por favor, informe seu nickname.')
@@ -146,7 +253,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0c0e14]/90 backdrop-blur-xl p-4 select-none animate-in fade-in duration-300">
-      <div className="bg-[#1b202c] border border-[#2a3142] rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+      <div className="bg-[#1b202c] border border-[#2a3142] rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
         {/* Banner Header */}
         <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-6 text-center relative overflow-hidden shrink-0">
           <div className="absolute -top-12 -right-12 w-36 h-36 rounded-full bg-white/10 blur-2xl" />
@@ -159,12 +266,12 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
           </div>
         </div>
 
-        {/* Tab Navigation: Conectar vs Salas Disponíveis */}
-        <div className="flex border-b border-[#2a3142] bg-[#12151d]/70 px-6 pt-3 gap-2 shrink-0">
+        {/* Tab Navigation: Conectar vs Salas Salvas vs Salas Disponíveis */}
+        <div className="flex border-b border-[#2a3142] bg-[#12151d]/70 px-6 pt-3 gap-2 shrink-0 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('connect')}
-            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 shrink-0 ${
               activeTab === 'connect'
                 ? 'border-indigo-500 text-indigo-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -176,17 +283,33 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
           <button
             type="button"
-            onClick={() => setActiveTab('rooms')}
-            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
-              activeTab === 'rooms'
+            onClick={() => setActiveTab('saved_rooms')}
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 shrink-0 ${
+              activeTab === 'saved_rooms'
                 ? 'border-indigo-500 text-indigo-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
             <LayoutGrid className="w-3.5 h-3.5" />
-            <span>Salas Disponíveis</span>
+            <span>Salas Salvas</span>
             <span className="bg-indigo-500/20 text-indigo-300 text-[10px] px-1.5 py-0.2 rounded-full font-bold">
               {mapData.zones.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('available_rooms')}
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 shrink-0 ${
+              activeTab === 'available_rooms'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5 text-blue-400" />
+            <span>Salas Disponíveis</span>
+            <span className="bg-blue-500/20 text-blue-300 text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+              {availableRooms.length}
             </span>
           </button>
         </div>
@@ -306,17 +429,17 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
           </form>
         )}
 
-        {/* TAB 2: SALAS DISPONÍVEIS & EDIÇÃO DE NOMES */}
-        {activeTab === 'rooms' && (
+        {/* TAB 2: SALAS SALVAS (ZONAS DO ESPAÇO) */}
+        {activeTab === 'saved_rooms' && (
           <div className="p-6 space-y-4 overflow-y-auto flex-1">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-xs font-bold text-slate-200">Salas Disponíveis</h3>
-                <p className="text-[11px] text-slate-400">Edite os nomes das salas ou adicione novas áreas</p>
+                <h3 className="text-xs font-bold text-slate-200">Minhas Salas Salvas</h3>
+                <p className="text-[11px] text-slate-400">Salas privadas e zonas configuradas no seu espaço</p>
               </div>
               <button
                 type="button"
-                onClick={handleCreateQuickRoom}
+                onClick={handleCreateQuickZone}
                 className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all active:scale-95"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -324,11 +447,11 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
               </button>
             </div>
 
-            {/* List of Available Rooms */}
+            {/* List of Saved Rooms */}
             <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
               {mapData.zones.length === 0 ? (
                 <div className="text-center py-8 text-slate-400 text-xs bg-[#12151d] rounded-2xl border border-[#2a3142] p-4">
-                  Nenhuma sala disponível ainda. Clique em "+ Nova Sala" para criar!
+                  Nenhuma sala salva no momento. Clique em "+ Nova Sala" para criar!
                 </div>
               ) : (
                 mapData.zones.map((zone) => {
@@ -353,7 +476,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                               value={editingZoneName}
                               onChange={(e) => setEditingZoneName(e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleSaveEditing(zone.id)
+                                if (e.key === 'Enter') handleSaveEditingZone(zone.id)
                                 if (e.key === 'Escape') setEditingZoneId(null)
                               }}
                               autoFocus
@@ -362,7 +485,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                             />
                             <button
                               type="button"
-                              onClick={() => handleSaveEditing(zone.id)}
+                              onClick={() => handleSaveEditingZone(zone.id)}
                               className="p-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500"
                               title="Salvar Nome"
                             >
@@ -392,7 +515,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             type="button"
-                            onClick={() => handleStartEditing(zone)}
+                            onClick={() => handleStartEditingZone(zone)}
                             className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                             title="Editar Nome da Sala"
                           >
@@ -421,9 +544,129 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
               disabled={loading}
               className="w-full py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all active:scale-98 flex items-center justify-center gap-2"
             >
-              <span>Entrar no Espaço</span>
+              <span>Entrar no Meu Espaço</span>
               <ArrowRight className="w-4 h-4" />
             </button>
+          </div>
+        )}
+
+        {/* TAB 3: SALAS DISPONÍVEIS (SERVIDORES PÚBLICOS / COMPARTILHADOS) */}
+        {activeTab === 'available_rooms' && (
+          <div className="p-6 space-y-4 overflow-y-auto flex-1">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-bold text-slate-200">Salas Disponíveis</h3>
+                <p className="text-[11px] text-slate-400">Salas públicas abertas para entrar ou gerenciar</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCreateAvailableRoom}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all active:scale-95"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Nova Sala</span>
+              </button>
+            </div>
+
+            {/* List of Available Rooms */}
+            <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+              {availableRooms.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-xs bg-[#12151d] rounded-2xl border border-[#2a3142] p-4">
+                  Nenhuma sala disponível no momento. Clique em "+ Nova Sala" para adicionar uma sala pública!
+                </div>
+              ) : (
+                availableRooms.map((room) => {
+                  const isEditing = editingAvailableId === room.id
+                  return (
+                    <div
+                      key={room.id}
+                      className="flex items-center justify-between p-3 rounded-2xl bg-[#12151d] border border-[#2a3142] hover:border-slate-600 transition-all group"
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0 pr-2">
+                        {/* Room Color Indicator */}
+                        <div
+                          className="w-4 h-4 rounded-full shrink-0 shadow-sm"
+                          style={{ backgroundColor: room.color || '#3b82f6' }}
+                        />
+
+                        {/* Name or Inline Editor */}
+                        {isEditing ? (
+                          <div className="flex items-center gap-1.5 flex-1">
+                            <input
+                              type="text"
+                              value={editingAvailableName}
+                              onChange={(e) => setEditingAvailableName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveEditingAvailable(room.id)
+                                if (e.key === 'Escape') setEditingAvailableId(null)
+                              }}
+                              autoFocus
+                              className="bg-[#1b202c] border border-indigo-500 rounded-lg px-2.5 py-1 text-xs font-bold text-white focus:outline-none flex-1"
+                              maxLength={30}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEditingAvailable(room.id)}
+                              className="p-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500"
+                              title="Salvar Nome"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingAvailableId(null)}
+                              className="p-1 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600"
+                              title="Cancelar"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-bold text-slate-100 truncate">{room.name}</span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              Código: {room.code}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      {!isEditing && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleJoinAvailableRoom(room.code)}
+                            disabled={loading}
+                            className="px-3 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1 shadow-sm transition-all active:scale-95"
+                            title="Entrar nesta sala"
+                          >
+                            <span>Entrar</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditingAvailable(room)}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                            title="Editar Nome da Sala"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAvailableRoom(room.id)}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            title="Excluir Sala"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
           </div>
         )}
       </div>
