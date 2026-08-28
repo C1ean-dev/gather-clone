@@ -1,0 +1,106 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+
+// Mock global localStorage
+const mockStorage: Record<string, string> = {}
+const localStorageMock = {
+  getItem: (key: string) => mockStorage[key] || null,
+  setItem: (key: string, value: string) => {
+    mockStorage[key] = value
+  },
+  removeItem: (key: string) => {
+    delete mockStorage[key]
+  },
+  clear: () => {
+    for (const key of Object.keys(mockStorage)) {
+      delete mockStorage[key]
+    }
+  },
+}
+
+// Attach to global window
+;(globalThis as any).window = {
+  localStorage: localStorageMock,
+}
+;(globalThis as any).localStorage = localStorageMock
+
+import { useGameStore } from '../store/useGameStore'
+import { useMapStore } from '../store/useMapStore'
+
+describe('Storage Persistence - Expected Behaviors', () => {
+  beforeEach(() => {
+    localStorageMock.clear()
+  })
+
+  it('should persist profile name and avatar changes to localStorage', () => {
+    const { setLocalPlayer } = useGameStore.getState()
+    
+    setLocalPlayer({
+      name: 'DevMaster',
+      avatar: {
+        ...useGameStore.getState().localPlayer.avatar,
+        hairColor: '#e03131',
+        topColor: '#3b82f6',
+      },
+    })
+
+    const raw = localStorageMock.getItem('gather_v2_user_profile')
+    expect(raw).toBeTruthy()
+    const parsed = JSON.parse(raw!)
+    expect(parsed.name).toBe('DevMaster')
+    expect(parsed.avatar.hairColor).toBe('#e03131')
+    expect(parsed.avatar.topColor).toBe('#3b82f6')
+  })
+
+  it('should persist status and emoji updates to localStorage', () => {
+    const { setLocalStatus } = useGameStore.getState()
+    
+    setLocalStatus('focusing', 'Codando persistência...', '🚀')
+
+    const raw = localStorageMock.getItem('gather_v2_user_profile')
+    expect(raw).toBeTruthy()
+    const parsed = JSON.parse(raw!)
+    expect(parsed.status).toBe('focusing')
+    expect(parsed.statusText).toBe('Codando persistência...')
+    expect(parsed.statusEmoji).toBe('🚀')
+  })
+
+  it('should persist private zones and room edits to localStorage', () => {
+    const { addOrUpdateZone } = useMapStore.getState()
+    
+    const newZone = {
+      id: 'test-zone-1',
+      name: 'Sala de Guerra',
+      color: '#ef4444',
+      x: 5,
+      y: 5,
+      width: 6,
+      height: 6,
+      description: 'Sala de reunião',
+    }
+
+    addOrUpdateZone(newZone)
+
+    const raw = localStorageMock.getItem('gather_v2_custom_map')
+    expect(raw).toBeTruthy()
+    const parsed = JSON.parse(raw!)
+    expect(parsed.zones.some((z: any) => z.name === 'Sala de Guerra')).toBe(true)
+  })
+
+  it('should persist furniture placement to localStorage', () => {
+    const { addFurniture } = useMapStore.getState()
+    
+    const furn = {
+      id: 'furn-test-1',
+      defId: 'habbo_dragon_lamp',
+      x: 10,
+      y: 8,
+    }
+
+    addFurniture(furn)
+
+    const raw = localStorageMock.getItem('gather_v2_custom_map')
+    expect(raw).toBeTruthy()
+    const parsed = JSON.parse(raw!)
+    expect(parsed.furniture.some((f: any) => f.id === 'furn-test-1')).toBe(true)
+  })
+})

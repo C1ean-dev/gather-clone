@@ -3,6 +3,37 @@ import { MapData, FloorType, WallType, PlacedFurniture, PrivateZone, EditorTool 
 import { createEmptyWorkspace } from '../editor/templates'
 import { generateWallsAndDoorsForZones, snapAndAlignZone } from '../editor/zoneWallGenerator'
 
+const MAP_STORAGE_KEY = 'gather_v2_custom_map'
+
+const loadSavedMap = (): MapData | null => {
+  try {
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      const raw = window.localStorage.getItem(MAP_STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed && Array.isArray(parsed.floors) && Array.isArray(parsed.zones)) {
+          return parsed
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore in non-browser env
+  }
+  return null
+}
+
+const saveMap = (mapData: MapData) => {
+  try {
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      window.localStorage.setItem(MAP_STORAGE_KEY, JSON.stringify(mapData))
+    }
+  } catch (e) {
+    // Ignore in non-browser env
+  }
+}
+
+const initialMap = loadSavedMap() || createEmptyWorkspace()
+
 interface MapStore {
   mapData: MapData
   setMapData: (map: MapData) => void
@@ -37,10 +68,13 @@ interface MapStore {
 }
 
 export const useMapStore = create<MapStore>((set, get) => ({
-  // Default Map: Empty Workspace for Custom Editing
-  mapData: createEmptyWorkspace(),
+  // Default Map: Loaded from localStorage or Empty Workspace
+  mapData: initialMap,
 
-  setMapData: (mapData) => set({ mapData }),
+  setMapData: (mapData) => {
+    saveMap(mapData)
+    set({ mapData })
+  },
 
   isEditorOpen: false,
   toggleEditor: () => set((s) => ({ isEditorOpen: !s.isEditorOpen })),
@@ -70,7 +104,9 @@ export const useMapStore = create<MapStore>((set, get) => ({
       const floors = state.mapData.floors.map((row, rIdx) =>
         rIdx === y ? row.map((col, cIdx) => (cIdx === x ? floor : col)) : row
       )
-      return { mapData: { ...state.mapData, floors } }
+      const updatedMap = { ...state.mapData, floors }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
     }),
 
   setWallTile: (x, y, wall) =>
@@ -79,24 +115,30 @@ export const useMapStore = create<MapStore>((set, get) => ({
       const walls = state.mapData.walls.map((row, rIdx) =>
         rIdx === y ? row.map((col, cIdx) => (cIdx === x ? wall : col)) : row
       )
-      return { mapData: { ...state.mapData, walls } }
+      const updatedMap = { ...state.mapData, walls }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
     }),
 
   addFurniture: (furniture) =>
-    set((state) => ({
-      mapData: {
+    set((state) => {
+      const updatedMap = {
         ...state.mapData,
         furniture: [...state.mapData.furniture.filter((f) => f.id !== furniture.id), furniture],
-      },
-    })),
+      }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
+    }),
 
   removeFurnitureAt: (tileX, tileY) =>
-    set((state) => ({
-      mapData: {
+    set((state) => {
+      const updatedMap = {
         ...state.mapData,
         furniture: state.mapData.furniture.filter((f) => f.x !== tileX || f.y !== tileY),
-      },
-    })),
+      }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
+    }),
 
   // Automatically snap and enclose zones with clean walls and smart doorways
   addOrUpdateZone: (zone) =>
@@ -132,13 +174,13 @@ export const useMapStore = create<MapStore>((set, get) => ({
         state.selectedWall || 'habbo_hotel_gold'
       )
 
-      return {
-        mapData: {
-          ...state.mapData,
-          zones: updatedZones,
-          walls: updatedWalls,
-        },
+      const updatedMap = {
+        ...state.mapData,
+        zones: updatedZones,
+        walls: updatedWalls,
       }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
     }),
 
   removeZone: (id) =>
@@ -151,16 +193,18 @@ export const useMapStore = create<MapStore>((set, get) => ({
         state.selectedWall || 'habbo_hotel_gold'
       )
 
-      return {
-        mapData: {
-          ...state.mapData,
-          zones: updatedZones,
-          walls: updatedWalls,
-        },
+      const updatedMap = {
+        ...state.mapData,
+        zones: updatedZones,
+        walls: updatedWalls,
       }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
     }),
 
   resetEmptyWorkspace: () => {
-    set({ mapData: createEmptyWorkspace() })
+    const fresh = createEmptyWorkspace()
+    saveMap(fresh)
+    set({ mapData: fresh })
   },
 }))

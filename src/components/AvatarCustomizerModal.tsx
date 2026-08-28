@@ -53,6 +53,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const { localPlayer, setLocalPlayer } = useGameStore()
 
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('skin')
+  const [name, setName] = useState(localPlayer.name || 'Player')
   const [avatar, setAvatar] = useState<AvatarConfig>({
     skinTone: localPlayer.avatar?.skinTone || localPlayer.avatar?.skinColor || '#ffd1a4',
     skinDetail: localPlayer.avatar?.skinDetail || 'vitiligo1',
@@ -111,6 +112,35 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
     '#78350f',
   ]
   const shoeColors = ['#212529', '#f8f9fa', '#ef4444', '#10b981', '#3b82f6', '#f59e0b', '#78350f', '#8b5cf6']
+
+  // Sync state when opened
+  useEffect(() => {
+    if (isOpen) {
+      setName(localPlayer.name || 'Player')
+      setAvatar({
+        skinTone: localPlayer.avatar?.skinTone || localPlayer.avatar?.skinColor || '#ffd1a4',
+        skinDetail: localPlayer.avatar?.skinDetail || 'vitiligo1',
+        hairStyle: localPlayer.avatar?.hairStyle || 'messy',
+        hairColor: localPlayer.avatar?.hairColor || '#212529',
+        facialHair: localPlayer.avatar?.facialHair || 'none',
+        facialHairColor: localPlayer.avatar?.facialHairColor || '#212529',
+        topType: localPlayer.avatar?.topType || localPlayer.avatar?.shirtType || 'kimono',
+        topColor: localPlayer.avatar?.topColor || localPlayer.avatar?.shirtColor || '#212529',
+        jacketType: localPlayer.avatar?.jacketType || 'none',
+        jacketColor: localPlayer.avatar?.jacketColor || '#4c6ef5',
+        bottomType: localPlayer.avatar?.bottomType || 'kimono_skirt',
+        bottomColor: localPlayer.avatar?.bottomColor || localPlayer.avatar?.pantsColor || '#212529',
+        shoesType: localPlayer.avatar?.shoesType || 'sandals',
+        shoesColor: localPlayer.avatar?.shoesColor || '#51cf66',
+        hatType: localPlayer.avatar?.hatType || 'none',
+        hatColor: localPlayer.avatar?.hatColor || '#fa5252',
+        glassesType: localPlayer.avatar?.glassesType || 'none',
+        glassesColor: localPlayer.avatar?.glassesColor || '#343a40',
+        otherType: localPlayer.avatar?.otherType || 'none',
+        otherColor: localPlayer.avatar?.otherColor || '#20c997',
+      })
+    }
+  }, [isOpen, localPlayer])
 
   // Live Canvas Preview Animation with Room Background
   useEffect(() => {
@@ -171,6 +201,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
       const tempPlayer = {
         ...localPlayer,
+        name: name.trim() || localPlayer.name,
         avatar,
         direction: 'down' as const,
         isMoving: true,
@@ -186,13 +217,15 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
     frameId = requestAnimationFrame(render)
     return () => cancelAnimationFrame(frameId)
-  }, [isOpen, avatar, localPlayer])
+  }, [isOpen, avatar, name, localPlayer])
 
   if (!isOpen) return null
 
   const handleSave = () => {
-    setLocalPlayer({ avatar })
+    const finalName = name.trim() || localPlayer.name
+    setLocalPlayer({ name: finalName, avatar })
     PeerManager.getInstance().sendPlayerUpdate({
+      name: finalName,
       avatar,
     })
     onClose()
@@ -273,8 +306,22 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-200 select-none">
       <div className="bg-[#1e1f22] border border-[#2b2d31] rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col h-[600px] max-h-[92vh]">
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-b border-[#2b2d31] bg-[#18191c]">
-          <h2 className="text-base font-extrabold text-slate-100 tracking-tight">Editar Avatar</h2>
+        <div className="flex items-center justify-between px-6 py-3 border-b border-[#2b2d31] bg-[#18191c]">
+          <div className="flex items-center gap-3">
+            <h2 className="text-base font-extrabold text-slate-100 tracking-tight">Editar Avatar</h2>
+            <div className="h-4 w-px bg-[#2b2d31]" />
+            <div className="flex items-center gap-1.5 bg-[#2b2d31] px-2.5 py-1 rounded-xl border border-[#383a40]">
+              <span className="text-[11px] font-semibold text-slate-400">Nome:</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Seu Nickname"
+                maxLength={16}
+                className="bg-transparent text-xs font-bold text-slate-100 focus:outline-none focus:text-white w-28"
+              />
+            </div>
+          </div>
           <button
             onClick={onClose}
             className="p-1.5 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-[#2b2d31] transition-colors"
