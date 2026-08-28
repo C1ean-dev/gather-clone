@@ -90,3 +90,15 @@ export interface ReactionItem {
   y: number
   createdAt: number
 }
+
+export interface PublicSpaceInfo {
+  id: string
+  name: string
+  description: string
+  category: 'office' | 'lounge' | 'gaming' | 'study' | 'tech'
+  onlineCount: number
+  code: string
+  color: string
+  tags: string[]
+  isOfficial?: boolean
+}

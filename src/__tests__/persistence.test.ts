@@ -127,5 +127,28 @@ describe('Storage Persistence - Expected Behaviors', () => {
     const renamed = parsed.zones.find((z: any) => z.id === 'test-zone-rename')
     expect(renamed?.name).toBe('Sala Nova da Diretoria')
   })
+
+  it('should persist created public community spaces to localStorage', () => {
+    const customSpace = {
+      id: 'pub-test-ai',
+      name: '🤖 Laboratório de IA & Agentes',
+      description: 'Discussão sobre LLMs e automação',
+      category: 'tech' as const,
+      onlineCount: 4,
+      code: 'GATHER-PUBLIC-AI',
+      color: '#3b82f6',
+      tags: ['#ia', '#llm'],
+    }
+
+    const initialSpaces = [customSpace]
+    localStorageMock.setItem('gather_v2_public_spaces', JSON.stringify(initialSpaces))
+
+    const raw = localStorageMock.getItem('gather_v2_public_spaces')
+    expect(raw).toBeTruthy()
+    const parsed = JSON.parse(raw!)
+    expect(parsed.length).toBe(1)
+    expect(parsed[0].name).toBe('🤖 Laboratório de IA & Agentes')
+    expect(parsed[0].code).toBe('GATHER-PUBLIC-AI')
+  })
 })
 

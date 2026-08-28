@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   PlusCircle,
   LogIn,
@@ -12,6 +12,16 @@ import {
   X,
   Trash2,
   Plus,
+  Globe,
+  Search,
+  Users,
+  ArrowRight,
+  Coffee,
+  Code2,
+  Gamepad2,
+  BookOpen,
+  Briefcase,
+  Layers,
 } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
@@ -19,6 +29,91 @@ import { useMediaStore } from '../store/useMediaStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { MediaManager } from '../media/MediaManager'
 import { PrivateZone } from '../types/map'
+import { PublicSpaceInfo } from '../types/game'
+
+const PUBLIC_SPACES_KEY = 'gather_v2_public_spaces'
+
+const DEFAULT_PUBLIC_SPACES: PublicSpaceInfo[] = [
+  {
+    id: 'pub-tech-hub',
+    name: '🏢 Gather Central Hub - Tech & Devs',
+    description: 'Espaço principal da comunidade para troca de ideias sobre programação, IA e projetos.',
+    category: 'tech',
+    onlineCount: 14,
+    code: 'GATHER-PUBLIC-TECH',
+    color: '#3b82f6',
+    tags: ['#programação', '#tecnologia', '#ia', '#devs'],
+    isOfficial: true,
+  },
+  {
+    id: 'pub-lounge-cafe',
+    name: '☕ Lounge & Café Co-work',
+    description: 'Ambiente descontraído para bater papo, networking informal e relaxar com um cafezinho virtual.',
+    category: 'lounge',
+    onlineCount: 8,
+    code: 'GATHER-PUBLIC-LOUNGE',
+    color: '#f59e0b',
+    tags: ['#café', '#chill', '#conversa', '#networking'],
+    isOfficial: true,
+  },
+  {
+    id: 'pub-gaming-chill',
+    name: '🎮 Sala Gamer & Boardgames',
+    description: 'Encontro para quem curte conversar sobre jogos retrô, indie games e jogatinas multiplayer.',
+    category: 'gaming',
+    onlineCount: 11,
+    code: 'GATHER-PUBLIC-GAMES',
+    color: '#ec4899',
+    tags: ['#jogos', '#pixelart', '#rpg', '#diversão'],
+    isOfficial: true,
+  },
+  {
+    id: 'pub-startup-hq',
+    name: '🚀 Startup HQ & Coworking 24/7',
+    description: 'Escritório colaborativo com mesas para sprints, pitch de projetos e foco em equipe.',
+    category: 'office',
+    onlineCount: 6,
+    code: 'GATHER-PUBLIC-STARTUP',
+    color: '#10b981',
+    tags: ['#startups', '#empreendedorismo', '#foco'],
+    isOfficial: true,
+  },
+  {
+    id: 'pub-study-library',
+    name: '📚 Biblioteca & Modo Foco Silencioso',
+    description: 'Sala de estudos Pomodoro silenciosa. Microfones fechados e concentração total.',
+    category: 'study',
+    onlineCount: 9,
+    code: 'GATHER-PUBLIC-STUDY',
+    color: '#8b5cf6',
+    tags: ['#estudos', '#pomodoro', '#silêncio', '#livros'],
+    isOfficial: true,
+  },
+]
+
+const loadSavedPublicSpaces = (): PublicSpaceInfo[] => {
+  try {
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      const raw = window.localStorage.getItem(PUBLIC_SPACES_KEY)
+      if (raw) {
+        return JSON.parse(raw)
+      }
+    }
+  } catch (e) {
+    // Ignore
+  }
+  return DEFAULT_PUBLIC_SPACES
+}
+
+const savePublicSpaces = (spaces: PublicSpaceInfo[]) => {
+  try {
+    if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+      window.localStorage.setItem(PUBLIC_SPACES_KEY, JSON.stringify(spaces))
+    }
+  } catch (e) {
+    // Ignore
+  }
+}
 
 interface Props {
   onJoined: () => void
@@ -29,12 +124,21 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
   const { localPlayer, setLocalPlayer } = useGameStore()
   const { mapData, renameZone, removeZone, addOrUpdateZone } = useMapStore()
 
-  const [activeTab, setActiveTab] = useState<'connect' | 'rooms'>('connect')
+  const [activeTab, setActiveTab] = useState<'connect' | 'public_servers' | 'rooms'>('connect')
   const [mode, setMode] = useState<'create' | 'join'>('create')
   const [roomInput, setRoomInput] = useState('')
   const [userName, setUserName] = useState(localPlayer.name)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Public Spaces state
+  const [publicSpaces, setPublicSpaces] = useState<PublicSpaceInfo[]>(loadSavedPublicSpaces)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [isCreatingPublicSpace, setIsCreatingPublicSpace] = useState(false)
+  const [newSpaceName, setNewSpaceName] = useState('')
+  const [newSpaceDesc, setNewSpaceDesc] = useState('')
+  const [newSpaceCategory, setNewSpaceCategory] = useState<'tech' | 'lounge' | 'gaming' | 'office' | 'study'>('tech')
 
   // Rooms inline editing
   const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
@@ -68,6 +172,67 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
     addOrUpdateZone(newZone)
     setEditingZoneId(newZone.id)
     setEditingZoneName(newZone.name)
+  }
+
+  // 1-Click Join Public Room
+  const handleJoinPublicRoom = async (roomCode: string) => {
+    if (!userName.trim()) {
+      setError('Por favor, informe seu nickname antes de entrar.')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      setLocalPlayer({ name: userName.trim() })
+      await MediaManager.getInstance().startMedia(true, true)
+      await PeerManager.getInstance().joinRoom(roomCode, {
+        ...localPlayer,
+        name: userName.trim(),
+      })
+      onJoined()
+    } catch (err: any) {
+      console.error(err)
+      setError('Não foi possível conectar a este servidor público no momento.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Create Custom Public Space
+  const handleCreateCustomPublicSpace = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newSpaceName.trim()) return
+
+    const categoryColors = {
+      tech: '#3b82f6',
+      lounge: '#f59e0b',
+      gaming: '#ec4899',
+      office: '#10b981',
+      study: '#8b5cf6',
+    }
+
+    const generatedCode = 'GATHER-' + Math.random().toString(36).substring(2, 8).toUpperCase()
+
+    const created: PublicSpaceInfo = {
+      id: 'pub-' + Math.random().toString(36).substring(2, 8),
+      name: newSpaceName.trim(),
+      description: newSpaceDesc.trim() || 'Servidor comunitário aberto para todos.',
+      category: newSpaceCategory,
+      onlineCount: 1,
+      code: generatedCode,
+      color: categoryColors[newSpaceCategory],
+      tags: [`#${newSpaceCategory}`, '#comunidade'],
+    }
+
+    const updated = [created, ...publicSpaces]
+    setPublicSpaces(updated)
+    savePublicSpaces(updated)
+
+    setIsCreatingPublicSpace(false)
+    setNewSpaceName('')
+    setNewSpaceDesc('')
   }
 
   const handleStart = async (e: React.FormEvent) => {
@@ -115,9 +280,19 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
     }
   }
 
+  // Filter public spaces by search and category
+  const filteredPublicSpaces = publicSpaces.filter((space) => {
+    const matchesSearch =
+      space.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      space.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      space.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()))
+    const matchesCat = categoryFilter === 'all' || space.category === categoryFilter
+    return matchesSearch && matchesCat
+  })
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0c0e14]/90 backdrop-blur-xl p-4 select-none animate-in fade-in duration-300">
-      <div className="bg-[#1b202c] border border-[#2a3142] rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+      <div className="bg-[#1b202c] border border-[#2a3142] rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
         {/* Banner Header */}
         <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-6 text-center relative overflow-hidden shrink-0">
           <div className="absolute -top-12 -right-12 w-36 h-36 rounded-full bg-white/10 blur-2xl" />
@@ -130,12 +305,12 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
           </div>
         </div>
 
-        {/* Tab Navigation: Conectar vs Salas Salvas */}
-        <div className="flex border-b border-[#2a3142] bg-[#12151d]/70 px-6 pt-3 gap-2">
+        {/* Tab Navigation: Conectar vs Servidores Públicos vs Minhas Salas Salvas */}
+        <div className="flex border-b border-[#2a3142] bg-[#12151d]/70 px-6 pt-3 gap-2 shrink-0 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('connect')}
-            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 shrink-0 ${
               activeTab === 'connect'
                 ? 'border-indigo-500 text-indigo-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -144,10 +319,27 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
             <DoorOpen className="w-3.5 h-3.5" />
             <span>Conectar</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('public_servers')}
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 shrink-0 ${
+              activeTab === 'public_servers'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5 text-blue-400" />
+            <span>Salas Disponíveis (Públicas)</span>
+            <span className="bg-blue-500/20 text-blue-300 text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+              {publicSpaces.length}
+            </span>
+          </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('rooms')}
-            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 shrink-0 ${
               activeTab === 'rooms'
                 ? 'border-indigo-500 text-indigo-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -276,13 +468,203 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
           </form>
         )}
 
-        {/* TAB 2: SALAS SALVAS & EDIÇÃO DE NOMES */}
+        {/* TAB 2: SERVIDORES PÚBLICOS & SALAS DISPONÍVEIS */}
+        {activeTab === 'public_servers' && (
+          <div className="p-6 space-y-4 overflow-y-auto flex-1">
+            {/* Header & New Space Button */}
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Salas Públicas Disponíveis</span>
+                </h3>
+                <p className="text-[11px] text-slate-400">Entre em espaços abertos da comunidade com 1 clique</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreatingPublicSpace(!isCreatingPublicSpace)}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all active:scale-95"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Criar Espaço Público</span>
+              </button>
+            </div>
+
+            {/* Modal for Creating Public Space */}
+            {isCreatingPublicSpace && (
+              <form
+                onSubmit={handleCreateCustomPublicSpace}
+                className="p-3.5 rounded-2xl bg-[#12151d] border border-indigo-500/40 space-y-3 animate-in fade-in duration-150 shadow-lg"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-indigo-300">Novo Espaço Comunitário</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreatingPublicSpace(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={newSpaceName}
+                  onChange={(e) => setNewSpaceName(e.target.value)}
+                  placeholder="Nome do Espaço (Ex: Sala de Estudos Python)"
+                  maxLength={35}
+                  required
+                  className="w-full bg-[#1b202c] border border-[#2a3142] rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                />
+                <input
+                  type="text"
+                  value={newSpaceDesc}
+                  onChange={(e) => setNewSpaceDesc(e.target.value)}
+                  placeholder="Descrição breve do objetivo da sala"
+                  maxLength={80}
+                  className="w-full bg-[#1b202c] border border-[#2a3142] rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                />
+                <div className="flex gap-2 items-center justify-between">
+                  <div className="flex gap-1">
+                    {(['tech', 'lounge', 'gaming', 'office', 'study'] as const).map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setNewSpaceCategory(cat)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${
+                          newSpaceCategory === cat
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-[#1b202c] text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 shadow"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Publicar</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Search Bar & Category Filters */}
+            <div className="space-y-2">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Buscar salas públicas por nome ou tags..."
+                  className="w-full bg-[#12151d] border border-[#2a3142] rounded-xl pl-9 pr-3.5 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                {[
+                  { id: 'all', label: 'Todas' },
+                  { id: 'tech', label: '💻 Tech' },
+                  { id: 'lounge', label: '☕ Lounge' },
+                  { id: 'gaming', label: '🎮 Games' },
+                  { id: 'office', label: '🏢 Escritório' },
+                  { id: 'study', label: '📚 Estudo' },
+                ].map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setCategoryFilter(c.id)}
+                    className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all shrink-0 ${
+                      categoryFilter === c.id
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-[#12151d] text-slate-400 hover:text-slate-200 border border-[#2a3142]'
+                    }`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* List of Public Spaces */}
+            <div className="space-y-2.5 max-h-[260px] overflow-y-auto pr-1">
+              {filteredPublicSpaces.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-xs bg-[#12151d] rounded-2xl border border-[#2a3142] p-4">
+                  Nenhum servidor público encontrado com esse termo.
+                </div>
+              ) : (
+                filteredPublicSpaces.map((space) => (
+                  <div
+                    key={space.id}
+                    className="p-3.5 rounded-2xl bg-[#12151d] border border-[#2a3142] hover:border-indigo-500/60 transition-all flex flex-col gap-2 group shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <div
+                          className="w-3.5 h-3.5 rounded-full mt-1 shrink-0 shadow-sm"
+                          style={{ backgroundColor: space.color }}
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-100 truncate">{space.name}</span>
+                            {space.isOfficial && (
+                              <span className="text-[9px] bg-blue-500/20 text-blue-300 font-extrabold px-1.5 py-0.2 rounded border border-blue-500/30">
+                                OFICIAL
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">{space.description}</p>
+                        </div>
+                      </div>
+
+                      {/* Online count */}
+                      <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full shrink-0 border border-emerald-500/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span>{space.onlineCount} online</span>
+                      </div>
+                    </div>
+
+                    {/* Bottom Row: Tags & Direct Join Button */}
+                    <div className="flex items-center justify-between pt-1 border-t border-[#2a3142]/60">
+                      <div className="flex gap-1.5 flex-wrap">
+                        {space.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="text-[10px] text-indigo-400 bg-indigo-500/10 px-1.5 py-0.2 rounded font-medium"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleJoinPublicRoom(space.code)}
+                        disabled={loading}
+                        className="px-3.5 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/30 transition-all active:scale-95"
+                      >
+                        <span>Entrar</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: SALAS SALVAS & EDIÇÃO DE NOMES */}
         {activeTab === 'rooms' && (
           <div className="p-6 space-y-4 overflow-y-auto flex-1">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-xs font-bold text-slate-200">Salas Privadas do Espaço</h3>
-                <p className="text-[11px] text-slate-400">Edite os nomes das salas ou adicione novas áreas</p>
+                <h3 className="text-xs font-bold text-slate-200">Minhas Salas Privadas</h3>
+                <p className="text-[11px] text-slate-400">Edite os nomes das salas do seu espaço ou crie novas</p>
               </div>
               <button
                 type="button"
