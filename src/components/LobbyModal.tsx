@@ -35,6 +35,7 @@ import { MediaManager } from '../media/MediaManager'
 import { PrivateZone } from '../types/map'
 import { PublicRoomInfo, PublicRoomCategory } from '../types/game'
 import { PublicRoomsService } from '../services/publicRoomsService'
+import { createEmptyWorkspace } from '../editor/templates'
 
 interface Props {
   onJoined: () => void
@@ -67,7 +68,8 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
   const [createIsPublic, setCreateIsPublic] = useState(true)
   const [createDescription, setCreateDescription] = useState('')
 
-  // 1. Saved Rooms inline editing
+  // 1. Saved Rooms selection and inline editing
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(() => mapData.zones[0]?.id || null)
   const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
   const [editingZoneName, setEditingZoneName] = useState('')
 
@@ -97,6 +99,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       description: 'Sala de reunião e conversa privada',
     }
     addOrUpdateZone(newZone)
+    setSelectedZoneId(newZone.id)
     setEditingZoneId(newZone.id)
     setEditingZoneName(newZone.name)
   }
@@ -190,6 +193,19 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
       // 3. Create or Join Room
       if (mode === 'create') {
+        // Generate a fresh new room space when entering via Connect
+        const newMap = createEmptyWorkspace()
+        newMap.id = 'room-' + Math.random().toString(36).substring(2, 8)
+        newMap.name = createRoomName.trim() || `Espaço de ${userName.trim()}`
+        useMapStore.getState().setMapData(newMap)
+
+        setLocalPlayer({
+          name: userName.trim(),
+          x: newMap.spawnPoint.x,
+          y: newMap.spawnPoint.y,
+          currentZoneId: null,
+        })
+
         const generatedCode = 'GATHER-' + Math.random().toString(36).substring(2, 7).toUpperCase()
         const randomColors = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4']
         const color = randomColors[Math.floor(Math.random() * randomColors.length)]
@@ -199,6 +215,9 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
           {
             ...localPlayer,
             name: userName.trim(),
+            x: newMap.spawnPoint.x,
+            y: newMap.spawnPoint.y,
+            currentZoneId: null,
           },
           {
             roomName: createRoomName.trim() || `Espaço de ${userName.trim()}`,
@@ -231,7 +250,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
   }
 
   // Quick Enter Space from Saved Rooms tab
-  const handleQuickEnterSpace = async () => {
+  const handleQuickEnterSpace = async (targetZoneId?: string) => {
     if (!userName.trim()) {
       setError('Por favor, informe seu nickname.')
       setActiveTab('connect')
@@ -242,7 +261,18 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
     setError(null)
 
     try {
-      setLocalPlayer({ name: userName.trim() })
+      const activeZoneId = targetZoneId || selectedZoneId
+      const targetZone = mapData.zones.find((z) => z.id === activeZoneId)
+      const spawnX = targetZone ? targetZone.x + Math.floor(targetZone.width / 2) : localPlayer.x
+      const spawnY = targetZone ? targetZone.y + Math.floor(targetZone.height / 2) : localPlayer.y
+
+      setLocalPlayer({
+        name: userName.trim(),
+        x: spawnX,
+        y: spawnY,
+        currentZoneId: targetZone ? targetZone.id : null,
+      })
+
       await MediaManager.getInstance().startMedia(true, true)
       const generatedCode = 'GATHER-' + Math.random().toString(36).substring(2, 7).toUpperCase()
       await PeerManager.getInstance().createRoom(
@@ -250,9 +280,12 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
         {
           ...localPlayer,
           name: userName.trim(),
+          x: spawnX,
+          y: spawnY,
+          currentZoneId: targetZone ? targetZone.id : null,
         },
         {
-          roomName: `Meu Espaço Privado`,
+          roomName: targetZone ? `Espaço (${targetZone.name})` : `Meu Espaço Privado`,
           isPublic: false,
         }
       )
@@ -753,7 +786,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
             </div>
 
             {/* List of Saved Rooms */}
-            <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+            <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
               {mapData.zones.length === 0 ? (
                 <div className="text-center py-8 text-slate-400 text-xs bg-[#12151d] rounded-2xl border border-[#2a3142] p-4">
                   Nenhuma sala salva no momento. Clique em "+ Nova Sala" para criar!
@@ -761,21 +794,38 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
               ) : (
                 mapData.zones.map((zone) => {
                   const isEditing = editingZoneId === zone.id
+                  const isSelected = selectedZoneId === zone.id
                   return (
                     <div
                       key={zone.id}
-                      className="flex items-center justify-between p-3 rounded-2xl bg-[#12151d] border border-[#2a3142] hover:border-slate-600 transition-all group"
+                      onClick={() => !isEditing && setSelectedZoneId(zone.id)}
+                      className={`cursor-pointer flex items-center justify-between p-3.5 rounded-2xl border transition-all ${
+                        isSelected
+                          ? 'bg-indigo-600/20 border-indigo-500 ring-2 ring-indigo-500/40 shadow-lg shadow-indigo-600/10'
+                          : 'bg-[#12151d] border-[#2a3142] hover:border-slate-600 hover:bg-[#161a24]'
+                      }`}
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0 pr-2">
+                        {/* Radio Checkmark Indicator */}
+                        <div
+                          className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/40 ring-2 ring-indigo-400/40'
+                              : 'border border-slate-700 bg-slate-900/80 text-transparent'
+                          }`}
+                        >
+                          <Check className="w-3 h-3 stroke-[3]" />
+                        </div>
+
                         {/* Zone Color Indicator */}
                         <div
-                          className="w-4 h-4 rounded-full shrink-0 shadow-sm"
+                          className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm"
                           style={{ backgroundColor: zone.color || '#4c6ef5' }}
                         />
 
                         {/* Name or Inline Editor */}
                         {isEditing ? (
-                          <div className="flex items-center gap-1.5 flex-1">
+                          <div className="flex items-center gap-1.5 flex-1" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="text"
                               value={editingZoneName}
@@ -807,9 +857,18 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                           </div>
                         ) : (
                           <div className="flex flex-col min-w-0">
-                            <span className="text-xs font-bold text-slate-100 truncate">{zone.name}</span>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs font-bold truncate ${isSelected ? 'text-white font-black' : 'text-slate-200'}`}>
+                                {zone.name}
+                              </span>
+                              {isSelected && (
+                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
+                                  ✓ Selecionada
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[10px] text-slate-400">
-                              Área: {zone.width}x{zone.height} tiles • Privada
+                              Área: {zone.width}x{zone.height} tiles • Sala Privada
                             </span>
                           </div>
                         )}
@@ -817,7 +876,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
                       {/* Actions */}
                       {!isEditing && (
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => handleStartEditingZone(zone)}
@@ -843,15 +902,23 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
             </div>
 
             {/* Quick Enter Space Button */}
-            <button
-              type="button"
-              onClick={handleQuickEnterSpace}
-              disabled={loading}
-              className="w-full py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all active:scale-98 flex items-center justify-center gap-2"
-            >
-              <span>Entrar no Meu Espaço</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            {(() => {
+              const selectedZone = mapData.zones.find((z) => z.id === selectedZoneId)
+              return (
+                <button
+                  type="button"
+                  onClick={() => handleQuickEnterSpace()}
+                  disabled={loading}
+                  className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all active:scale-98 flex items-center justify-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-300" />
+                  <span>
+                    {selectedZone ? `Entrar Direto em: ${selectedZone.name}` : 'Entrar no Meu Espaço'}
+                  </span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )
+            })()}
           </div>
         )}
       </div>

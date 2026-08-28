@@ -24,7 +24,7 @@ export function createEmptyWorkspace(): MapData {
     const row: (WallType | null)[] = []
     for (let x = 0; x < width; x++) {
       if (y === 0 || y === height - 1 || x === 0 || x === width - 1) {
-        row.push('habbo_hotel_gold')
+        row.push('drywall_white')
       } else {
         row.push(null)
       }
