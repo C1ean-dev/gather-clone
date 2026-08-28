@@ -63,6 +63,7 @@ interface MapStore {
   addFurniture: (furniture: PlacedFurniture) => void
   removeFurnitureAt: (tileX: number, tileY: number) => void
   addOrUpdateZone: (zone: PrivateZone) => void
+  renameZone: (id: string, newName: string) => void
   removeZone: (id: string) => void
   resetEmptyWorkspace: () => void
 }
@@ -178,6 +179,19 @@ export const useMapStore = create<MapStore>((set, get) => ({
         ...state.mapData,
         zones: updatedZones,
         walls: updatedWalls,
+      }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
+    }),
+
+  renameZone: (id, newName) =>
+    set((state) => {
+      const updatedZones = state.mapData.zones.map((z) =>
+        z.id === id ? { ...z, name: newName.trim() || z.name } : z
+      )
+      const updatedMap = {
+        ...state.mapData,
+        zones: updatedZones,
       }
       saveMap(updatedMap)
       return { mapData: updatedMap }

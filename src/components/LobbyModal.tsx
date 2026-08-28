@@ -1,9 +1,24 @@
 import React, { useState } from 'react'
-import { PlusCircle, LogIn, Sparkles, User, Shield, Video, Mic, Volume2 } from 'lucide-react'
+import {
+  PlusCircle,
+  LogIn,
+  Sparkles,
+  User,
+  Shield,
+  LayoutGrid,
+  DoorOpen,
+  Edit2,
+  Check,
+  X,
+  Trash2,
+  Plus,
+} from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
+import { useMapStore } from '../store/useMapStore'
 import { useMediaStore } from '../store/useMediaStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { MediaManager } from '../media/MediaManager'
+import { PrivateZone } from '../types/map'
 
 interface Props {
   onJoined: () => void
@@ -12,12 +27,48 @@ interface Props {
 
 export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }) => {
   const { localPlayer, setLocalPlayer } = useGameStore()
+  const { mapData, renameZone, removeZone, addOrUpdateZone } = useMapStore()
 
+  const [activeTab, setActiveTab] = useState<'connect' | 'rooms'>('connect')
   const [mode, setMode] = useState<'create' | 'join'>('create')
   const [roomInput, setRoomInput] = useState('')
   const [userName, setUserName] = useState(localPlayer.name)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Rooms inline editing
+  const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
+  const [editingZoneName, setEditingZoneName] = useState('')
+
+  const handleStartEditing = (zone: PrivateZone) => {
+    setEditingZoneId(zone.id)
+    setEditingZoneName(zone.name)
+  }
+
+  const handleSaveEditing = (zoneId: string) => {
+    if (editingZoneName.trim()) {
+      renameZone(zoneId, editingZoneName.trim())
+    }
+    setEditingZoneId(null)
+  }
+
+  const handleCreateQuickRoom = () => {
+    const randomColors = ['#4c6ef5', '#20c997', '#fa5252', '#fab005', '#be4bdb', '#15aabf']
+    const color = randomColors[Math.floor(Math.random() * randomColors.length)]
+    const newZone: PrivateZone = {
+      id: 'zone-' + Math.random().toString(36).substring(2, 7),
+      name: `Nova Sala ${mapData.zones.length + 1}`,
+      color,
+      x: 3 + (mapData.zones.length % 3) * 8,
+      y: 3 + Math.floor(mapData.zones.length / 3) * 8,
+      width: 7,
+      height: 6,
+      description: 'Sala de reunião e conversa privada',
+    }
+    addOrUpdateZone(newZone)
+    setEditingZoneId(newZone.id)
+    setEditingZoneName(newZone.name)
+  }
 
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -66,127 +117,284 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0c0e14]/90 backdrop-blur-xl p-4 select-none animate-in fade-in duration-300">
-      <div className="bg-[#1b202c] border border-[#2a3142] rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col">
+      <div className="bg-[#1b202c] border border-[#2a3142] rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
         {/* Banner Header */}
-        <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-8 text-center relative overflow-hidden">
+        <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-6 text-center relative overflow-hidden shrink-0">
           <div className="absolute -top-12 -right-12 w-36 h-36 rounded-full bg-white/10 blur-2xl" />
           <div className="relative z-10 flex flex-col items-center">
-            <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center text-3xl font-extrabold text-white shadow-xl mb-3">
+            <div className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center text-2xl font-extrabold text-white shadow-xl mb-2">
               G
             </div>
-            <h1 className="text-xl font-extrabold text-white tracking-tight">Gather V2 Desktop</h1>
-            <p className="text-xs text-indigo-100 mt-1">Seu escritório virtual em pixel art para chamadas com amigos</p>
+            <h1 className="text-lg font-extrabold text-white tracking-tight">Gather V2 Desktop</h1>
+            <p className="text-xs text-indigo-100">Seu escritório virtual em pixel art com áudio e salas privadas</p>
           </div>
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleStart} className="p-6 space-y-5">
-          {/* User Nickname & Avatar Button */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Seu Nickname</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={userName}
-                onChange={(e) => setUserName(e.target.value)}
-                placeholder="Ex: Lucas, Carol..."
-                className="flex-1 bg-[#12151d] border border-[#2a3142] rounded-xl px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-                maxLength={18}
-                required
-              />
+        {/* Tab Navigation: Conectar vs Salas Salvas */}
+        <div className="flex border-b border-[#2a3142] bg-[#12151d]/70 px-6 pt-3 gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('connect')}
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+              activeTab === 'connect'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <DoorOpen className="w-3.5 h-3.5" />
+            <span>Conectar</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('rooms')}
+            className={`pb-2.5 px-3 text-xs font-bold transition-all border-b-2 flex items-center gap-2 ${
+              activeTab === 'rooms'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span>Salas Salvas</span>
+            <span className="bg-indigo-500/20 text-indigo-300 text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+              {mapData.zones.length}
+            </span>
+          </button>
+        </div>
+
+        {/* TAB 1: CONECTAR */}
+        {activeTab === 'connect' && (
+          <form onSubmit={handleStart} className="p-6 space-y-4 overflow-y-auto">
+            {/* User Nickname & Avatar Button */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Seu Nickname</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={userName}
+                  onChange={(e) => setUserName(e.target.value)}
+                  placeholder="Ex: Lucas, Carol..."
+                  className="flex-1 bg-[#12151d] border border-[#2a3142] rounded-xl px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
+                  maxLength={18}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={onOpenAvatarCustomizer}
+                  className="px-3.5 py-2 bg-[#12151d] hover:bg-slate-800 border border-[#2a3142] rounded-xl text-xs font-semibold text-indigo-400 flex items-center gap-1.5 transition-colors"
+                  title="Personalizar Avatar Pixel Art"
+                >
+                  <User className="w-4 h-4" />
+                  <span>Avatar</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Mode Switcher */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-[#12151d] rounded-2xl border border-[#2a3142]">
               <button
                 type="button"
-                onClick={onOpenAvatarCustomizer}
-                className="px-3 py-2 bg-[#12151d] hover:bg-slate-800 border border-[#2a3142] rounded-xl text-xs font-semibold text-indigo-400 flex items-center gap-1.5 transition-colors"
-                title="Personalizar Avatar Pixel Art"
+                onClick={() => setMode('create')}
+                className={`py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  mode === 'create'
+                    ? 'bg-indigo-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
               >
-                <User className="w-4 h-4" />
-                <span>Avatar</span>
+                <PlusCircle className="w-4 h-4" />
+                Criar Espaço
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('join')}
+                className={`py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  mode === 'join'
+                    ? 'bg-indigo-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <LogIn className="w-4 h-4" />
+                Entrar em Sala
               </button>
             </div>
-          </div>
 
-          {/* Mode Switcher */}
-          <div className="grid grid-cols-2 gap-2 p-1 bg-[#12151d] rounded-2xl border border-[#2a3142]">
-            <button
-              type="button"
-              onClick={() => setMode('create')}
-              className={`py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                mode === 'create'
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <PlusCircle className="w-4 h-4" />
-              Criar Espaço
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('join')}
-              className={`py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                mode === 'join'
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <LogIn className="w-4 h-4" />
-              Entrar em Sala
-            </button>
-          </div>
+            {/* Join Code Input */}
+            {mode === 'join' && (
+              <div className="space-y-1.5 animate-in fade-in duration-150">
+                <label className="block text-xs font-semibold text-slate-300">Código da Sala</label>
+                <input
+                  type="text"
+                  value={roomInput}
+                  onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
+                  placeholder="Ex: GATHER-A9K3F"
+                  className="w-full bg-[#12151d] border border-[#2a3142] rounded-xl px-3.5 py-2 text-sm font-mono text-indigo-300 tracking-wider uppercase focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            )}
 
-          {/* Join Code Input */}
-          {mode === 'join' && (
-            <div className="space-y-1.5 animate-in fade-in duration-150">
-              <label className="block text-xs font-semibold text-slate-300">Código da Sala</label>
-              <input
-                type="text"
-                value={roomInput}
-                onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
-                placeholder="Ex: GATHER-A9K3F"
-                className="w-full bg-[#12151d] border border-[#2a3142] rounded-xl px-3.5 py-2 text-sm font-mono text-indigo-300 tracking-wider uppercase focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-          )}
-
-          {/* Features highlight & Audio Quick Config */}
-          <div className="bg-[#12151d]/60 rounded-2xl p-3 border border-[#2a3142]/60 space-y-2.5 text-[11px] text-slate-400">
-            <div className="flex items-center justify-between">
+            {/* Features highlight & Audio Quick Config */}
+            <div className="bg-[#12151d]/60 rounded-2xl p-3 border border-[#2a3142]/60 space-y-2 text-[11px] text-slate-400">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Supressor de Ruído DSP & Anti-Eco ativados</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => useMediaStore.getState().setSettingsModalOpen(true)}
+                  className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 underline"
+                >
+                  Configurar Áudio
+                </button>
+              </div>
               <div className="flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Supressor de Ruído DSP & Anti-Eco ativados</span>
+                <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Salas salvas automaticamente no seu espaço</span>
+              </div>
+            </div>
+
+            {/* Error message */}
+            {error && (
+              <div className="text-xs text-rose-400 bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/30">
+                {error}
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 transition-all active:scale-98 flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <span>Conectando ao Espaço...</span>
+              ) : mode === 'create' ? (
+                <span>Criar e Entrar no Espaço</span>
+              ) : (
+                <span>Entrar na Sala</span>
+              )}
+            </button>
+          </form>
+        )}
+
+        {/* TAB 2: SALAS SALVAS & EDIÇÃO DE NOMES */}
+        {activeTab === 'rooms' && (
+          <div className="p-6 space-y-4 overflow-y-auto flex-1">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-bold text-slate-200">Salas Privadas do Espaço</h3>
+                <p className="text-[11px] text-slate-400">Edite os nomes das salas ou adicione novas áreas</p>
               </div>
               <button
                 type="button"
-                onClick={() => useMediaStore.getState().setSettingsModalOpen(true)}
-                className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 underline"
+                onClick={handleCreateQuickRoom}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all active:scale-95"
               >
-                <span>Configurar Áudio</span>
+                <Plus className="w-3.5 h-3.5" />
+                <span>Nova Sala</span>
               </button>
             </div>
-            <div className="flex items-center gap-2">
-              <Shield className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Rede P2P WebRTC direta criptografada</span>
+
+            {/* List of Saved Zones */}
+            <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+              {mapData.zones.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-xs bg-[#12151d] rounded-2xl border border-[#2a3142] p-4">
+                  Nenhuma sala privada criada ainda. Clique em "Nova Sala" para criar!
+                </div>
+              ) : (
+                mapData.zones.map((zone) => {
+                  const isEditing = editingZoneId === zone.id
+                  return (
+                    <div
+                      key={zone.id}
+                      className="flex items-center justify-between p-3 rounded-2xl bg-[#12151d] border border-[#2a3142] hover:border-slate-600 transition-all group"
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0 pr-2">
+                        {/* Zone Color Indicator */}
+                        <div
+                          className="w-4 h-4 rounded-full shrink-0 shadow-sm"
+                          style={{ backgroundColor: zone.color || '#4c6ef5' }}
+                        />
+
+                        {/* Name or Inline Editor */}
+                        {isEditing ? (
+                          <div className="flex items-center gap-1.5 flex-1">
+                            <input
+                              type="text"
+                              value={editingZoneName}
+                              onChange={(e) => setEditingZoneName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveEditing(zone.id)
+                                if (e.key === 'Escape') setEditingZoneId(null)
+                              }}
+                              autoFocus
+                              className="bg-[#1b202c] border border-indigo-500 rounded-lg px-2.5 py-1 text-xs font-bold text-white focus:outline-none flex-1"
+                              maxLength={30}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEditing(zone.id)}
+                              className="p-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500"
+                              title="Salvar Nome"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingZoneId(null)}
+                              className="p-1 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600"
+                              title="Cancelar"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-bold text-slate-100 truncate">{zone.name}</span>
+                            <span className="text-[10px] text-slate-400">
+                              Área: {zone.width}x{zone.height} tiles • Privada
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      {!isEditing && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditing(zone)}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                            title="Editar Nome da Sala"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeZone(zone.id)}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            title="Excluir Sala"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
             </div>
+
+            {/* Back to Connect Button */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('connect')}
+              className="w-full py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all active:scale-98 flex items-center justify-center gap-2"
+            >
+              <DoorOpen className="w-4 h-4" />
+              <span>Voltar para Conectar</span>
+            </button>
           </div>
-
-          {/* Error message */}
-          {error && <div className="text-xs text-rose-400 bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/30">{error}</div>}
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-sm shadow-xl shadow-indigo-600/30 transition-all active:scale-98 flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <span>Conectando ao Espaço...</span>
-            ) : mode === 'create' ? (
-              <span>Criar e Entrar no Espaço</span>
-            ) : (
-              <span>Entrar na Sala</span>
-            )}
-          </button>
-        </form>
+        )}
       </div>
     </div>
   )

@@ -103,4 +103,29 @@ describe('Storage Persistence - Expected Behaviors', () => {
     const parsed = JSON.parse(raw!)
     expect(parsed.furniture.some((f: any) => f.id === 'furn-test-1')).toBe(true)
   })
+
+  it('should rename existing zones and persist the new name to localStorage', () => {
+    const { addOrUpdateZone, renameZone } = useMapStore.getState()
+    
+    const zone = {
+      id: 'test-zone-rename',
+      name: 'Sala Antiga',
+      color: '#20c997',
+      x: 2,
+      y: 2,
+      width: 5,
+      height: 5,
+      description: '',
+    }
+
+    addOrUpdateZone(zone)
+    renameZone('test-zone-rename', 'Sala Nova da Diretoria')
+
+    const raw = localStorageMock.getItem('gather_v2_custom_map')
+    expect(raw).toBeTruthy()
+    const parsed = JSON.parse(raw!)
+    const renamed = parsed.zones.find((z: any) => z.id === 'test-zone-rename')
+    expect(renamed?.name).toBe('Sala Nova da Diretoria')
+  })
 })
+
