@@ -15,6 +15,8 @@ export type NetworkMessageType =
   | 'CHAT_MESSAGE'
   | 'REACTION'
   | 'REQUEST_MAP'
+  | 'HEARTBEAT'
+  | 'HEARTBEAT_ACK'
 
 export interface NetworkMessage {
   type: NetworkMessageType

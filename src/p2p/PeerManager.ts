@@ -14,6 +14,9 @@ export class PeerManager {
   private peer: Peer | null = null
   private connections: Map<string, DataConnection> = new Map()
   private mediaCalls: Map<string, MediaConnection> = new Map()
+  private peerLastSeen: Map<string, number> = new Map()
+  private heartbeatInterval: any = null
+  private staleCheckInterval: any = null
   private roomCode: string | null = null
   private isHost: boolean = false
 
@@ -59,6 +62,7 @@ export class PeerManager {
         useGameStore.getState().setRoomSession(this.roomCode!, true, options)
         useGameStore.getState().setConnected(true)
         this.setupPeerListeners()
+        this.startHeartbeat()
         resolve(this.roomCode!)
       })
 
@@ -93,6 +97,7 @@ export class PeerManager {
         useGameStore.getState().setRoomSession(this.roomCode!, false)
         useGameStore.getState().setConnected(true)
         this.setupPeerListeners()
+        this.startHeartbeat()
 
         // Connect to Host
         const conn = this.peer!.connect(hostPeerId, {
@@ -123,15 +128,20 @@ export class PeerManager {
     this.peer.on('call', (call) => {
       console.log('[P2P Media] Incoming call from:', call.peer)
       const localStream = useMediaStore.getState().localStream
+      const isSharing = useMediaStore.getState().isScreenSharing
+      const screenStream = useMediaStore.getState().localScreenStream
 
-      // Answer call with local stream (or blank stream if muted/no cam)
-      if (localStream) {
-        call.answer(localStream)
-      } else {
-        // Answer with empty audio/video stream
-        const emptyStream = new MediaStream()
-        call.answer(emptyStream)
+      let streamToAnswer = localStream || new MediaStream()
+      if (isSharing && screenStream && screenStream.getVideoTracks()[0]) {
+        const combined = new MediaStream()
+        if (localStream) {
+          localStream.getAudioTracks().forEach((t) => combined.addTrack(t))
+        }
+        screenStream.getVideoTracks().forEach((t) => combined.addTrack(t))
+        streamToAnswer = combined
       }
+
+      call.answer(streamToAnswer)
 
       call.on('stream', (remoteStream) => {
         console.log('[P2P Media] Received remote stream from:', call.peer)
@@ -139,6 +149,10 @@ export class PeerManager {
       })
 
       call.on('close', () => {
+        useMediaStore.getState().removePeerStream(call.peer)
+      })
+
+      call.on('error', () => {
         useMediaStore.getState().removePeerStream(call.peer)
       })
 
@@ -150,6 +164,7 @@ export class PeerManager {
     conn.on('open', () => {
       console.log('[P2P Data] Connected to peer:', conn.peer)
       this.connections.set(conn.peer, conn)
+      this.peerLastSeen.set(conn.peer, Date.now())
 
       // Send our local player join message
       const localPlayer = useGameStore.getState().localPlayer
@@ -195,19 +210,78 @@ export class PeerManager {
     })
 
     conn.on('data', (data: any) => {
+      this.peerLastSeen.set(conn.peer, Date.now())
       this.handleNetworkMessage(data as NetworkMessage, conn.peer)
     })
 
     conn.on('close', () => {
-      console.log('[P2P Data] Peer disconnected:', conn.peer)
-      this.connections.delete(conn.peer)
-      useGameStore.getState().removeRemotePlayer(conn.peer)
-      this.endMediaCallWithPeer(conn.peer)
+      console.log('[P2P Data] Peer disconnected cleanly:', conn.peer)
+      this.removePeer(conn.peer)
     })
+
+    conn.on('error', (err) => {
+      console.warn('[P2P Data] Peer connection error:', conn.peer, err)
+      this.removePeer(conn.peer)
+    })
+
+    // Monitor underlying RTCPeerConnection states
+    const pc = (conn as any).peerConnection as RTCPeerConnection
+    if (pc) {
+      pc.addEventListener('connectionstatechange', () => {
+        if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+          console.log(`[P2P WebRTC] Connection state ${pc.connectionState} for ${conn.peer}`)
+          this.removePeer(conn.peer)
+        }
+      })
+      pc.addEventListener('iceconnectionstatechange', () => {
+        if (['disconnected', 'failed', 'closed'].includes(pc.iceConnectionState)) {
+          console.log(`[P2P ICE] State ${pc.iceConnectionState} for ${conn.peer}`)
+          this.removePeer(conn.peer)
+        }
+      })
+    }
+  }
+
+  /**
+   * Centralized Peer Removal & Cleanup
+   */
+  private removePeer(peerId: string) {
+    this.peerLastSeen.delete(peerId)
+    const conn = this.connections.get(peerId)
+    if (conn) {
+      try {
+        conn.close()
+      } catch (e) {}
+      this.connections.delete(peerId)
+    }
+
+    useGameStore.getState().removeRemotePlayer(peerId)
+    this.endMediaCallWithPeer(peerId)
+
+    if (this.isHost) {
+      if (useGameStore.getState().isRoomPublic) {
+        const totalPlayers = Object.keys(useGameStore.getState().remotePlayers).length + 1
+        PublicRoomsService.getInstance().updateHosting({ playerCount: totalPlayers })
+      }
+      // Broadcast player leave to other peers
+      this.broadcast({
+        type: 'PLAYER_LEAVE',
+        senderId: this.peer ? this.peer.id : 'system',
+        payload: { peerId },
+        timestamp: Date.now(),
+      }, peerId)
+    }
   }
 
   private handleNetworkMessage(msg: NetworkMessage, peerId: string) {
+    this.peerLastSeen.set(peerId, Date.now())
+
     switch (msg.type) {
+      case 'HEARTBEAT': {
+        // Heartbeat received - last seen timestamp already updated above
+        break
+      }
+
       case 'PLAYER_JOIN': {
         const player: Player = {
           ...msg.payload.player,
@@ -218,7 +292,6 @@ export class PeerManager {
           const totalPlayers = Object.keys(useGameStore.getState().remotePlayers).length + 1
           PublicRoomsService.getInstance().updateHosting({ playerCount: totalPlayers })
         }
-        // Check if we should initiate Zone call
         this.checkZoneCallEligibility(player)
         break
       }
@@ -243,8 +316,8 @@ export class PeerManager {
       }
 
       case 'PLAYER_LEAVE': {
-        useGameStore.getState().removeRemotePlayer(peerId)
-        this.endMediaCallWithPeer(peerId)
+        const targetId = msg.payload?.peerId || peerId
+        this.removePeer(targetId)
         break
       }
 
@@ -309,8 +382,51 @@ export class PeerManager {
     }
 
     // If host, forward to other peers in mesh
-    if (this.isHost && msg.type !== 'MAP_SYNC' && msg.type !== 'CUSTOM_ASSETS_SYNC') {
+    if (this.isHost && msg.type !== 'MAP_SYNC' && msg.type !== 'CUSTOM_ASSETS_SYNC' && msg.type !== 'HEARTBEAT') {
       this.broadcast(msg, peerId)
+    }
+  }
+
+  /**
+   * Heartbeat System to Detect Stale/Disconnected Peers Automatically
+   */
+  private startHeartbeat() {
+    this.stopHeartbeat()
+
+    // 1. Send heartbeat packet every 2.5s
+    this.heartbeatInterval = setInterval(() => {
+      if (!this.peer || this.connections.size === 0) return
+      const pingMsg: NetworkMessage = {
+        type: 'HEARTBEAT',
+        senderId: this.peer.id,
+        payload: {},
+        timestamp: Date.now(),
+      }
+      this.broadcast(pingMsg)
+    }, 2500)
+
+    // 2. Prune silent peers (no message for >6s)
+    this.staleCheckInterval = setInterval(() => {
+      const now = Date.now()
+      const STALE_TIMEOUT_MS = 6000
+
+      this.peerLastSeen.forEach((lastSeen, peerId) => {
+        if (now - lastSeen > STALE_TIMEOUT_MS) {
+          console.log(`[P2P] Peer ${peerId} timed out (${now - lastSeen}ms silent). Pruning.`)
+          this.removePeer(peerId)
+        }
+      })
+    }, 3000)
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
+    }
+    if (this.staleCheckInterval) {
+      clearInterval(this.staleCheckInterval)
+      this.staleCheckInterval = null
     }
   }
 
@@ -350,10 +466,20 @@ export class PeerManager {
     const existingCall = this.mediaCalls.get(remotePlayer.id)
 
     if (inSameZone) {
-      // Should have active call
       if (!existingCall && this.peer && localStream) {
         console.log(`[Zone Call] Connecting audio/video with ${remotePlayer.name} in zone ${localPlayer.currentZoneId}`)
-        const call = this.peer.call(remotePlayer.id, localStream)
+        const isSharing = useMediaStore.getState().isScreenSharing
+        const screenStream = useMediaStore.getState().localScreenStream
+
+        let streamToSend = localStream
+        if (isSharing && screenStream && screenStream.getVideoTracks()[0]) {
+          const combined = new MediaStream()
+          localStream.getAudioTracks().forEach((t) => combined.addTrack(t))
+          screenStream.getVideoTracks().forEach((t) => combined.addTrack(t))
+          streamToSend = combined
+        }
+
+        const call = this.peer.call(remotePlayer.id, streamToSend)
         if (call) {
           call.on('stream', (remoteStream) => {
             useMediaStore.getState().setPeerStream(remotePlayer.id, remoteStream)
@@ -361,11 +487,13 @@ export class PeerManager {
           call.on('close', () => {
             useMediaStore.getState().removePeerStream(remotePlayer.id)
           })
+          call.on('error', () => {
+            useMediaStore.getState().removePeerStream(remotePlayer.id)
+          })
           this.mediaCalls.set(remotePlayer.id, call)
         }
       }
     } else {
-      // Out of zone: tear down call
       if (existingCall) {
         console.log(`[Zone Call] Leaving zone with ${remotePlayer.name}, terminating media call`)
         this.endMediaCallWithPeer(remotePlayer.id)
@@ -376,7 +504,9 @@ export class PeerManager {
   public endMediaCallWithPeer(peerId: string) {
     const call = this.mediaCalls.get(peerId)
     if (call) {
-      call.close()
+      try {
+        call.close()
+      } catch (e) {}
       this.mediaCalls.delete(peerId)
     }
     useMediaStore.getState().removePeerStream(peerId)
@@ -473,7 +603,7 @@ export class PeerManager {
   /**
    * Broadcast Local Movement
    */
-  public sendMovement(x: number, y: number, direction: 'up' | 'down' | 'left' | 'right', isMoving: boolean) {
+  public sendPlayerMove(x: number, y: number, direction: 'up' | 'down' | 'left' | 'right', isMoving: boolean) {
     if (!this.peer) return
     const msg: NetworkMessage = {
       type: 'PLAYER_MOVE',
@@ -484,8 +614,12 @@ export class PeerManager {
     this.broadcast(msg)
   }
 
+  public sendMovement(x: number, y: number, direction: 'up' | 'down' | 'left' | 'right', isMoving: boolean) {
+    this.sendPlayerMove(x, y, direction, isMoving)
+  }
+
   /**
-   * Broadcast Player Update (Status, Avatar, Zone)
+   * Broadcast Local Player Status / Presence / Zone changes
    */
   public sendPlayerUpdate(player: Partial<Player>) {
     if (!this.peer) return
@@ -589,15 +723,43 @@ export class PeerManager {
   }
 
   public disconnect() {
+    this.stopHeartbeat()
     PublicRoomsService.getInstance().stopHosting()
-    this.mediaCalls.forEach((call) => call.close())
+
+    // Send immediate PLAYER_LEAVE broadcast so peers remove us instantly
+    if (this.peer && this.connections.size > 0) {
+      const leaveMsg: NetworkMessage = {
+        type: 'PLAYER_LEAVE',
+        senderId: this.peer.id,
+        payload: { peerId: this.peer.id },
+        timestamp: Date.now(),
+      }
+      this.broadcast(leaveMsg)
+    }
+
+    this.peerLastSeen.clear()
+
+    this.mediaCalls.forEach((call) => {
+      try {
+        call.close()
+      } catch (e) {}
+    })
     this.mediaCalls.clear()
-    this.connections.forEach((conn) => conn.close())
+
+    this.connections.forEach((conn) => {
+      try {
+        conn.close()
+      } catch (e) {}
+    })
     this.connections.clear()
+
     if (this.peer) {
-      this.peer.destroy()
+      try {
+        this.peer.destroy()
+      } catch (e) {}
       this.peer = null
     }
+
     useGameStore.getState().setConnected(false)
     useGameStore.getState().clearRemotePlayers()
     useMediaStore.getState().clearAllPeerStreams()

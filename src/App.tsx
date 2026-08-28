@@ -14,6 +14,7 @@ import { useMediaStore } from './store/useMediaStore'
 import { useChatStore } from './store/useChatStore'
 import { useMapStore } from './store/useMapStore'
 import { UpdateService, UpdateInfo } from './services/updateService'
+import { PeerManager } from './p2p/PeerManager'
 
 export const App: React.FC = () => {
   const [inLobby, setInLobby] = useState(true)
@@ -64,6 +65,21 @@ export const App: React.FC = () => {
     window.addEventListener('keydown', handleGlobalShortcuts)
     return () => window.removeEventListener('keydown', handleGlobalShortcuts)
   }, [toggleMute, toggleCamera, toggleChat, toggleEditor])
+
+  // 3. Graceful disconnect on window close / page unload
+  useEffect(() => {
+    const handleUnload = () => {
+      PeerManager.getInstance().disconnect()
+    }
+
+    window.addEventListener('beforeunload', handleUnload)
+    window.addEventListener('pagehide', handleUnload)
+
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload)
+      window.removeEventListener('pagehide', handleUnload)
+    }
+  }, [])
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0c0e14] text-slate-100 overflow-hidden font-sans select-none">
