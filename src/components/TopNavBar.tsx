@@ -1,4 +1,3 @@
-import React, { useState } from 'react'
 import {
   Copy,
   Check,
@@ -13,11 +12,13 @@ import {
   Rocket,
   Volume2,
   VolumeX,
+  Save,
 } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
 import { useChatStore } from '../store/useChatStore'
 import { useMediaStore } from '../store/useMediaStore'
+import { useSavedSpacesStore } from '../store/useSavedSpacesStore'
 import { PeerManager } from '../p2p/PeerManager'
 
 interface Props {
@@ -35,8 +36,20 @@ export const TopNavBar: React.FC<Props> = ({
   const { mapData, isEditorOpen, toggleEditor } = useMapStore()
   const { isChatOpen, toggleChat, channels } = useChatStore()
   const { isMuted, toggleMute } = useMediaStore()
+  const { activeSpaceId, saveCurrentMapToSpace, createSavedSpace } = useSavedSpacesStore()
 
   const [copied, setCopied] = useState(false)
+  const [savedFeedback, setSavedFeedback] = useState(false)
+
+  const handleSaveSpace = () => {
+    if (activeSpaceId) {
+      saveCurrentMapToSpace(activeSpaceId, mapData)
+    } else {
+      createSavedSpace(roomName || mapData.name || 'Meu Espaço', mapData)
+    }
+    setSavedFeedback(true)
+    setTimeout(() => setSavedFeedback(false), 2500)
+  }
 
   const currentZone = mapData.zones.find((z) => z.id === localPlayer.currentZoneId)
   const totalUnread = channels.reduce((acc, c) => acc + c.unreadCount, 0)
@@ -167,6 +180,29 @@ export const TopNavBar: React.FC<Props> = ({
         >
           <span>👋</span>
           <span className="hidden sm:inline">Acenar</span>
+        </button>
+
+        {/* Save Current Space Button */}
+        <button
+          onClick={handleSaveSpace}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+            savedFeedback
+              ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500 shadow-md'
+              : 'bg-[#1b202c] text-slate-300 border-[#2a3142] hover:bg-slate-800'
+          }`}
+          title="Salvar Todas as Modificações desta Sala"
+        >
+          {savedFeedback ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Sala Salva!</span>
+            </>
+          ) : (
+            <>
+              <Save className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Salvar Sala</span>
+            </>
+          )}
         </button>
 
         {/* Edit Space Toggle */}

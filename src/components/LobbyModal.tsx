@@ -36,6 +36,7 @@ import { PrivateZone } from '../types/map'
 import { PublicRoomInfo, PublicRoomCategory } from '../types/game'
 import { PublicRoomsService } from '../services/publicRoomsService'
 import { createEmptyWorkspace } from '../editor/templates'
+import { useSavedSpacesStore, SavedSpace } from '../store/useSavedSpacesStore'
 
 interface Props {
   onJoined: () => void
@@ -68,40 +69,42 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
   const [createIsPublic, setCreateIsPublic] = useState(true)
   const [createDescription, setCreateDescription] = useState('')
 
-  // 1. Saved Rooms selection and inline editing
-  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(() => mapData.zones[0]?.id || null)
-  const [editingZoneId, setEditingZoneId] = useState<string | null>(null)
-  const [editingZoneName, setEditingZoneName] = useState('')
+  // 1. Saved Spaces Store Integration (Salas / Espaços Completos Salvos)
+  const {
+    savedSpaces,
+    activeSpaceId,
+    setActiveSpaceId,
+    createSavedSpace,
+    updateSavedSpace,
+    duplicateSavedSpace,
+    deleteSavedSpace,
+  } = useSavedSpacesStore()
 
-  const handleStartEditingZone = (zone: PrivateZone) => {
-    setEditingZoneId(zone.id)
-    setEditingZoneName(zone.name)
+  const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(
+    () => activeSpaceId || savedSpaces[0]?.id || null
+  )
+  const [editingSpaceId, setEditingSpaceId] = useState<string | null>(null)
+  const [editingSpaceName, setEditingSpaceName] = useState('')
+
+  const handleStartEditingSpace = (space: SavedSpace) => {
+    setEditingSpaceId(space.id)
+    setEditingSpaceName(space.name)
   }
 
-  const handleSaveEditingZone = (zoneId: string) => {
-    if (editingZoneName.trim()) {
-      renameZone(zoneId, editingZoneName.trim())
+  const handleSaveEditingSpace = (spaceId: string) => {
+    if (editingSpaceName.trim()) {
+      updateSavedSpace(spaceId, { name: editingSpaceName.trim() })
     }
-    setEditingZoneId(null)
+    setEditingSpaceId(null)
   }
 
-  const handleCreateQuickZone = () => {
-    const randomColors = ['#4c6ef5', '#20c997', '#fa5252', '#fab005', '#be4bdb', '#15aabf']
-    const color = randomColors[Math.floor(Math.random() * randomColors.length)]
-    const newZone: PrivateZone = {
-      id: 'zone-' + Math.random().toString(36).substring(2, 7),
-      name: `Nova Sala ${mapData.zones.length + 1}`,
-      color,
-      x: 3 + (mapData.zones.length % 3) * 8,
-      y: 3 + Math.floor(mapData.zones.length / 3) * 8,
-      width: 7,
-      height: 6,
-      description: 'Sala de reunião e conversa privada',
-    }
-    addOrUpdateZone(newZone)
-    setSelectedZoneId(newZone.id)
-    setEditingZoneId(newZone.id)
-    setEditingZoneName(newZone.name)
+  const handleCreateNewSpace = () => {
+    const empty = createEmptyWorkspace()
+    empty.name = `Novo Espaço ${savedSpaces.length + 1}`
+    const created = createSavedSpace(empty.name, empty)
+    setSelectedSpaceId(created.id)
+    setEditingSpaceId(created.id)
+    setEditingSpaceName(created.name)
   }
 
   // 2. Real-time Public Rooms Hub State
@@ -249,11 +252,18 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
     }
   }
 
-  // Quick Enter Space from Saved Rooms tab
-  const handleQuickEnterSpace = async (targetZoneId?: string) => {
+  // Enter a Saved Space (Loads whole map: floors, walls, furniture, zones)
+  const handleEnterSavedSpace = async (targetSpaceId?: string) => {
     if (!userName.trim()) {
       setError('Por favor, informe seu nickname.')
       setActiveTab('connect')
+      return
+    }
+
+    const spaceId = targetSpaceId || selectedSpaceId
+    const targetSpace = savedSpaces.find((s) => s.id === spaceId) || savedSpaces[0]
+    if (!targetSpace) {
+      setError('Nenhum espaço salvo encontrado.')
       return
     }
 
@@ -261,16 +271,18 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
     setError(null)
 
     try {
-      const activeZoneId = targetZoneId || selectedZoneId
-      const targetZone = mapData.zones.find((z) => z.id === activeZoneId)
-      const spawnX = targetZone ? targetZone.x + Math.floor(targetZone.width / 2) : localPlayer.x
-      const spawnY = targetZone ? targetZone.y + Math.floor(targetZone.height / 2) : localPlayer.y
+      // 1. Load full map into MapStore & persist active space
+      useMapStore.getState().setMapData(targetSpace.mapData)
+      setActiveSpaceId(targetSpace.id)
+
+      const spawnX = targetSpace.mapData.spawnPoint?.x ?? 34
+      const spawnY = targetSpace.mapData.spawnPoint?.y ?? 20
 
       setLocalPlayer({
         name: userName.trim(),
         x: spawnX,
         y: spawnY,
-        currentZoneId: targetZone ? targetZone.id : null,
+        currentZoneId: null,
       })
 
       await MediaManager.getInstance().startMedia(true, true)
@@ -282,17 +294,17 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
           name: userName.trim(),
           x: spawnX,
           y: spawnY,
-          currentZoneId: targetZone ? targetZone.id : null,
+          currentZoneId: null,
         },
         {
-          roomName: targetZone ? `Espaço (${targetZone.name})` : `Meu Espaço Privado`,
+          roomName: targetSpace.name,
           isPublic: false,
         }
       )
       onJoined()
     } catch (err: any) {
       console.error(err)
-      setError('Não foi possível entrar no espaço.')
+      setError('Não foi possível carregar o espaço.')
     } finally {
       setLoading(false)
     }
@@ -767,38 +779,41 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
           </div>
         )}
 
-        {/* TAB 3: SALAS SALVAS (ZONAS DO ESPAÇO) */}
+        {/* TAB 3: SALAS SALVAS (ESPAÇOS COMPLETOS SALVOS) */}
         {activeTab === 'saved_rooms' && (
           <div className="p-6 space-y-4 overflow-y-auto flex-1">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-xs font-bold text-slate-200">Minhas Salas Salvas</h3>
-                <p className="text-[11px] text-slate-400">Salas privadas e zonas configuradas no seu espaço</p>
+                <h3 className="text-xs font-bold text-slate-200">Meus Espaços & Salas Salvas</h3>
+                <p className="text-[11px] text-slate-400">Mapas completos com pisos, paredes, móveis e zonas</p>
               </div>
               <button
                 type="button"
-                onClick={handleCreateQuickZone}
+                onClick={handleCreateNewSpace}
                 className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all active:scale-95"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Nova Sala</span>
+                <span>Novo Espaço</span>
               </button>
             </div>
 
-            {/* List of Saved Rooms */}
+            {/* List of Saved Spaces */}
             <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
-              {mapData.zones.length === 0 ? (
+              {savedSpaces.length === 0 ? (
                 <div className="text-center py-8 text-slate-400 text-xs bg-[#12151d] rounded-2xl border border-[#2a3142] p-4">
-                  Nenhuma sala salva no momento. Clique em "+ Nova Sala" para criar!
+                  Nenhum espaço salvo no momento. Clique em "+ Novo Espaço" para criar!
                 </div>
               ) : (
-                mapData.zones.map((zone) => {
-                  const isEditing = editingZoneId === zone.id
-                  const isSelected = selectedZoneId === zone.id
+                savedSpaces.map((space) => {
+                  const isEditing = editingSpaceId === space.id
+                  const isSelected = selectedSpaceId === space.id
+                  const totalZones = space.mapData.zones?.length || 0
+                  const totalFurniture = space.mapData.furniture?.length || 0
+
                   return (
                     <div
-                      key={zone.id}
-                      onClick={() => !isEditing && setSelectedZoneId(zone.id)}
+                      key={space.id}
+                      onClick={() => !isEditing && setSelectedSpaceId(space.id)}
                       className={`cursor-pointer flex items-center justify-between p-3.5 rounded-2xl border transition-all ${
                         isSelected
                           ? 'bg-indigo-600/20 border-indigo-500 ring-2 ring-indigo-500/40 shadow-lg shadow-indigo-600/10'
@@ -817,10 +832,10 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                           <Check className="w-3 h-3 stroke-[3]" />
                         </div>
 
-                        {/* Zone Color Indicator */}
+                        {/* Space Color / Icon Indicator */}
                         <div
                           className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm"
-                          style={{ backgroundColor: zone.color || '#4c6ef5' }}
+                          style={{ backgroundColor: space.color || '#4c6ef5' }}
                         />
 
                         {/* Name or Inline Editor */}
@@ -828,19 +843,19 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                           <div className="flex items-center gap-1.5 flex-1" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="text"
-                              value={editingZoneName}
-                              onChange={(e) => setEditingZoneName(e.target.value)}
+                              value={editingSpaceName}
+                              onChange={(e) => setEditingSpaceName(e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleSaveEditingZone(zone.id)
-                                if (e.key === 'Escape') setEditingZoneId(null)
+                                if (e.key === 'Enter') handleSaveEditingSpace(space.id)
+                                if (e.key === 'Escape') setEditingSpaceId(null)
                               }}
                               autoFocus
                               className="bg-[#1b202c] border border-indigo-500 rounded-lg px-2.5 py-1 text-xs font-bold text-white focus:outline-none flex-1"
-                              maxLength={30}
+                              maxLength={35}
                             />
                             <button
                               type="button"
-                              onClick={() => handleSaveEditingZone(zone.id)}
+                              onClick={() => handleSaveEditingSpace(space.id)}
                               className="p-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-500"
                               title="Salvar Nome"
                             >
@@ -848,7 +863,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                             </button>
                             <button
                               type="button"
-                              onClick={() => setEditingZoneId(null)}
+                              onClick={() => setEditingSpaceId(null)}
                               className="p-1 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600"
                               title="Cancelar"
                             >
@@ -859,16 +874,16 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                           <div className="flex flex-col min-w-0">
                             <div className="flex items-center gap-2">
                               <span className={`text-xs font-bold truncate ${isSelected ? 'text-white font-black' : 'text-slate-200'}`}>
-                                {zone.name}
+                                {space.name}
                               </span>
                               {isSelected && (
                                 <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
-                                  ✓ Selecionada
+                                  ✓ Selecionado
                                 </span>
                               )}
                             </div>
                             <span className="text-[10px] text-slate-400">
-                              Área: {zone.width}x{zone.height} tiles • Sala Privada
+                              {totalZones} {totalZones === 1 ? 'zona privada' : 'zonas privadas'} • {totalFurniture} {totalFurniture === 1 ? 'móvel' : 'móveis'} • {space.mapData.width}x{space.mapData.height} tiles
                             </span>
                           </div>
                         )}
@@ -879,20 +894,34 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                         <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
-                            onClick={() => handleStartEditingZone(zone)}
+                            onClick={() => handleStartEditingSpace(space)}
                             className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                            title="Editar Nome da Sala"
+                            title="Editar Nome do Espaço"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
                             type="button"
-                            onClick={() => removeZone(zone.id)}
-                            className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                            title="Excluir Sala"
+                            onClick={() => duplicateSavedSpace(space.id)}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"
+                            title="Duplicar Espaço"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Copy className="w-3.5 h-3.5" />
                           </button>
+                          {savedSpaces.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Deseja excluir o espaço "${space.name}"?`)) {
+                                  deleteSavedSpace(space.id)
+                                }
+                              }}
+                              className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                              title="Excluir Espaço"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -903,17 +932,17 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
             {/* Quick Enter Space Button */}
             {(() => {
-              const selectedZone = mapData.zones.find((z) => z.id === selectedZoneId)
+              const selectedSpace = savedSpaces.find((s) => s.id === selectedSpaceId) || savedSpaces[0]
               return (
                 <button
                   type="button"
-                  onClick={() => handleQuickEnterSpace()}
+                  onClick={() => handleEnterSavedSpace()}
                   disabled={loading}
                   className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all active:scale-98 flex items-center justify-center gap-2"
                 >
                   <Sparkles className="w-4 h-4 text-amber-300" />
                   <span>
-                    {selectedZone ? `Entrar Direto em: ${selectedZone.name}` : 'Entrar no Meu Espaço'}
+                    {selectedSpace ? `Entrar no Espaço: ${selectedSpace.name}` : 'Entrar no Meu Espaço'}
                   </span>
                   <ArrowRight className="w-4 h-4" />
                 </button>

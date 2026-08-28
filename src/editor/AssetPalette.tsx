@@ -1,4 +1,3 @@
-import React, { useState } from 'react'
 import {
   Layers,
   Square,
@@ -15,6 +14,7 @@ import {
   Plus,
   Wand2,
   Pencil,
+  Save,
 } from 'lucide-react'
 import { useMapStore } from '../store/useMapStore'
 import { FloorType, WallType, EditorTool, PrivateZone } from '../types/map'
@@ -22,6 +22,7 @@ import { FURNITURE_CATALOG } from '../engine/Constants'
 import { PeerManager } from '../p2p/PeerManager'
 import { PixelArtThumbnail } from './PixelArtThumbnail'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
+import { useSavedSpacesStore } from '../store/useSavedSpacesStore'
 import { CustomElementModal } from './CustomElementModal'
 
 export const AssetPalette: React.FC = () => {
@@ -62,6 +63,7 @@ export const AssetPalette: React.FC = () => {
   const [furnitureCategory, setFurnitureCategory] = useState<string>(() => categories[0] || 'Forja Antiga')
   const [isAddingCategory, setIsAddingCategory] = useState<boolean>(false)
   const [newCategoryText, setNewCategoryText] = useState<string>('')
+  const [savedFeedback, setSavedFeedback] = useState<boolean>(false)
 
   if (!isEditorOpen) return null
 
@@ -744,8 +746,39 @@ export const AssetPalette: React.FC = () => {
         )}
       </div>
 
-      {/* Footer Tools: Borracha e Limpar Espaço */}
+      {/* Footer Tools: Salvar Espaço, Borracha e Limpar Espaço */}
       <div className="p-3 border-t border-[#2a3142] bg-[#12151d]/80 flex gap-2">
+        <button
+          onClick={() => {
+            const { activeSpaceId, saveCurrentMapToSpace, createSavedSpace } = useSavedSpacesStore.getState()
+            if (activeSpaceId) {
+              saveCurrentMapToSpace(activeSpaceId, mapData)
+            } else {
+              createSavedSpace(mapData.name || 'Meu Espaço', mapData)
+            }
+            setSavedFeedback(true)
+            setTimeout(() => setSavedFeedback(false), 2000)
+          }}
+          className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+            savedFeedback
+              ? 'bg-emerald-600 text-white shadow-md'
+              : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20'
+          }`}
+          title="Salvar todas as alterações deste espaço/mapa"
+        >
+          {savedFeedback ? (
+            <>
+              <Check className="w-3.5 h-3.5" />
+              <span>Salvo!</span>
+            </>
+          ) : (
+            <>
+              <Save className="w-3.5 h-3.5" />
+              <span>Salvar Espaço</span>
+            </>
+          )}
+        </button>
+
         <button
           onClick={() => setActiveTool(activeTool === 'eraser' ? 'place_furniture' : 'eraser')}
           className={`flex-1 py-2 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all ${
@@ -760,10 +793,10 @@ export const AssetPalette: React.FC = () => {
 
         <button
           onClick={handleResetWorkspace}
-          className="py-2 px-3 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center gap-1.5 transition-all"
+          className="py-2 px-2.5 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center gap-1 transition-all"
           title="Limpar e reiniciar mapa em branco"
         >
-          <RotateCcw className="w-4 h-4 text-amber-400" />
+          <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
           <span>Limpar</span>
         </button>
       </div>
