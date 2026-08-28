@@ -382,10 +382,12 @@ export class CanvasEngine {
       PixelArtRenderer.drawGatherRoom(ctx, zone, map.zones)
     }
 
-    // 3. Draw Zone Header Badges & Interactive Overlays
-    for (const zone of map.zones) {
-      const isCurrent = localPlayer.currentZoneId === zone.id
-      PixelArtRenderer.drawPrivateZone(ctx, zone, isCurrent)
+    // 3. Draw Zone Header Badges & Dashed Overlays (Only in Editor Mode)
+    if (isEditorOpen) {
+      for (const zone of map.zones) {
+        const isCurrent = localPlayer.currentZoneId === zone.id
+        PixelArtRenderer.drawPrivateZone(ctx, zone, isCurrent)
+      }
     }
 
     // 4. Draw Placed Furniture & Wall Windows
