@@ -137,7 +137,7 @@ export class AvatarRenderer {
     // 4. NAME TAG BADGE (Compact Gather Style)
     // ==========================================
     if (showNameTag) {
-      this.drawNameTag(ctx, player, isLocal, centerX, py - 6)
+      this.drawNameTag(ctx, player, isLocal, centerX, py - 13)
     }
 
     ctx.restore()
