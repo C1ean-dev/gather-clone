@@ -15,24 +15,6 @@ export interface SavedSpace {
 const STORAGE_KEY = 'gather_v2_saved_spaces'
 const ACTIVE_SPACE_ID_KEY = 'gather_v2_active_space_id'
 
-const createDefaultSpaces = (): SavedSpace[] => {
-  const emptyMap = createEmptyWorkspace()
-  emptyMap.id = 'default_workspace'
-  emptyMap.name = 'Meu Espaço Principal'
-
-  return [
-    {
-      id: 'space-default',
-      name: 'Meu Espaço Principal',
-      description: 'Espaço de trabalho padrão com layout aberto e salas',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      mapData: emptyMap,
-      color: '#4c6ef5',
-    },
-  ]
-}
-
 const loadSavedSpaces = (): SavedSpace[] => {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -41,7 +23,7 @@ const loadSavedSpaces = (): SavedSpace[] => {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed) && parsed.length > 0) {
           const validated = parsed
-            .filter((s: any) => s && typeof s === 'object')
+            .filter((s: any) => s && typeof s === 'object' && s.id !== 'space-default' && s.name !== 'Meu Espaço Principal')
             .map((s: any) => {
               const base = createEmptyWorkspace()
               const mapData =
@@ -63,14 +45,14 @@ const loadSavedSpaces = (): SavedSpace[] => {
                 color: s.color || '#4c6ef5',
               }
             })
-          if (validated.length > 0) return validated
+          return validated
         }
       }
     }
   } catch (e) {
     console.error('Failed to load saved spaces:', e)
   }
-  return createDefaultSpaces()
+  return []
 }
 
 const persistSpaces = (spaces: SavedSpace[]) => {
@@ -137,6 +119,9 @@ export const useSavedSpacesStore = create<SavedSpacesState>((set, get) => {
 
       const updated = [newSpace, ...get().savedSpaces]
       persistSpaces(updated)
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(ACTIVE_SPACE_ID_KEY, newSpace.id)
+      }
       set({ savedSpaces: updated, activeSpaceId: newSpace.id })
       return newSpace
     },
@@ -192,9 +177,17 @@ export const useSavedSpacesStore = create<SavedSpacesState>((set, get) => {
     deleteSavedSpace: (id) => {
       const updated = get().savedSpaces.filter((s) => s.id !== id)
       persistSpaces(updated)
+      const nextActiveId = get().activeSpaceId === id ? updated[0]?.id || null : get().activeSpaceId
+      if (typeof window !== 'undefined' && window.localStorage) {
+        if (nextActiveId) {
+          window.localStorage.setItem(ACTIVE_SPACE_ID_KEY, nextActiveId)
+        } else {
+          window.localStorage.removeItem(ACTIVE_SPACE_ID_KEY)
+        }
+      }
       set({
         savedSpaces: updated,
-        activeSpaceId: get().activeSpaceId === id ? updated[0]?.id || null : get().activeSpaceId,
+        activeSpaceId: nextActiveId,
       })
     },
 

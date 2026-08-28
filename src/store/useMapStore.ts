@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { MapData, FloorType, WallType, PlacedFurniture, PrivateZone, EditorTool } from '../types/map'
 import { createEmptyWorkspace, createBlacksmithWorkshopTemplate } from '../editor/templates'
 import { generateWallsAndDoorsForZones, snapAndAlignZone } from '../editor/zoneWallGenerator'
+import { useSavedSpacesStore } from './useSavedSpacesStore'
+import { useGameStore } from './useGameStore'
 
 const MAP_STORAGE_KEY = 'gather_v2_custom_map'
 
@@ -91,6 +93,24 @@ interface MapStore {
   loadBlacksmithTemplate: () => void
 }
 
+export const autoSaveCurrentSpace = () => {
+  try {
+    const currentMap = useMapStore.getState().mapData
+    saveMap(currentMap)
+
+    const { activeSpaceId, saveCurrentMapToSpace, createSavedSpace } = useSavedSpacesStore.getState()
+    const roomName = useGameStore.getState().roomName
+
+    if (activeSpaceId) {
+      saveCurrentMapToSpace(activeSpaceId, currentMap)
+    } else {
+      createSavedSpace(roomName || currentMap.name || 'Meu Espaço', currentMap)
+    }
+  } catch (err) {
+    console.error('[AutoSave] Failed to auto-save space:', err)
+  }
+}
+
 export const useMapStore = create<MapStore>((set, get) => ({
   // Default Map: Loaded from localStorage or Empty Workspace
   mapData: initialMap,
@@ -101,8 +121,20 @@ export const useMapStore = create<MapStore>((set, get) => ({
   },
 
   isEditorOpen: false,
-  toggleEditor: () => set((s) => ({ isEditorOpen: !s.isEditorOpen })),
-  setEditorOpen: (open) => set({ isEditorOpen: open }),
+  toggleEditor: () => {
+    const wasOpen = get().isEditorOpen
+    if (wasOpen) {
+      autoSaveCurrentSpace()
+    }
+    set({ isEditorOpen: !wasOpen })
+  },
+  setEditorOpen: (open) => {
+    const wasOpen = get().isEditorOpen
+    if (wasOpen && !open) {
+      autoSaveCurrentSpace()
+    }
+    set({ isEditorOpen: open })
+  },
 
   activeTool: 'place_furniture',
   setActiveTool: (tool) => set({ activeTool: tool }),

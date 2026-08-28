@@ -35,7 +35,6 @@ export class PeerManager {
     options?: {
       roomName?: string
       roomDescription?: string
-      roomCategory?: 'work' | 'coffee' | 'games' | 'study' | 'general'
       isPublic?: boolean
       maxPlayers?: number
       color?: string

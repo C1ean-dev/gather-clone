@@ -95,7 +95,6 @@ export interface PublicSpaceInfo {
   id: string
   name: string
   description: string
-  category: 'office' | 'lounge' | 'gaming' | 'study' | 'tech'
   onlineCount: number
   code: string
   color: string
@@ -103,14 +102,11 @@ export interface PublicSpaceInfo {
   isOfficial?: boolean
 }
 
-export type PublicRoomCategory = 'all' | 'work' | 'coffee' | 'games' | 'study' | 'general'
-
 export interface PublicRoomInfo {
   id: string
   code: string
   name: string
   description?: string
-  category: 'work' | 'coffee' | 'games' | 'study' | 'general'
   hostId: string
   hostName: string
   hostAvatar?: AvatarConfig

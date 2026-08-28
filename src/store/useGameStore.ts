@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { Player, PresenceStatus, ReactionItem, AvatarConfig, PublicRoomCategory } from '../types/game'
+import { Player, PresenceStatus, ReactionItem, AvatarConfig } from '../types/game'
 import { DEFAULT_AVATAR } from '../engine/Constants'
 import { PublicRoomsService } from '../services/publicRoomsService'
 
@@ -44,7 +44,6 @@ const saved = loadSavedProfile() || {}
 interface RoomSessionOptions {
   roomName?: string
   roomDescription?: string
-  roomCategory?: 'work' | 'coffee' | 'games' | 'study' | 'general'
   isPublic?: boolean
   maxPlayers?: number
   color?: string
@@ -72,7 +71,6 @@ interface GameStore {
   isRoomPublic: boolean
   roomName: string
   roomDescription: string
-  roomCategory: 'work' | 'coffee' | 'games' | 'study' | 'general'
   maxPlayers: number
   roomColor: string
   setRoomSession: (roomId: string, isHost: boolean, options?: RoomSessionOptions) => void
@@ -212,7 +210,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
   isRoomPublic: false,
   roomName: 'Espaço Principal',
   roomDescription: 'Sala aberta e compartilhada',
-  roomCategory: 'general',
   maxPlayers: 20,
   roomColor: '#3b82f6',
 
@@ -220,7 +217,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const isPublic = options?.isPublic ?? false
     const name = options?.roomName || `Espaço de ${get().localPlayer.name}`
     const description = options?.roomDescription || 'Espaço virtual Gather V2'
-    const category = options?.roomCategory || 'general'
     const maxPlayers = options?.maxPlayers || 20
     const color = options?.color || '#3b82f6'
 
@@ -230,7 +226,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       isRoomPublic: isPublic,
       roomName: name,
       roomDescription: description,
-      roomCategory: category,
       maxPlayers,
       roomColor: color,
     })
@@ -241,7 +236,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
         code: roomId,
         name,
         description,
-        category,
         hostId: get().localPlayer.id,
         hostName: get().localPlayer.name,
         hostAvatar: get().localPlayer.avatar,
@@ -274,7 +268,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
         code: state.roomId,
         name: state.roomName,
         description: state.roomDescription,
-        category: state.roomCategory,
         hostId: state.localPlayer.id,
         hostName: state.localPlayer.name,
         hostAvatar: state.localPlayer.avatar,
@@ -297,7 +290,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set((state) => ({
       roomName: details.roomName ?? state.roomName,
       roomDescription: details.roomDescription ?? state.roomDescription,
-      roomCategory: details.roomCategory ?? state.roomCategory,
       maxPlayers: details.maxPlayers ?? state.maxPlayers,
       roomColor: details.color ?? state.roomColor,
     }))
@@ -307,7 +299,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       PublicRoomsService.getInstance().updateHosting({
         name: state.roomName,
         description: state.roomDescription,
-        category: state.roomCategory,
         maxPlayers: state.maxPlayers,
         color: state.roomColor,
       })

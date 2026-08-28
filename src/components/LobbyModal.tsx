@@ -19,13 +19,6 @@ import {
   Search,
   RefreshCw,
   Copy,
-  Tag,
-  Briefcase,
-  Coffee,
-  Gamepad2,
-  Code2,
-  MessageCircle,
-  Clock,
 } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
@@ -33,7 +26,7 @@ import { useMediaStore } from '../store/useMediaStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { MediaManager } from '../media/MediaManager'
 import { PrivateZone } from '../types/map'
-import { PublicRoomInfo, PublicRoomCategory } from '../types/game'
+import { PublicRoomInfo } from '../types/game'
 import { PublicRoomsService } from '../services/publicRoomsService'
 import { createEmptyWorkspace } from '../editor/templates'
 import { useSavedSpacesStore, SavedSpace } from '../store/useSavedSpacesStore'
@@ -42,15 +35,6 @@ interface Props {
   onJoined: () => void
   onOpenAvatarCustomizer: () => void
 }
-
-const CATEGORIES: { id: PublicRoomCategory; label: string; icon: any; color: string }[] = [
-  { id: 'all', label: 'Todas', icon: Globe, color: 'text-indigo-400 border-indigo-500/30' },
-  { id: 'work', label: 'Trabalho', icon: Briefcase, color: 'text-blue-400 border-blue-500/30' },
-  { id: 'coffee', label: 'Café & Lounge', icon: Coffee, color: 'text-amber-400 border-amber-500/30' },
-  { id: 'games', label: 'Jogos & Social', icon: Gamepad2, color: 'text-purple-400 border-purple-500/30' },
-  { id: 'study', label: 'Dev & Estudos', icon: Code2, color: 'text-emerald-400 border-emerald-500/30' },
-  { id: 'general', label: 'Geral', icon: MessageCircle, color: 'text-slate-300 border-slate-500/30' },
-]
 
 export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }) => {
   const { localPlayer, setLocalPlayer } = useGameStore()
@@ -65,7 +49,6 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
   // Creation options
   const [createRoomName, setCreateRoomName] = useState(`Espaço de ${localPlayer.name || 'Trabalho'}`)
-  const [createRoomCategory, setCreateRoomCategory] = useState<'work' | 'coffee' | 'games' | 'study' | 'general'>('work')
   const [createIsPublic, setCreateIsPublic] = useState(true)
   const [createDescription, setCreateDescription] = useState('')
 
@@ -110,7 +93,6 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
   // 2. Real-time Public Rooms Hub State
   const [publicRooms, setPublicRooms] = useState<PublicRoomInfo[]>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState<PublicRoomCategory>('all')
   const [copiedRoomCode, setCopiedRoomCode] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -137,16 +119,12 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
   }
 
   const filteredPublicRooms = publicRooms.filter((room) => {
-    const matchesSearch =
+    return (
       room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       room.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
       room.hostName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (room.description && room.description.toLowerCase().includes(searchQuery.toLowerCase()))
-
-    const matchesCategory =
-      selectedCategory === 'all' || room.category === selectedCategory
-
-    return matchesSearch && matchesCategory
+    )
   })
 
   // 3. Join a Public Room from Hub
@@ -196,10 +174,20 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
       // 3. Create or Join Room
       if (mode === 'create') {
-        // Generate a fresh new room space when entering via Connect
+        const roomTitle = createRoomName.trim() || `Espaço de ${userName.trim()}`
         const newMap = createEmptyWorkspace()
         newMap.id = 'room-' + Math.random().toString(36).substring(2, 8)
-        newMap.name = createRoomName.trim() || `Espaço de ${userName.trim()}`
+        newMap.name = roomTitle
+
+        // Create new saved space so it appears in Salas Salvas and tracks future edits
+        const createdSpace = createSavedSpace(
+          roomTitle,
+          newMap,
+          createDescription.trim() || 'Espaço criado via Conectar'
+        )
+
+        setActiveSpaceId(createdSpace.id)
+        setSelectedSpaceId(createdSpace.id)
         useMapStore.getState().setMapData(newMap)
 
         setLocalPlayer({
@@ -223,9 +211,8 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
             currentZoneId: null,
           },
           {
-            roomName: createRoomName.trim() || `Espaço de ${userName.trim()}`,
+            roomName: createdSpace.name,
             roomDescription: createDescription.trim() || 'Espaço virtual público aberto para todos',
-            roomCategory: createRoomCategory,
             isPublic: createIsPublic,
             maxPlayers: 25,
             color,
@@ -371,7 +358,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
             <LayoutGrid className="w-3.5 h-3.5" />
             <span>Salas Salvas</span>
             <span className="bg-indigo-500/20 text-indigo-300 text-[10px] px-1.5 py-0.2 rounded-full font-bold">
-              {mapData.zones.length}
+              {savedSpaces.length}
             </span>
           </button>
         </div>
@@ -454,50 +441,33 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Categoria</label>
-                    <select
-                      value={createRoomCategory}
-                      onChange={(e) => setCreateRoomCategory(e.target.value as any)}
-                      className="w-full bg-[#12151d] border border-[#2a3142] rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                    >
-                      <option value="work">💼 Trabalho</option>
-                      <option value="coffee">☕ Café & Lounge</option>
-                      <option value="games">🎮 Jogos & Social</option>
-                      <option value="study">💻 Dev & Estudos</option>
-                      <option value="general">💬 Geral</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Visibilidade</label>
-                    <button
-                      type="button"
-                      onClick={() => setCreateIsPublic(!createIsPublic)}
-                      className={`w-full py-1.5 px-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-colors ${
-                        createIsPublic
-                          ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
-                          : 'bg-[#12151d] border-[#2a3142] text-slate-400'
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 mb-1">Visibilidade da Sala</label>
+                  <button
+                    type="button"
+                    onClick={() => setCreateIsPublic(!createIsPublic)}
+                    className={`w-full py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-between transition-colors ${
+                      createIsPublic
+                        ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
+                        : 'bg-[#12151d] border-[#2a3142] text-slate-400'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {createIsPublic ? (
+                        <Globe className="w-4 h-4 text-blue-400" />
+                      ) : (
+                        <Shield className="w-4 h-4 text-slate-400" />
+                      )}
+                      <span>{createIsPublic ? 'Pública (visível no Hub)' : 'Privada (somente com código)'}</span>
+                    </span>
+                    <span
+                      className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
+                        createIsPublic ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400'
                       }`}
                     >
-                      <span className="flex items-center gap-1.5">
-                        {createIsPublic ? (
-                          <Globe className="w-3.5 h-3.5 text-blue-400" />
-                        ) : (
-                          <Shield className="w-3.5 h-3.5 text-slate-400" />
-                        )}
-                        <span>{createIsPublic ? 'Pública (Hub)' : 'Privada'}</span>
-                      </span>
-                      <span
-                        className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] ${
-                          createIsPublic ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400'
-                        }`}
-                      >
-                        {createIsPublic ? '✓' : ''}
-                      </span>
-                    </button>
-                  </div>
+                      {createIsPublic ? '✓' : ''}
+                    </span>
+                  </button>
                 </div>
 
                 {createIsPublic && (
@@ -629,28 +599,6 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                 )}
               </div>
 
-              {/* Category Filter Pills */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] scrollbar-none">
-                {CATEGORIES.map((cat) => {
-                  const Icon = cat.icon
-                  const isSelected = selectedCategory === cat.id
-                  return (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setSelectedCategory(cat.id)}
-                      className={`px-2.5 py-1 rounded-xl font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 border ${
-                        isSelected
-                          ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
-                          : 'bg-[#12151d] text-slate-400 border-[#2a3142] hover:text-slate-200 hover:bg-slate-800'
-                      }`}
-                    >
-                      <Icon className="w-3 h-3" />
-                      <span>{cat.label}</span>
-                    </button>
-                  )
-                })}
-              </div>
             </div>
 
             {/* Public Rooms List */}
@@ -668,7 +616,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                     </h4>
                     <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto">
                       {searchQuery
-                        ? 'Tente buscar com outro nome ou altere os filtros de categoria.'
+                        ? 'Tente buscar por outro nome ou código da sala.'
                         : 'Abra seu espaço e deixe-o público para aparecer aqui para outros usuários!'}
                     </p>
                   </div>
@@ -688,8 +636,6 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
               ) : (
                 filteredPublicRooms.map((room) => {
                   const isCopied = copiedRoomCode === room.code
-                  const catItem = CATEGORIES.find((c) => c.id === room.category) || CATEGORIES[1]
-                  const CatIcon = catItem.icon
 
                   return (
                     <div
@@ -702,15 +648,11 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                         style={{ backgroundColor: room.color || '#3b82f6' }}
                       />
 
-                      {/* Header row: Room Name, Category, Live status */}
+                      {/* Header row: Room Name, Live status */}
                       <div className="flex items-center justify-between gap-2 pl-1">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-xs font-bold text-slate-100 truncate group-hover:text-indigo-300 transition-colors">
                             {room.name}
-                          </span>
-                          <span className="text-[10px] font-semibold px-2 py-0.2 rounded-md bg-[#1b202c] border border-[#2a3142] text-slate-300 flex items-center gap-1 shrink-0">
-                            <CatIcon className="w-2.5 h-2.5 text-indigo-400" />
-                            <span>{catItem.label}</span>
                           </span>
                         </div>
 
@@ -800,8 +742,24 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
             {/* List of Saved Spaces */}
             <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
               {savedSpaces.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 text-xs bg-[#12151d] rounded-2xl border border-[#2a3142] p-4">
-                  Nenhum espaço salvo no momento. Clique em "+ Novo Espaço" para criar!
+                <div className="text-center py-10 text-slate-400 text-xs bg-[#12151d]/70 rounded-2xl border border-[#2a3142] p-6 space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mx-auto flex items-center justify-center">
+                    <LayoutGrid className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-200">Nenhum ambiente salvo</h4>
+                    <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto">
+                      Crie um novo ambiente na aba Conectar ou clique no botão abaixo para começar um espaço do zero!
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCreateNewSpace}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-lg shadow-indigo-600/20 transition-all active:scale-95"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Criar Novo Espaço</span>
+                  </button>
                 </div>
               ) : (
                 savedSpaces.map((space) => {
@@ -814,7 +772,8 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                     <div
                       key={space.id}
                       onClick={() => !isEditing && setSelectedSpaceId(space.id)}
-                      className={`cursor-pointer flex items-center justify-between p-3.5 rounded-2xl border transition-all ${
+                      onDoubleClick={() => !isEditing && handleEnterSavedSpace(space.id)}
+                      className={`cursor-pointer flex items-center justify-between p-3.5 rounded-2xl border transition-all group ${
                         isSelected
                           ? 'bg-indigo-600/20 border-indigo-500 ring-2 ring-indigo-500/40 shadow-lg shadow-indigo-600/10'
                           : 'bg-[#12151d] border-[#2a3142] hover:border-slate-600 hover:bg-[#161a24]'
@@ -894,6 +853,15 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                         <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
+                            onClick={() => handleEnterSavedSpace(space.id)}
+                            className="px-2.5 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all active:scale-95"
+                            title="Entrar neste Espaço"
+                          >
+                            <span>Entrar</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleStartEditingSpace(space)}
                             className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                             title="Editar Nome do Espaço"
@@ -908,20 +876,18 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
                           >
                             <Copy className="w-3.5 h-3.5" />
                           </button>
-                          {savedSpaces.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (window.confirm(`Deseja excluir o espaço "${space.name}"?`)) {
-                                  deleteSavedSpace(space.id)
-                                }
-                              }}
-                              className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-                              title="Excluir Espaço"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`Deseja excluir o espaço "${space.name}"?`)) {
+                                deleteSavedSpace(space.id)
+                              }
+                            }}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            title="Excluir Espaço"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       )}
                     </div>
@@ -930,19 +896,20 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
               )}
             </div>
 
-            {/* Quick Enter Space Button */}
-            {(() => {
+            {/* Quick Enter Space Button (when saved spaces exist) */}
+            {savedSpaces.length > 0 && (() => {
               const selectedSpace = savedSpaces.find((s) => s.id === selectedSpaceId) || savedSpaces[0]
+              if (!selectedSpace) return null
               return (
                 <button
                   type="button"
-                  onClick={() => handleEnterSavedSpace()}
+                  onClick={() => handleEnterSavedSpace(selectedSpace.id)}
                   disabled={loading}
                   className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all active:scale-98 flex items-center justify-center gap-2"
                 >
                   <Sparkles className="w-4 h-4 text-amber-300" />
                   <span>
-                    {selectedSpace ? `Entrar no Espaço: ${selectedSpace.name}` : 'Entrar no Meu Espaço'}
+                    Entrar no Espaço: {selectedSpace.name}
                   </span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
