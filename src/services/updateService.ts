@@ -27,8 +27,13 @@ declare global {
   }
 }
 
+declare const __APP_VERSION__: string | undefined
+
 export const GITHUB_REPO = 'C1ean-dev/gather-clone'
-export const CURRENT_APP_VERSION = '1.0.0'
+export const CURRENT_APP_VERSION =
+  typeof __APP_VERSION__ !== 'undefined'
+    ? __APP_VERSION__
+    : '1.0.0'
 
 export function isNewerVersion(latestTag: string, currentVer: string): boolean {
   const clean = (v: string) => v.replace(/^v/i, '').trim().split('.').map(Number)

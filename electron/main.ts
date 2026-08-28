@@ -99,6 +99,7 @@ ipcMain.handle('get-sources', async () => {
 
 // 2. IPC handler for checking GitHub Releases
 ipcMain.handle('check-update', async () => {
+  const currentVersion = app.getVersion() || '1.0.0'
   try {
     const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
     const res = await fetch(url, {
@@ -111,8 +112,8 @@ ipcMain.handle('check-update', async () => {
     if (!res.ok) {
       return {
         hasUpdate: false,
-        currentVersion: CURRENT_VERSION,
-        latestVersion: CURRENT_VERSION,
+        currentVersion,
+        latestVersion: currentVersion,
         releaseNotes: '',
         downloadUrl: null,
         releaseUrl: `https://github.com/${GITHUB_REPO}/releases`,
@@ -121,7 +122,7 @@ ipcMain.handle('check-update', async () => {
 
     const data = await res.json()
     const latestTag = data.tag_name || ''
-    const hasUpdate = isNewerVersion(latestTag, CURRENT_VERSION)
+    const hasUpdate = isNewerVersion(latestTag, currentVersion)
 
     // Find executable installer asset (.exe)
     let downloadUrl: string | null = null
@@ -136,7 +137,7 @@ ipcMain.handle('check-update', async () => {
 
     return {
       hasUpdate,
-      currentVersion: CURRENT_VERSION,
+      currentVersion,
       latestVersion: latestTag,
       releaseName: data.name || latestTag,
       releaseNotes: data.body || '',
@@ -147,8 +148,8 @@ ipcMain.handle('check-update', async () => {
     console.error('Error checking for updates:', err)
     return {
       hasUpdate: false,
-      currentVersion: CURRENT_VERSION,
-      latestVersion: CURRENT_VERSION,
+      currentVersion,
+      latestVersion: currentVersion,
       releaseNotes: '',
       downloadUrl: null,
       releaseUrl: `https://github.com/${GITHUB_REPO}/releases`,
