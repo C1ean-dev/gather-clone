@@ -11,19 +11,26 @@ const loadSavedMap = (): MapData | null => {
       const raw = window.localStorage.getItem(MAP_STORAGE_KEY)
       if (raw) {
         const parsed = JSON.parse(raw)
-        if (parsed && Array.isArray(parsed.floors)) {
+        if (
+          parsed &&
+          Array.isArray(parsed.floors) &&
+          parsed.floors.length > 0 &&
+          Array.isArray(parsed.floors[0]) &&
+          parsed.floors[0].length > 0
+        ) {
           if (parsed.id === 'blacksmith_workshop') {
             return createEmptyWorkspace()
           }
+          const defaultEmpty = createEmptyWorkspace()
           return {
             id: parsed.id || 'custom_map',
             name: parsed.name || 'Espaço de Trabalho',
-            width: parsed.width || 68,
-            height: parsed.height || 40,
+            width: parsed.width || parsed.floors[0].length || 68,
+            height: parsed.height || parsed.floors.length || 40,
             tileSize: parsed.tileSize || 32,
             spawnPoint: parsed.spawnPoint || { x: 34, y: 20 },
-            floors: parsed.floors || [],
-            walls: Array.isArray(parsed.walls) ? parsed.walls : [],
+            floors: parsed.floors,
+            walls: Array.isArray(parsed.walls) && parsed.walls.length > 0 ? parsed.walls : defaultEmpty.walls,
             furniture: Array.isArray(parsed.furniture) ? parsed.furniture : [],
             zones: Array.isArray(parsed.zones) ? parsed.zones : [],
           }

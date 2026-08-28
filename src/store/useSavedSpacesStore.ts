@@ -40,7 +40,30 @@ const loadSavedSpaces = (): SavedSpace[] => {
       if (raw) {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed
+          const validated = parsed
+            .filter((s: any) => s && typeof s === 'object')
+            .map((s: any) => {
+              const base = createEmptyWorkspace()
+              const mapData =
+                s.mapData &&
+                Array.isArray(s.mapData.floors) &&
+                s.mapData.floors.length > 0 &&
+                Array.isArray(s.mapData.floors[0]) &&
+                s.mapData.floors[0].length > 0
+                  ? s.mapData
+                  : base
+
+              return {
+                id: s.id || 'space-' + Math.random().toString(36).substring(2, 9),
+                name: s.name || 'Meu Espaço',
+                description: s.description || '',
+                createdAt: s.createdAt || Date.now(),
+                updatedAt: s.updatedAt || Date.now(),
+                mapData,
+                color: s.color || '#4c6ef5',
+              }
+            })
+          if (validated.length > 0) return validated
         }
       }
     }

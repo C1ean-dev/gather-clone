@@ -17,7 +17,7 @@ export class CanvasEngine {
   private animationFrameId: number | null = null
 
   // Camera & Viewport
-  public camera = { x: 0, y: 0, zoom: 1.6 }
+  public camera = { x: 34 * TILE_SIZE, y: 20 * TILE_SIZE, zoom: 1.6 }
   private keysPressed: Set<string> = new Set()
   private targetTile: { x: number; y: number } | null = null
   private lastTime: number = performance.now()
@@ -38,6 +38,10 @@ export class CanvasEngine {
     this.ctx = context
 
     this.ctx.imageSmoothingEnabled = false
+
+    const local = useGameStore.getState().localPlayer
+    this.camera.x = (local?.x ?? 34) * TILE_SIZE
+    this.camera.y = (local?.y ?? 20) * TILE_SIZE
 
     this.setupInputs()
   }
@@ -80,8 +84,8 @@ export class CanvasEngine {
    */
   public fitToScreen(percentage: number = 0.95) {
     const map = useMapStore.getState().mapData
-    const mapPixelWidth = map.width * TILE_SIZE
-    const mapPixelHeight = map.height * TILE_SIZE
+    const mapPixelWidth = (map.width || 68) * TILE_SIZE
+    const mapPixelHeight = (map.height || 40) * TILE_SIZE
 
     if (mapPixelWidth === 0 || mapPixelHeight === 0 || this.canvas.width === 0 || this.canvas.height === 0) return
 
@@ -89,7 +93,10 @@ export class CanvasEngine {
     const targetZoomY = (this.canvas.height * percentage) / mapPixelHeight
     const optimalZoom = Math.min(targetZoomX, targetZoomY)
 
-    this.camera.zoom = Math.max(0.6, Math.min(3.2, optimalZoom))
+    this.camera.zoom = Math.max(0.4, Math.min(3.2, optimalZoom))
+    const local = useGameStore.getState().localPlayer
+    this.camera.x = (local?.x ?? 34) * TILE_SIZE
+    this.camera.y = (local?.y ?? 20) * TILE_SIZE
   }
 
   public start() {
