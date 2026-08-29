@@ -14,7 +14,7 @@ interface State {
   isResetConfirmOpen: boolean
 }
 
-export const ErrorBoundary = class ErrorBoundary extends Component<Props, State> {
+export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
     error: null,

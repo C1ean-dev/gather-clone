@@ -90,6 +90,8 @@ export const AssetPalette: React.FC = () => {
     return allFurniture.filter((f) => f.category === furnitureCategory)
   }, [allFurniture, furnitureCategory])
 
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false)
+
   if (!isEditorOpen) return null
 
   const handleDeleteZone = (id: string) => {
@@ -101,8 +103,6 @@ export const AssetPalette: React.FC = () => {
       timestamp: Date.now(),
     })
   }
-
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false)
 
   const handleConfirmReset = () => {
     setIsResetConfirmOpen(false)
