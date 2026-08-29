@@ -9,6 +9,7 @@ export type { ZoneWallTheme, FurnitureDef }
 export { getZoneWallTheme }
 export { FloorRenderer } from './rendering/floorRenderer'
 export { WallRenderer } from './rendering/wallRenderer'
+export { DoorRenderer } from './rendering/doorRenderer'
 export { ZoneRenderer } from './rendering/zoneRenderer'
 export { FurnitureRenderer } from './rendering/furnitureRenderer'
 

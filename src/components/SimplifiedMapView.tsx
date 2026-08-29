@@ -287,6 +287,11 @@ export const SimplifiedMapView: React.FC = () => {
                   <span>Sua Sala</span>
                 </div>
               )}
+
+              {/* Room Entrance Door Threshold Marker */}
+              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1/3 max-w-[48px] h-1.5 bg-[#1c1917] border-t border-indigo-400/50 rounded-t-sm flex items-center justify-center pointer-events-none shadow-sm">
+                <div className="w-2.5 h-0.5 bg-amber-400/70 rounded-full" />
+              </div>
             </div>
           )
         })}

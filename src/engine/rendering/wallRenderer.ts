@@ -1,6 +1,7 @@
 import { WallType, PrivateZone } from '../../types/map'
 import { TILE_SIZE } from '../Constants'
 import { useCustomAssetsStore, getCustomAssetImage } from '../../store/useCustomAssetsStore'
+import { DoorRenderer } from './doorRenderer'
 
 export interface ZoneWallTheme {
   wallBody: string
@@ -346,6 +347,9 @@ export class WallRenderer {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
         ctx.fillRect(minX + 5, doorEndY, 1, sideBottomY - doorEndY)
       }
+
+      // Draw Side Connecting Doorway Arch & Threshold
+      DoorRenderer.drawSideDoorway(ctx, minX, doorStartY, doorEndY, theme, 'left')
     } else if (sideBottomY > sideTopY) {
       fillWallTexture(minX, sideTopY, 6, sideBottomY - sideTopY)
       ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
@@ -371,6 +375,9 @@ export class WallRenderer {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
         ctx.fillRect(maxX - 6, doorEndY, 1, sideBottomY - doorEndY)
       }
+
+      // Draw Side Connecting Doorway Arch & Threshold
+      DoorRenderer.drawSideDoorway(ctx, maxX - 6, doorStartY, doorEndY, theme, 'right')
     } else if (sideBottomY > sideTopY) {
       fillWallTexture(maxX - 6, sideTopY, 6, sideBottomY - sideTopY)
       ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
@@ -378,7 +385,7 @@ export class WallRenderer {
     }
 
     // ==========================================
-    // 3. FRONT WALL BLOCKS (Paredes da Frente com a Textura Real)
+    // 3. FRONT WALL BLOCKS & ENTRANCE DOORS
     // ==========================================
     // Left Front Block
     const leftBlockW = doorStartX - minX
@@ -399,6 +406,17 @@ export class WallRenderer {
       ctx.fillRect(doorEndX, frontWallY, rightBlockW, 2)
       ctx.fillRect(doorEndX, frontWallY, 2, frontWallH)
     }
+
+    // Draw Front Entrance Door Frame, Threshold Mat, and Doors
+    DoorRenderer.drawFrontDoor(
+      ctx,
+      zone,
+      doorStartX,
+      doorEndX,
+      frontWallY,
+      frontWallH,
+      maxY
+    )
 
     ctx.restore()
   }
