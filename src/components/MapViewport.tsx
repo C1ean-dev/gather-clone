@@ -1,14 +1,18 @@
 import React, { useEffect, useRef } from 'react'
-import { Plus, Minus, Maximize2, Sparkles } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import { CanvasEngine } from '../engine/CanvasEngine'
 import { useMapStore } from '../store/useMapStore'
+import { useGameStore } from '../store/useGameStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { PlacedFurniture, PrivateZone } from '../types/map'
+import { MapControlsWidget } from './MapControlsWidget'
+import { SimplifiedMapView } from './SimplifiedMapView'
 
 export const MapViewport: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const engineRef = useRef<CanvasEngine | null>(null)
 
+  const { mapViewMode } = useGameStore()
   const {
     isEditorOpen,
     activeTool,
@@ -72,6 +76,19 @@ export const MapViewport: React.FC = () => {
       engineRef.current.fitToScreen(0.95)
     }
   }, [mapData.width, mapData.height])
+
+  // Re-adjust camera and resize canvas when switching back to Immersive mode
+  useEffect(() => {
+    if (mapViewMode === 'immersive' && engineRef.current && canvasRef.current) {
+      const canvas = canvasRef.current
+      canvas.width = canvas.parentElement?.clientWidth || window.innerWidth
+      canvas.height = canvas.parentElement?.clientHeight || window.innerHeight - 56
+      const local = useGameStore.getState().localPlayer
+      engineRef.current.camera.x = (local?.x ?? 34) * 32
+      engineRef.current.camera.y = (local?.y ?? 20) * 32
+      engineRef.current.fitToScreen(0.95)
+    }
+  }, [mapViewMode])
 
   // Handle Canvas Mouse Clicks & Editor Interactions
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -250,7 +267,7 @@ export const MapViewport: React.FC = () => {
       onWheel={handleWheel}
       className="relative flex-1 w-full h-[calc(100vh-56px)] overflow-hidden bg-[#0c0e14]"
     >
-      {/* Canvas */}
+      {/* 2D Canvas Engine (Always mounted to preserve rendering context) */}
       <canvas
         ref={canvasRef}
         onMouseDown={handleCanvasMouseDown}
@@ -258,55 +275,29 @@ export const MapViewport: React.FC = () => {
         onMouseUp={handleCanvasMouseUp}
         onMouseLeave={handleCanvasMouseUp}
         onWheel={handleWheel}
-        className="w-full h-full cursor-crosshair pixelated block"
+        className={`w-full h-full cursor-crosshair pixelated ${
+          mapViewMode === 'simplified' ? 'hidden' : 'block'
+        }`}
       />
 
       {/* Drawing Zone Active Floating Banner */}
-      {isEditorOpen && activeTool === 'draw_zone' && (
+      {isEditorOpen && activeTool === 'draw_zone' && mapViewMode !== 'simplified' && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-indigo-600/90 backdrop-blur-md border border-indigo-400/40 text-white px-4 py-2 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-pulse select-none z-30">
           <Sparkles className="w-4 h-4 text-amber-300" />
           <span>Clique e arraste no mapa para demarcar a zona privada</span>
         </div>
       )}
 
-      {/* Floating Info & Shortcuts Badge (Bottom-Right) */}
-      <div className="absolute bottom-4 right-4 flex flex-col items-end gap-2 pointer-events-none select-none">
-        <div className="bg-[#1b202c]/90 backdrop-blur-md border border-[#2a3142] rounded-2xl p-2.5 shadow-xl pointer-events-auto flex items-center gap-3 text-xs text-slate-300">
-          <div className="flex items-center gap-1.5 font-medium">
-            <kbd className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-200">W</kbd>
-            <kbd className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-200">A</kbd>
-            <kbd className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-200">S</kbd>
-            <kbd className="bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded text-[10px] text-slate-200">D</kbd>
-            <span className="text-slate-400">ou Clique</span>
-          </div>
+      {/* Simplified Vector Map View */}
+      {mapViewMode === 'simplified' && <SimplifiedMapView />}
 
-          <div className="h-4 w-px bg-slate-700" />
-
-          {/* Zoom Buttons & Fit Screen */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => handleZoom(0.2)}
-              className="p-1 rounded-lg hover:bg-slate-700 text-slate-300 transition-colors"
-              title="Aumentar Zoom (+)"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => handleZoom(-0.2)}
-              className="p-1 rounded-lg hover:bg-slate-700 text-slate-300 transition-colors"
-              title="Diminuir Zoom (-)"
-            >
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={handleFitScreen}
-              className="p-1 rounded-lg hover:bg-indigo-600/30 text-indigo-400 hover:text-indigo-200 transition-colors"
-              title="Enquadrar Mapa na Tela"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
+      {/* Floating Bottom-Right Map Controls Widget (Modes + Zoom) */}
+      <div className="absolute bottom-4 right-4 z-40">
+        <MapControlsWidget
+          onZoomIn={() => handleZoom(0.2)}
+          onZoomOut={() => handleZoom(-0.2)}
+          onFitScreen={handleFitScreen}
+        />
       </div>
     </div>
   )

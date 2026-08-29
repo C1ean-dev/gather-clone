@@ -167,7 +167,12 @@ export const UpdateModal: React.FC<Props> = ({ updateInfo, isOpen, onClose }) =>
 
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => {
+                  try {
+                    sessionStorage.setItem('gather_v2_update_dismissed', 'true')
+                  } catch (e) {}
+                  onClose()
+                }}
                 disabled={downloading && !downloadComplete}
                 className="text-xs text-slate-400 hover:text-slate-200 font-medium py-1 px-3 rounded-lg hover:bg-[#12151d] transition-colors disabled:opacity-50"
               >

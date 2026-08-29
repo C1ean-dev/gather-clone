@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { Player, PresenceStatus, ReactionItem, AvatarConfig } from '../types/game'
+import { Player, PresenceStatus, ReactionItem, AvatarConfig, UserRole, PlayerPermissions } from '../types/game'
 import { DEFAULT_AVATAR } from '../engine/Constants'
 import { PublicRoomsService } from '../services/publicRoomsService'
 
@@ -112,26 +112,166 @@ interface GameStore {
 
   // Session / Room State
   roomId: string | null
+  isOwner: boolean
   isHost: boolean
+  connectionHostId: string | null
   isConnected: boolean
   isRoomPublic: boolean
   roomName: string
   roomDescription: string
   maxPlayers: number
   roomColor: string
-  setRoomSession: (roomId: string, isHost: boolean, options?: RoomSessionOptions) => void
+  setRoomSession: (roomId: string, isOwner: boolean, options?: RoomSessionOptions) => void
   setConnected: (connected: boolean) => void
   setIsRoomPublic: (isPublic: boolean) => void
   toggleRoomPrivacy: () => void
   updatePublicRoomDetails: (details: Partial<RoomSessionOptions>) => void
+  setConnectionHostId: (id: string | null) => void
 
   // Floating Reactions
   reactions: ReactionItem[]
   addReaction: (reaction: ReactionItem) => void
   removeReaction: (id: string) => void
+
+  // Online Users & Permissions Drawer
+  isOnlineUsersOpen: boolean
+  setOnlineUsersOpen: (open: boolean) => void
+  toggleOnlineUsers: () => void
+  friends: string[]
+  toggleFriend: (playerId: string) => void
+  updateRemotePlayer: (id: string, partial: Partial<Player>) => void
+  updatePlayerPing: (id: string, ping: number) => void
+  updatePlayerRole: (id: string, role: UserRole, permissions?: PlayerPermissions) => void
+  teleportToPlayer: (targetId: string) => void
+  kickPlayer: (targetId: string) => void
+
+  // View Mode (Immersive vs Simplified)
+  mapViewMode: 'immersive' | 'simplified'
+  setMapViewMode: (mode: 'immersive' | 'simplified') => void
+}
+
+const FRIENDS_STORAGE_KEY = 'gather_v2_friends_list'
+const MAP_VIEW_STORAGE_KEY = 'gather_v2_map_view_mode'
+
+const loadSavedMapViewMode = (): 'immersive' | 'simplified' => {
+  try {
+    const storage = getStorage()
+    if (storage) {
+      const raw = storage.getItem(MAP_VIEW_STORAGE_KEY)
+      if (raw === 'simplified' || raw === 'immersive') return raw
+    }
+  } catch (e) {}
+  return 'immersive'
+}
+
+const loadSavedFriends = (): string[] => {
+  try {
+    const storage = getStorage()
+    if (storage) {
+      const raw = storage.getItem(FRIENDS_STORAGE_KEY)
+      if (raw) return JSON.parse(raw)
+    }
+  } catch (e) {}
+  return []
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
+  mapViewMode: loadSavedMapViewMode(),
+  setMapViewMode: (mapViewMode) => {
+    try {
+      const storage = getStorage()
+      if (storage) storage.setItem(MAP_VIEW_STORAGE_KEY, mapViewMode)
+    } catch (e) {}
+    set({ mapViewMode })
+  },
+  isOnlineUsersOpen: false,
+  setOnlineUsersOpen: (isOnlineUsersOpen) => set({ isOnlineUsersOpen }),
+  toggleOnlineUsers: () => set((state) => ({ isOnlineUsersOpen: !state.isOnlineUsersOpen })),
+  friends: loadSavedFriends(),
+  toggleFriend: (playerId) =>
+    set((state) => {
+      const exists = state.friends.includes(playerId)
+      const next = exists ? state.friends.filter((id) => id !== playerId) : [...state.friends, playerId]
+      try {
+        const storage = getStorage()
+        if (storage) storage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(next))
+      } catch (e) {}
+      return { friends: next }
+    }),
+  updateRemotePlayer: (id, partial) =>
+    set((state) => {
+      const existing = state.remotePlayers[id]
+      if (!existing) return state
+      return {
+        remotePlayers: {
+          ...state.remotePlayers,
+          [id]: { ...existing, ...partial },
+        },
+      }
+    }),
+  updatePlayerPing: (id, ping) =>
+    set((state) => {
+      if (id === state.localPlayer.id) {
+        return { localPlayer: { ...state.localPlayer, ping } }
+      }
+      const existing = state.remotePlayers[id]
+      if (!existing) return state
+      return {
+        remotePlayers: {
+          ...state.remotePlayers,
+          [id]: { ...existing, ping },
+        },
+      }
+    }),
+  setConnectionHostId: (connectionHostId) =>
+    set((state) => ({
+      connectionHostId,
+      isHost: state.localPlayer.id === connectionHostId,
+      localPlayer: {
+        ...state.localPlayer,
+        isHost: state.localPlayer.id === connectionHostId,
+      },
+    })),
+  updatePlayerRole: (id, role, permissions) => {
+    const state = get()
+    if (id === state.localPlayer.id) {
+      set({
+        localPlayer: {
+          ...state.localPlayer,
+          role,
+          permissions: permissions || state.localPlayer.permissions,
+        },
+      })
+    } else {
+      const target = state.remotePlayers[id]
+      if (target) {
+        set({
+          remotePlayers: {
+            ...state.remotePlayers,
+            [id]: {
+              ...target,
+              role,
+              permissions: permissions || target.permissions,
+            },
+          },
+        })
+      }
+    }
+  },
+  teleportToPlayer: (targetId) => {
+    const state = get()
+    const target = state.remotePlayers[targetId]
+    if (target) {
+      state.setLocalPlayer({
+        x: target.x + (target.direction === 'left' ? 1 : target.direction === 'right' ? -1 : 0),
+        y: target.y + (target.direction === 'up' ? 1 : target.direction === 'down' ? -1 : 0),
+      })
+    }
+  },
+  kickPlayer: (targetId) => {
+    const { removeRemotePlayer } = get()
+    removeRemotePlayer(targetId)
+  },
   localPlayer: {
     id: saved.id || 'local-' + Math.random().toString(36).substring(2, 8),
     name: saved.name || 'Player',
@@ -139,13 +279,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
     y: 11,
     direction: 'down',
     isMoving: false,
+    role: 'member' as UserRole,
+    isOwner: false,
+    isHost: false,
+    ping: 15,
+    permissions: {
+      canEditMap: false,
+      canManageRoles: false,
+      canMuteOthers: false,
+      canKick: false,
+    },
     avatar: saved.avatar ? { ...DEFAULT_AVATAR, ...saved.avatar } : { ...DEFAULT_AVATAR },
     status: saved.status || 'available',
     statusText: saved.statusText || 'Disponível',
     statusEmoji: saved.statusEmoji || '💻',
     currentZoneId: null,
     lastUpdated: Date.now(),
-    isHost: false,
     isMuted: false,
     isCameraOff: false,
     isScreenSharing: false,
@@ -251,7 +400,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   roomId: null,
+  isOwner: false,
   isHost: false,
+  connectionHostId: null,
   isConnected: false,
   isRoomPublic: false,
   roomName: 'Espaço Principal',
@@ -259,26 +410,37 @@ export const useGameStore = create<GameStore>((set, get) => ({
   maxPlayers: 20,
   roomColor: '#3b82f6',
 
-  setRoomSession: (roomId, isHost, options) => {
+  setRoomSession: (roomId, isOwner, options) => {
     const isPublic = options?.isPublic ?? false
     const name = options?.roomName || `Espaço de ${get().localPlayer.name}`
     const description = options?.roomDescription || 'Espaço virtual Gather V2'
     const maxPlayers = options?.maxPlayers || 20
     const color = options?.color || '#3b82f6'
 
-    set({
+    set((state) => ({
       roomId,
-      isHost,
+      isOwner,
+      isHost: isOwner,
+      connectionHostId: isOwner ? state.localPlayer.id : null,
       isRoomPublic: isPublic,
       roomName: name,
       roomDescription: description,
       maxPlayers,
       roomColor: color,
-    })
+      localPlayer: {
+        ...state.localPlayer,
+        isOwner,
+        isHost: isOwner,
+        role: isOwner ? ('owner' as UserRole) : ('member' as UserRole),
+        permissions: isOwner
+          ? { canEditMap: true, canManageRoles: true, canMuteOthers: true, canKick: true }
+          : { canEditMap: false, canManageRoles: false, canMuteOthers: false, canKick: false },
+      },
+    }))
 
     syncPublicRoomRegistration(roomId, isPublic, name)
 
-    if (isHost && isPublic) {
+    if (isOwner && isPublic) {
       PublicRoomsService.getInstance().startHosting({
         id: 'room-' + roomId,
         code: roomId,

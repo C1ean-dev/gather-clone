@@ -16,8 +16,8 @@ describe('Audio & Media Store - Expected Behaviors', () => {
       isNoiseSuppressionEnabled: true,
       screenShareAudioVolume: 50,
       duckingEnabled: true,
-      isMuted: false,
-      isCameraOff: false,
+      isMuted: true,
+      isCameraOff: true,
       isScreenSharing: false,
       isGridCallOpen: false,
       isSettingsModalOpen: false,
@@ -40,6 +40,8 @@ describe('Audio & Media Store - Expected Behaviors', () => {
     expect(state.isNoiseSuppressionEnabled).toBe(true)
     expect(state.screenShareAudioVolume).toBe(50)
     expect(state.duckingEnabled).toBe(true)
+    expect(state.isMuted).toBe(true)
+    expect(state.isCameraOff).toBe(true)
   })
 
   it('should update input volume (microphone gain) correctly', () => {
@@ -80,24 +82,30 @@ describe('Audio & Media Store - Expected Behaviors', () => {
   })
 
   it('should toggle microphone mute state', () => {
-    const { toggleMute } = useMediaStore.getState()
+    const { toggleMute, setMuted } = useMediaStore.getState()
+    expect(useMediaStore.getState().isMuted).toBe(true)
+
+    toggleMute()
     expect(useMediaStore.getState().isMuted).toBe(false)
 
     toggleMute()
     expect(useMediaStore.getState().isMuted).toBe(true)
 
-    toggleMute()
+    setMuted(false)
     expect(useMediaStore.getState().isMuted).toBe(false)
   })
 
   it('should toggle camera state', () => {
-    const { toggleCamera } = useMediaStore.getState()
+    const { toggleCamera, setCameraOff } = useMediaStore.getState()
+    expect(useMediaStore.getState().isCameraOff).toBe(true)
+
+    toggleCamera()
     expect(useMediaStore.getState().isCameraOff).toBe(false)
 
     toggleCamera()
     expect(useMediaStore.getState().isCameraOff).toBe(true)
 
-    toggleCamera()
+    setCameraOff(false)
     expect(useMediaStore.getState().isCameraOff).toBe(false)
   })
 

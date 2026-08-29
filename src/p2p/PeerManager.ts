@@ -1,13 +1,14 @@
 import Peer, { DataConnection, MediaConnection } from 'peerjs'
-import { NetworkMessage, PlayerMovePayload } from '../types/p2p'
+import { NetworkMessage } from '../types/p2p'
 import { Player } from '../types/game'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
-import { useChatStore } from '../store/useChatStore'
 import { useMediaStore } from '../store/useMediaStore'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { CustomAsset } from '../types/customAsset'
 import { PublicRoomsService } from '../services/publicRoomsService'
+import { processNetworkMessage } from './messageHandlers'
+import { MediaCallHandler } from './mediaCalls'
 
 export class PeerManager {
   private static instance: PeerManager
@@ -47,7 +48,17 @@ export class PeerManager {
     this.isHost = true
     const hostPeerId = `gather-v2-${this.roomCode}-host`
 
+    // Clean up any stale peer connection first
+    if (this.peer) {
+      try {
+        this.peer.destroy()
+      } catch (e) {}
+      this.peer = null
+    }
+
     return new Promise((resolve, reject) => {
+      let resolved = false
+
       this.peer = new Peer(hostPeerId, {
         config: {
           iceServers: [
@@ -58,6 +69,8 @@ export class PeerManager {
       })
 
       this.peer.on('open', (id) => {
+        if (resolved) return
+        resolved = true
         console.log('[P2P] Room created with Host ID:', id)
         useGameStore.getState().setRoomSession(this.roomCode!, true, options)
         useGameStore.getState().setConnected(true)
@@ -66,15 +79,36 @@ export class PeerManager {
         resolve(this.roomCode!)
       })
 
-      this.peer.on('error', (err) => {
-        console.error('[P2P] Error hosting room:', err)
-        reject(err)
+      this.peer.on('error', async (err: any) => {
+        if (resolved) return
+        console.warn('[P2P] Error hosting room, checking fallback:', err)
+
+        // If ID is already taken or unavailable (e.g. active room already hosted or lingering session)
+        if (err?.type === 'unavailable-id' || err?.message?.includes('is taken') || err?.type === 'server-error') {
+          resolved = true
+          console.log('[P2P] Host ID already registered. Joining as client to active room...')
+          try {
+            if (this.peer) {
+              try {
+                this.peer.destroy()
+              } catch (e) {}
+              this.peer = null
+            }
+            await this.joinRoom(this.roomCode!, localPlayer)
+            resolve(this.roomCode!)
+          } catch (joinErr) {
+            reject(joinErr)
+          }
+        } else {
+          resolved = true
+          reject(err)
+        }
       })
     })
   }
 
   /**
-   * Join an existing Room
+   * Join an existing Room (with Smart Auto-Host Fallback if unhosted)
    */
   public async joinRoom(roomCode: string, localPlayer: Player): Promise<void> {
     this.roomCode = roomCode.toUpperCase()
@@ -83,6 +117,9 @@ export class PeerManager {
     const hostPeerId = `gather-v2-${this.roomCode}-host`
 
     return new Promise((resolve, reject) => {
+      let isResolved = false
+      let fallbackTimer: any = null
+
       this.peer = new Peer(clientPeerId, {
         config: {
           iceServers: [
@@ -91,6 +128,30 @@ export class PeerManager {
           ],
         },
       })
+
+      const triggerAutoHost = async () => {
+        if (isResolved) return
+        isResolved = true
+        if (fallbackTimer) clearTimeout(fallbackTimer)
+        console.log(`[P2P Join] Host ${hostPeerId} is offline or unavailable. Auto-hosting space ${this.roomCode}...`)
+
+        try {
+          if (this.peer) {
+            try {
+              this.peer.destroy()
+            } catch (e) {}
+            this.peer = null
+          }
+          await this.createRoom(this.roomCode!, localPlayer, {
+            roomName: `Espaço ${this.roomCode}`,
+            isPublic: false,
+          })
+          resolve()
+        } catch (err) {
+          console.error('[P2P AutoHost] Error promoting to host:', err)
+          reject(err)
+        }
+      }
 
       this.peer.on('open', (id) => {
         console.log('[P2P] Joined peer network with ID:', id)
@@ -105,13 +166,29 @@ export class PeerManager {
           reliable: true,
         })
 
+        // Wait up to 3.5s for host connection confirmation before auto-hosting
+        fallbackTimer = setTimeout(() => {
+          if (!isResolved && this.connections.size === 0) {
+            triggerAutoHost()
+          }
+        }, 3500)
+
+        conn.on('open', () => {
+          if (!isResolved) {
+            if (fallbackTimer) clearTimeout(fallbackTimer)
+            isResolved = true
+            resolve()
+          }
+        })
+
         this.setupDataConnection(conn)
-        resolve()
       })
 
-      this.peer.on('error', (err) => {
-        console.error('[P2P] Error joining room:', err)
-        reject(err)
+      this.peer.on('error', (err: any) => {
+        console.warn('[P2P] Peer network warning/error:', err)
+        if (!isResolved && (err?.type === 'peer-unavailable' || err?.message?.includes('Could not connect to peer'))) {
+          triggerAutoHost()
+        }
       })
     })
   }
@@ -255,6 +332,8 @@ export class PeerManager {
       this.connections.delete(peerId)
     }
 
+    const wasHost = peerId.endsWith('-host') || (this.roomCode && peerId === `gather-v2-${this.roomCode}-host`)
+
     useGameStore.getState().removeRemotePlayer(peerId)
     this.endMediaCallWithPeer(peerId)
 
@@ -264,127 +343,130 @@ export class PeerManager {
         PublicRoomsService.getInstance().updateHosting({ playerCount: totalPlayers })
       }
       // Broadcast player leave to other peers
-      this.broadcast({
-        type: 'PLAYER_LEAVE',
-        senderId: this.peer ? this.peer.id : 'system',
-        payload: { peerId },
-        timestamp: Date.now(),
-      }, peerId)
+      this.broadcast(
+        {
+          type: 'PLAYER_LEAVE',
+          senderId: this.peer ? this.peer.id : 'system',
+          payload: { peerId },
+          timestamp: Date.now(),
+        },
+        peerId
+      )
+    } else if (wasHost && this.roomCode) {
+      this.handleHostDisconnected(peerId)
     }
+  }
+
+  /**
+   * Automatic Host Migration & Failover Election
+   */
+  private handleHostDisconnected(hostPeerId: string) {
+    console.log('[P2P Failover] Host disconnected from room:', this.roomCode)
+    if (!this.roomCode) return
+
+    // Identify remaining candidates
+    const remainingPeers = Array.from(this.connections.keys()).filter((pid) => pid !== hostPeerId)
+    const myId = this.peer ? this.peer.id : ''
+    const candidateList = [myId, ...remainingPeers].filter(Boolean).sort()
+
+    console.log('[P2P Failover] Candidates for host election:', candidateList)
+
+    if (candidateList.length > 0 && candidateList[0] === myId) {
+      console.log('[P2P Failover] This client was ELECTED as the NEW ROOM HOST!')
+      this.promoteToHost()
+    } else {
+      console.log(`[P2P Failover] Peer ${candidateList[0]} elected. Reconnecting in 2.5s...`)
+      setTimeout(() => {
+        if (!this.isHost && this.roomCode) {
+          this.reconnectToHost(`gather-v2-${this.roomCode}-host`)
+        }
+      }, 2500)
+    }
+  }
+
+  private async promoteToHost() {
+    if (!this.roomCode) return
+    this.isHost = true
+    const localPlayer = useGameStore.getState().localPlayer
+
+    // Update store state
+    useGameStore.getState().setConnectionHostId(localPlayer.id)
+    useGameStore.getState().updatePlayerRole(localPlayer.id, 'host', {
+      canEditMap: true,
+      canManageRoles: true,
+      canMuteOthers: true,
+      canKick: true,
+    })
+
+    // Clean up old client peer instance
+    this.stopHeartbeat()
+    if (this.peer) {
+      try {
+        this.peer.destroy()
+      } catch (e) {}
+      this.peer = null
+    }
+    this.connections.clear()
+
+    const hostPeerId = `gather-v2-${this.roomCode}-host`
+    this.peer = new Peer(hostPeerId, {
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' },
+        ],
+      },
+    })
+
+    this.peer.on('open', (id) => {
+      console.log('[P2P Failover] Successfully claimed Host ID:', id)
+      useGameStore.getState().setConnected(true)
+      this.setupPeerListeners()
+      this.startHeartbeat()
+
+      if (useGameStore.getState().isRoomPublic) {
+        PublicRoomsService.getInstance().startHosting({
+          id: 'room-' + this.roomCode,
+          code: this.roomCode!,
+          name: useGameStore.getState().roomName,
+          description: useGameStore.getState().roomDescription,
+          hostId: localPlayer.id,
+          hostName: localPlayer.name,
+          hostAvatar: localPlayer.avatar,
+          hostColor: localPlayer.avatar?.shirtColor || '#4c6ef5',
+          playerCount: Object.keys(useGameStore.getState().remotePlayers).length + 1,
+          maxPlayers: useGameStore.getState().maxPlayers,
+          color: useGameStore.getState().roomColor,
+        })
+      }
+    })
+
+    this.peer.on('error', (err) => {
+      console.error('[P2P Failover] Error claiming host:', err)
+    })
+  }
+
+  private reconnectToHost(hostPeerId: string) {
+    if (!this.peer || this.peer.destroyed) return
+    console.log('[P2P Failover] Attempting to reconnect to new host endpoint:', hostPeerId)
+    const localPlayer = useGameStore.getState().localPlayer
+    const conn = this.peer.connect(hostPeerId, {
+      metadata: { player: localPlayer },
+      reliable: true,
+    })
+    this.setupDataConnection(conn)
   }
 
   private handleNetworkMessage(msg: NetworkMessage, peerId: string) {
     this.peerLastSeen.set(peerId, Date.now())
-
-    switch (msg.type) {
-      case 'HEARTBEAT': {
-        // Heartbeat received - last seen timestamp already updated above
-        break
-      }
-
-      case 'PLAYER_JOIN': {
-        const player: Player = {
-          ...msg.payload.player,
-          id: peerId,
-        }
-        useGameStore.getState().setRemotePlayer(player)
-        if (this.isHost && useGameStore.getState().isRoomPublic) {
-          const totalPlayers = Object.keys(useGameStore.getState().remotePlayers).length + 1
-          PublicRoomsService.getInstance().updateHosting({ playerCount: totalPlayers })
-        }
-        this.checkZoneCallEligibility(player)
-        break
-      }
-
-      case 'PLAYER_MOVE': {
-        const payload: PlayerMovePayload = msg.payload
-        useGameStore
-          .getState()
-          .updateRemotePlayerPosition(peerId, payload.x, payload.y, payload.direction, payload.isMoving)
-        break
-      }
-
-      case 'PLAYER_UPDATE': {
-        const updated = msg.payload.player
-        const existing = useGameStore.getState().remotePlayers[peerId]
-        if (existing) {
-          const nextPlayer = { ...existing, ...updated }
-          useGameStore.getState().setRemotePlayer(nextPlayer)
-          this.checkZoneCallEligibility(nextPlayer)
-        }
-        break
-      }
-
-      case 'PLAYER_LEAVE': {
-        const targetId = msg.payload?.peerId || peerId
-        this.removePeer(targetId)
-        break
-      }
-
-      case 'MAP_SYNC': {
-        if (msg.payload.mapData) {
-          useMapStore.getState().setMapData(msg.payload.mapData)
-        }
-        break
-      }
-
-      case 'CUSTOM_ASSETS_SYNC': {
-        if (msg.payload.customAssets) {
-          useCustomAssetsStore.getState().syncRemoteCustomAssets(
-            msg.payload.customAssets,
-            msg.payload.categories
-          )
-        }
-        break
-      }
-
-      case 'CUSTOM_ASSET_ADD_OR_UPDATE': {
-        if (msg.payload.asset) {
-          useCustomAssetsStore.getState().syncRemoteAssetAddOrUpdate(msg.payload.asset)
-        }
-        break
-      }
-
-      case 'CUSTOM_ASSET_DELETE': {
-        if (msg.payload.id) {
-          useCustomAssetsStore.getState().syncRemoteAssetDelete(msg.payload.id)
-        }
-        break
-      }
-
-      case 'MAP_EDIT': {
-        const { action, data } = msg.payload
-        if (action === 'set_floor') {
-          useMapStore.getState().setFloorTile(data.x, data.y, data.floor)
-        } else if (action === 'set_wall') {
-          useMapStore.getState().setWallTile(data.x, data.y, data.wall)
-        } else if (action === 'add_furniture') {
-          useMapStore.getState().addFurniture(data.furniture)
-        } else if (action === 'remove_furniture') {
-          useMapStore.getState().removeFurnitureAt(data.x, data.y)
-        } else if (action === 'add_zone') {
-          useMapStore.getState().addOrUpdateZone(data.zone)
-        } else if (action === 'remove_zone') {
-          useMapStore.getState().removeZone(data.id)
-        }
-        break
-      }
-
-      case 'CHAT_MESSAGE': {
-        useChatStore.getState().addMessage(msg.payload.message)
-        break
-      }
-
-      case 'REACTION': {
-        useGameStore.getState().addReaction(msg.payload.reaction)
-        break
-      }
-    }
-
-    // If host, forward to other peers in mesh
-    if (this.isHost && msg.type !== 'MAP_SYNC' && msg.type !== 'CUSTOM_ASSETS_SYNC' && msg.type !== 'HEARTBEAT') {
-      this.broadcast(msg, peerId)
-    }
+    processNetworkMessage(
+      msg,
+      peerId,
+      this.isHost,
+      (m, exclude) => this.broadcast(m, exclude),
+      (pid) => this.removePeer(pid),
+      (remotePlayer) => this.checkZoneCallEligibility(remotePlayer)
+    )
   }
 
   /**
@@ -455,61 +537,20 @@ export class PeerManager {
    * Check if local player and remote peer are in the same Private Zone and manage MediaCall
    */
   public checkZoneCallEligibility(remotePlayer: Player) {
-    const localPlayer = useGameStore.getState().localPlayer
-    const localStream = useMediaStore.getState().localStream
-
-    const inSameZone =
-      localPlayer.currentZoneId !== null &&
-      localPlayer.currentZoneId !== undefined &&
-      localPlayer.currentZoneId === remotePlayer.currentZoneId
-
-    const existingCall = this.mediaCalls.get(remotePlayer.id)
-
-    if (inSameZone) {
-      if (!existingCall && this.peer && localStream) {
-        console.log(`[Zone Call] Connecting audio/video with ${remotePlayer.name} in zone ${localPlayer.currentZoneId}`)
-        const isSharing = useMediaStore.getState().isScreenSharing
-        const screenStream = useMediaStore.getState().localScreenStream
-
-        let streamToSend = localStream
-        if (isSharing && screenStream && screenStream.getVideoTracks()[0]) {
-          const combined = new MediaStream()
-          localStream.getAudioTracks().forEach((t) => combined.addTrack(t))
-          screenStream.getVideoTracks().forEach((t) => combined.addTrack(t))
-          streamToSend = combined
-        }
-
-        const call = this.peer.call(remotePlayer.id, streamToSend)
-        if (call) {
-          call.on('stream', (remoteStream) => {
-            useMediaStore.getState().setPeerStream(remotePlayer.id, remoteStream)
-          })
-          call.on('close', () => {
-            useMediaStore.getState().removePeerStream(remotePlayer.id)
-          })
-          call.on('error', () => {
-            useMediaStore.getState().removePeerStream(remotePlayer.id)
-          })
-          this.mediaCalls.set(remotePlayer.id, call)
-        }
-      }
-    } else {
-      if (existingCall) {
-        console.log(`[Zone Call] Leaving zone with ${remotePlayer.name}, terminating media call`)
-        this.endMediaCallWithPeer(remotePlayer.id)
-      }
-    }
+    MediaCallHandler.checkZoneCallEligibility(
+      remotePlayer,
+      this.peer,
+      this.mediaCalls,
+      (pid) => this.endMediaCallWithPeer(pid)
+    )
   }
 
   public endMediaCallWithPeer(peerId: string) {
-    const call = this.mediaCalls.get(peerId)
-    if (call) {
-      try {
-        call.close()
-      } catch (e) {}
-      this.mediaCalls.delete(peerId)
-    }
-    useMediaStore.getState().removePeerStream(peerId)
+    MediaCallHandler.endMediaCall(this.mediaCalls, peerId)
+  }
+
+  public endAllZoneMediaCalls() {
+    MediaCallHandler.endAllMediaCalls(this.mediaCalls)
   }
 
   /**
@@ -521,83 +562,14 @@ export class PeerManager {
     maxBitrate: number = 8_000_000,
     maxFramerate: number = 60
   ) {
-    this.mediaCalls.forEach((call) => {
-      try {
-        const pc = (call as any).peerConnection as RTCPeerConnection
-        if (pc) {
-          const senders = pc.getSenders()
-          let videoSender = senders.find((s) => s.track && s.track.kind === 'video')
-          if (!videoSender) {
-            videoSender = senders.find((s) => (s as any).kind === 'video' || (s as any).track?.kind === 'video')
-          }
-          if (!videoSender && pc.getTransceivers) {
-            const videoTransceiver = pc.getTransceivers().find(
-              (t) => (t.sender && t.sender.track?.kind === 'video') || (t.receiver && t.receiver.track?.kind === 'video')
-            )
-            if (videoTransceiver) {
-              videoSender = videoTransceiver.sender
-            }
-          }
-
-          if (videoSender) {
-            videoSender
-              .replaceTrack(newTrack)
-              .then(() => {
-                if (newTrack) {
-                  try {
-                    const params = videoSender.getParameters()
-                    if (params && params.encodings && params.encodings.length > 0) {
-                      if (isScreenShare) {
-                        params.encodings[0].maxBitrate = maxBitrate // 5000kbps, 6000kbps, 7000kbps, 8000kbps
-                        params.encodings[0].maxFramerate = maxFramerate
-                        params.encodings[0].scaleResolutionDownBy = 1.0
-                        ;(params as any).degradationPreference = 'maintain-resolution'
-                      } else {
-                        params.encodings[0].maxBitrate = 2_000_000
-                        params.encodings[0].maxFramerate = 30
-                        delete (params as any).degradationPreference
-                      }
-                      videoSender.setParameters(params).catch(() => {})
-                    }
-                  } catch (paramErr) {
-                    // Ignore on unsupported browsers
-                  }
-                }
-              })
-              .catch((err) => console.warn('Could not replace video track:', err))
-          } else if (newTrack) {
-            try {
-              const localStream = useMediaStore.getState().localStream || new MediaStream()
-              pc.addTrack(newTrack, localStream)
-            } catch (addErr) {
-              console.warn('Could not addTrack on PeerConnection:', addErr)
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Error replacing video track:', err)
-      }
-    })
+    MediaCallHandler.replaceVideoTrack(this.mediaCalls, newTrack, isScreenShare, maxBitrate, maxFramerate)
   }
 
   /**
    * Replace active audio track (When mixing system audio with microphone)
    */
   public replaceAudioTrack(newTrack: MediaStreamTrack | null) {
-    this.mediaCalls.forEach((call) => {
-      try {
-        const pc = (call as any).peerConnection as RTCPeerConnection
-        if (pc) {
-          const senders = pc.getSenders()
-          const audioSender = senders.find((s) => s.track && s.track.kind === 'audio')
-          if (audioSender && newTrack) {
-            audioSender.replaceTrack(newTrack).catch((err) => console.warn('Could not replace audio track:', err))
-          }
-        }
-      } catch (err) {
-        console.warn('Error replacing audio track:', err)
-      }
-    })
+    MediaCallHandler.replaceAudioTrack(this.mediaCalls, newTrack)
   }
 
   /**

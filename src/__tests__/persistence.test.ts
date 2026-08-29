@@ -172,20 +172,51 @@ describe('Storage Persistence - Expected Behaviors', () => {
     expect(parsed.some((r: any) => r.code === 'GATHER-HOST-ROOM')).toBe(false)
   })
 
-  it('should persist fixed UUID roomCode in saved spaces across reloads', () => {
-    const { createSavedSpace } = useSavedSpacesStore.getState()
-    const map = createEmptyWorkspace()
-    const customUUID = '4fa89bc0-1234-4567-89ab-cdef01234567'
+  it('should persist private room configuration, roles, admins and members to localStorage', () => {
+    const { addOrUpdateZone, updateZone } = useMapStore.getState()
+    
+    const roomZone = {
+      id: 'room-executiva-01',
+      name: 'Sala Executiva Alpha',
+      color: '#8b5cf6',
+      x: 10,
+      y: 10,
+      width: 8,
+      height: 6,
+      description: 'Sala de diretoria executiva',
+      admins: ['Alice', 'Bob'],
+      members: ['Charlie', 'Dave'],
+      isLocked: true,
+      allowKnock: true,
+      welcomeMessage: 'Bem-vindo à Diretoria! Reunião em andamento.',
+    }
 
-    const space = createSavedSpace('Espaço com UUID', map, 'Descrição do espaço', customUUID)
-    expect(space.roomCode).toBe(customUUID)
+    addOrUpdateZone(roomZone)
 
-    const raw = localStorageMock.getItem('gather_v2_saved_spaces')
+    let raw = localStorageMock.getItem('gather_v2_custom_map')
     expect(raw).toBeTruthy()
-    const parsed = JSON.parse(raw!)
-    const target = parsed.find((s: any) => s.id === space.id)
-    expect(target).toBeTruthy()
-    expect(target.roomCode).toBe(customUUID)
+    let parsed = JSON.parse(raw!)
+    let savedZone = parsed.zones.find((z: any) => z.id === 'room-executiva-01')
+    expect(savedZone).toBeTruthy()
+    expect(savedZone.name).toBe('Sala Executiva Alpha')
+    expect(savedZone.admins).toEqual(['Alice', 'Bob'])
+    expect(savedZone.members).toEqual(['Charlie', 'Dave'])
+    expect(savedZone.isLocked).toBe(true)
+    expect(savedZone.welcomeMessage).toBe('Bem-vindo à Diretoria! Reunião em andamento.')
+
+    // Update room settings
+    updateZone('room-executiva-01', {
+      name: 'Sala Executiva Principal',
+      admins: ['Alice', 'Bob', 'Eve'],
+      isLocked: false,
+    })
+
+    raw = localStorageMock.getItem('gather_v2_custom_map')
+    parsed = JSON.parse(raw!)
+    savedZone = parsed.zones.find((z: any) => z.id === 'room-executiva-01')
+    expect(savedZone.name).toBe('Sala Executiva Principal')
+    expect(savedZone.admins).toEqual(['Alice', 'Bob', 'Eve'])
+    expect(savedZone.isLocked).toBe(false)
   })
 })
 

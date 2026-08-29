@@ -67,6 +67,16 @@ export class MediaManager {
         }
       )
 
+      // Apply initial mute and camera off state
+      const isMuted = useMediaStore.getState().isMuted
+      const isCameraOff = useMediaStore.getState().isCameraOff
+      processedStream.getAudioTracks().forEach((track) => {
+        track.enabled = !isMuted
+      })
+      processedStream.getVideoTracks().forEach((track) => {
+        track.enabled = !isCameraOff
+      })
+
       useMediaStore.getState().setLocalStream(processedStream)
       return processedStream
     } catch (err) {
@@ -88,6 +98,17 @@ export class MediaManager {
             useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
           }
         )
+
+        // Apply initial mute and camera off state
+        const isMuted = useMediaStore.getState().isMuted
+        const isCameraOff = useMediaStore.getState().isCameraOff
+        processedStream.getAudioTracks().forEach((track) => {
+          track.enabled = !isMuted
+        })
+        processedStream.getVideoTracks().forEach((track) => {
+          track.enabled = !isCameraOff
+        })
+
         useMediaStore.getState().setLocalStream(processedStream)
         return processedStream
       } catch (fallbackErr) {
@@ -392,6 +413,20 @@ export class MediaManager {
       PeerManager.getInstance().replaceAudioTrack(micTrack)
     }
     PeerManager.getInstance().sendPlayerUpdate({ isScreenSharing: false })
+  }
+
+  public stopAllMedia() {
+    this.stopScreenShare()
+    if (this.rawUserStream) {
+      try {
+        this.rawUserStream.getTracks().forEach((t) => t.stop())
+      } catch (e) {}
+      this.rawUserStream = null
+    }
+    try {
+      this.noiseSuppressor.dispose()
+      this.noiseSuppressor = new NoiseSuppressor()
+    } catch (e) {}
   }
 
   public updateInputVolume(vol: number) {

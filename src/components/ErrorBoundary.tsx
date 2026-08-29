@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react'
 import { AlertTriangle, RefreshCw, Trash2, Copy, Check } from 'lucide-react'
+import { ConfirmModal } from './ConfirmModal'
 
 interface Props {
   children: ReactNode
@@ -10,14 +11,16 @@ interface State {
   error: Error | null
   errorInfo: ErrorInfo | null
   copied: boolean
+  isResetConfirmOpen: boolean
 }
 
-export class ErrorBoundary extends Component<Props, State> {
+export const ErrorBoundary = class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
     error: null,
     errorInfo: null,
     copied: false,
+    isResetConfirmOpen: false,
   }
 
   public static getDerivedStateFromError(error: Error): Partial<State> {
@@ -67,16 +70,19 @@ export class ErrorBoundary extends Component<Props, State> {
     }, 2500)
   }
 
-  private handleResetAll = () => {
-    if (window.confirm('Deseja resetar as configurações e cache local do app para corrigir o erro?')) {
-      try {
-        localStorage.clear()
-        sessionStorage.clear()
-      } catch (e) {
-        console.error(e)
-      }
-      window.location.reload()
+  private handleConfirmResetAll = () => {
+    this.setState({ isResetConfirmOpen: false })
+    try {
+      localStorage.clear()
+      sessionStorage.clear()
+    } catch (e) {
+      console.error(e)
     }
+    window.location.reload()
+  }
+
+  private handleResetAll = () => {
+    this.setState({ isResetConfirmOpen: true })
   }
 
   public render() {
@@ -159,6 +165,17 @@ export class ErrorBoundary extends Component<Props, State> {
               </button>
             </div>
           </div>
+
+          {/* Confirm Reset All Cache Modal */}
+          <ConfirmModal
+            isOpen={this.state.isResetConfirmOpen}
+            title="Resetar Configurações e Cache"
+            message="Deseja resetar todas as configurações e cache local do app para corrigir o erro? Seus espaços salvos locais serão apagados."
+            confirmText="Resetar Tudo"
+            confirmVariant="danger"
+            onConfirm={this.handleConfirmResetAll}
+            onCancel={() => this.setState({ isResetConfirmOpen: false })}
+          />
         </div>
       )
     }

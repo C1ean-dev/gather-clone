@@ -1,0 +1,149 @@
+import { NetworkMessage, PlayerMovePayload } from '../types/p2p'
+import { Player } from '../types/game'
+import { useGameStore } from '../store/useGameStore'
+import { useMapStore } from '../store/useMapStore'
+import { useChatStore } from '../store/useChatStore'
+import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
+import { PublicRoomsService } from '../services/publicRoomsService'
+
+export function processNetworkMessage(
+  msg: NetworkMessage,
+  peerId: string,
+  isHost: boolean,
+  broadcast: (msg: NetworkMessage, excludePeerId?: string) => void,
+  removePeer: (peerId: string) => void,
+  checkZoneCallEligibility: (remotePlayer: Player) => void
+) {
+  switch (msg.type) {
+    case 'HEARTBEAT': {
+      // Respond with HEARTBEAT_ACK so sender computes round-trip latency
+      broadcast({
+        type: 'HEARTBEAT_ACK',
+        senderId: useGameStore.getState().localPlayer.id,
+        payload: { clientTimestamp: msg.timestamp },
+        timestamp: Date.now(),
+      })
+      break
+    }
+
+    case 'HEARTBEAT_ACK': {
+      if (msg.payload?.clientTimestamp) {
+        const rtt = Math.max(1, Math.round(Date.now() - msg.payload.clientTimestamp))
+        useGameStore.getState().updatePlayerPing(peerId, rtt)
+      }
+      break
+    }
+
+    case 'PLAYER_JOIN': {
+      const isPeerHost = peerId.endsWith('-host')
+      const player: Player = {
+        ...msg.payload.player,
+        id: peerId,
+        isHost: isPeerHost,
+        role: isPeerHost ? 'host' : msg.payload.player?.role === 'admin' ? 'admin' : msg.payload.player?.role === 'guest' ? 'guest' : 'member',
+      }
+      useGameStore.getState().setRemotePlayer(player)
+      if (isHost && useGameStore.getState().isRoomPublic) {
+        const totalPlayers = Object.keys(useGameStore.getState().remotePlayers).length + 1
+        PublicRoomsService.getInstance().updateHosting({ playerCount: totalPlayers })
+      }
+      checkZoneCallEligibility(player)
+      break
+    }
+
+    case 'PLAYER_MOVE': {
+      const payload: PlayerMovePayload = msg.payload
+      useGameStore
+        .getState()
+        .updateRemotePlayerPosition(peerId, payload.x, payload.y, payload.direction, payload.isMoving)
+      break
+    }
+
+    case 'PLAYER_UPDATE': {
+      const updated = msg.payload.player
+      const existing = useGameStore.getState().remotePlayers[peerId]
+      if (existing) {
+        const isPeerHost = peerId.endsWith('-host')
+        const nextPlayer: Player = {
+          ...existing,
+          ...updated,
+          isHost: isPeerHost,
+          role: isPeerHost ? 'host' : updated?.role || existing.role || 'member',
+        }
+        useGameStore.getState().setRemotePlayer(nextPlayer)
+        checkZoneCallEligibility(nextPlayer)
+      }
+      break
+    }
+
+    case 'PLAYER_LEAVE': {
+      const targetId = msg.payload?.peerId || peerId
+      removePeer(targetId)
+      break
+    }
+
+    case 'MAP_SYNC': {
+      if (msg.payload.mapData) {
+        useMapStore.getState().setMapData(msg.payload.mapData)
+      }
+      break
+    }
+
+    case 'CUSTOM_ASSETS_SYNC': {
+      if (msg.payload.customAssets) {
+        useCustomAssetsStore.getState().syncRemoteCustomAssets(
+          msg.payload.customAssets,
+          msg.payload.categories
+        )
+      }
+      break
+    }
+
+    case 'CUSTOM_ASSET_ADD_OR_UPDATE': {
+      if (msg.payload.asset) {
+        useCustomAssetsStore.getState().syncRemoteAssetAddOrUpdate(msg.payload.asset)
+      }
+      break
+    }
+
+    case 'CUSTOM_ASSET_DELETE': {
+      if (msg.payload.id) {
+        useCustomAssetsStore.getState().syncRemoteAssetDelete(msg.payload.id)
+      }
+      break
+    }
+
+    case 'MAP_EDIT': {
+      const { action, data } = msg.payload
+      if (action === 'set_floor') {
+        useMapStore.getState().setFloorTile(data.x, data.y, data.floor)
+      } else if (action === 'set_wall') {
+        useMapStore.getState().setWallTile(data.x, data.y, data.wall)
+      } else if (action === 'add_furniture') {
+        useMapStore.getState().addFurniture(data.furniture)
+      } else if (action === 'remove_furniture') {
+        useMapStore.getState().removeFurnitureAt(data.x, data.y)
+      } else if (action === 'add_zone') {
+        useMapStore.getState().addOrUpdateZone(data.zone)
+      } else if (action === 'remove_zone') {
+        useMapStore.getState().removeZone(data.id)
+      }
+      break
+    }
+
+    case 'CHAT_MESSAGE': {
+      useChatStore.getState().addMessage(msg.payload.message)
+      break
+    }
+
+    case 'REACTION': {
+      useGameStore.getState().addReaction(msg.payload.reaction)
+      break
+    }
+  }
+
+  // If host, forward to other peers in mesh
+  if (isHost && msg.type !== 'MAP_SYNC' && msg.type !== 'CUSTOM_ASSETS_SYNC' && msg.type !== 'HEARTBEAT') {
+    broadcast(msg, peerId)
+  }
+}

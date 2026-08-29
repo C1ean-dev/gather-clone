@@ -13,6 +13,11 @@ export const PRESET_BG_COLORS = {
   PURE_BLACK: { r: 0, g: 0, b: 0 },
   PURE_WHITE: { r: 255, g: 255, b: 255 },
   DARK_GRAY: { r: 32, g: 32, b: 32 },
+  BLACK: { r: 0, g: 0, b: 0 },
+  WHITE: { r: 255, g: 255, b: 255 },
+  MAGENTA: { r: 255, g: 0, b: 255 },
+  GREEN: { r: 0, g: 255, b: 0 },
+  CYAN: { r: 0, g: 255, b: 255 },
 }
 
 /**

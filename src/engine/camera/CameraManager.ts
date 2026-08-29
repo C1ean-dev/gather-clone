@@ -1,0 +1,64 @@
+import { TILE_SIZE } from '../Constants'
+import { useMapStore } from '../../store/useMapStore'
+import { useGameStore } from '../../store/useGameStore'
+
+export class CameraManager {
+  public x: number = 34 * TILE_SIZE
+  public y: number = 20 * TILE_SIZE
+  public zoom: number = 1.6
+
+  constructor() {
+    const local = useGameStore.getState().localPlayer
+    this.x = (local?.x ?? 34) * TILE_SIZE
+    this.y = (local?.y ?? 20) * TILE_SIZE
+  }
+
+  public handleWheel = (e: WheelEvent) => {
+    e.preventDefault()
+    const zoomDelta = e.deltaY < 0 ? 0.15 : -0.15
+    this.zoom = Math.max(0.4, Math.min(4.0, Number((this.zoom + zoomDelta).toFixed(2))))
+  }
+
+  /**
+   * Smooth Camera Following of Local Player
+   */
+  public followPlayer(localX: number, localY: number, lerpFactor: number = 0.15) {
+    this.x += (localX * TILE_SIZE - this.x) * lerpFactor
+    this.y += (localY * TILE_SIZE - this.y) * lerpFactor
+  }
+
+  /**
+   * Auto-fit camera zoom to occupy 95%+ of screen viewport
+   */
+  public fitToScreen(canvas: HTMLCanvasElement, percentage: number = 0.95) {
+    const map = useMapStore.getState().mapData
+    const mapPixelWidth = (map.width || 68) * TILE_SIZE
+    const mapPixelHeight = (map.height || 40) * TILE_SIZE
+
+    if (mapPixelWidth === 0 || mapPixelHeight === 0 || canvas.width === 0 || canvas.height === 0) return
+
+    const targetZoomX = (canvas.width * percentage) / mapPixelWidth
+    const targetZoomY = (canvas.height * percentage) / mapPixelHeight
+    const optimalZoom = Math.min(targetZoomX, targetZoomY)
+
+    this.zoom = Math.max(0.4, Math.min(3.2, optimalZoom))
+    const local = useGameStore.getState().localPlayer
+    this.x = (local?.x ?? 34) * TILE_SIZE
+    this.y = (local?.y ?? 20) * TILE_SIZE
+  }
+
+  public screenToTile(canvas: HTMLCanvasElement, screenX: number, screenY: number): { x: number; y: number } {
+    const viewWidth = canvas.width / this.zoom
+    const viewHeight = canvas.height / this.zoom
+    const offsetX = Math.floor(viewWidth / 2 - this.x)
+    const offsetY = Math.floor(viewHeight / 2 - this.y)
+
+    const worldX = screenX / this.zoom - offsetX
+    const worldY = screenY / this.zoom - offsetY
+
+    return {
+      x: Math.floor(worldX / TILE_SIZE),
+      y: Math.floor(worldY / TILE_SIZE),
+    }
+  }
+}

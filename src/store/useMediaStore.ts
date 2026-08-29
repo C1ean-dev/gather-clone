@@ -18,6 +18,8 @@ interface MediaStore {
 
   toggleMute: () => void
   toggleCamera: () => void
+  setMuted: (muted: boolean) => void
+  setCameraOff: (cameraOff: boolean) => void
   setScreenSharing: (sharing: boolean) => void
   toggleNoiseSuppression: () => void
   toggleGridCall: () => void
@@ -62,6 +64,7 @@ interface MediaStore {
   setPeerScreenStream: (peerId: string, stream: MediaStream) => void
   removePeerScreenStream: (peerId: string) => void
   clearAllPeerStreams: () => void
+  stopAllMedia: () => void
 }
 
 const STORAGE_KEY = 'gather_v2_audio_settings'
@@ -99,8 +102,8 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   setLocalStream: (localStream) => set({ localStream }),
   setLocalScreenStream: (localScreenStream) => set({ localScreenStream }),
 
-  isMuted: false,
-  isCameraOff: false,
+  isMuted: true,
+  isCameraOff: true,
   isScreenSharing: false,
   isNoiseSuppressionEnabled: saved.isNoiseSuppressionEnabled !== undefined ? saved.isNoiseSuppressionEnabled : true,
   isGridCallOpen: false,
@@ -170,6 +173,16 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
     set({ isMuted: nextMute })
   },
 
+  setMuted: (isMuted) => {
+    const { localStream } = get()
+    if (localStream) {
+      localStream.getAudioTracks().forEach((track) => {
+        track.enabled = !isMuted
+      })
+    }
+    set({ isMuted })
+  },
+
   toggleCamera: () => {
     const { localStream, isCameraOff } = get()
     const nextCam = !isCameraOff
@@ -179,6 +192,16 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
       })
     }
     set({ isCameraOff: nextCam })
+  },
+
+  setCameraOff: (isCameraOff) => {
+    const { localStream } = get()
+    if (localStream) {
+      localStream.getVideoTracks().forEach((track) => {
+        track.enabled = !isCameraOff
+      })
+    }
+    set({ isCameraOff })
   },
 
   setScreenSharing: (sharing) => set({ isScreenSharing: sharing }),
@@ -221,6 +244,23 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
     }),
 
   clearAllPeerStreams: () => set({ peerStreams: {}, peerScreenStreams: {} }),
+
+  stopAllMedia: () => {
+    const { localStream, localScreenStream } = get()
+    if (localStream) {
+      localStream.getTracks().forEach((t) => t.stop())
+    }
+    if (localScreenStream) {
+      localScreenStream.getTracks().forEach((t) => t.stop())
+    }
+    set({
+      localStream: null,
+      localScreenStream: null,
+      isScreenSharing: false,
+      peerStreams: {},
+      peerScreenStreams: {},
+    })
+  },
 
   localAudioLevel: 0,
   isGateOpen: false,

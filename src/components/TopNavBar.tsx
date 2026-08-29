@@ -13,6 +13,7 @@ import {
   Rocket,
   Volume2,
   VolumeX,
+  LogOut,
 } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
@@ -24,14 +25,27 @@ interface Props {
   onOpenAvatarModal: () => void
   onOpenUpdateModal?: () => void
   hasUpdate?: boolean
+  onDisconnect?: () => void
 }
 
 export const TopNavBar: React.FC<Props> = ({
   onOpenAvatarModal,
   onOpenUpdateModal,
   hasUpdate,
+  onDisconnect,
 }) => {
-  const { localPlayer, remotePlayers, roomId, isHost, isRoomPublic, toggleRoomPrivacy, roomName } = useGameStore()
+  const {
+    localPlayer,
+    remotePlayers,
+    roomId,
+    isOwner,
+    isHost,
+    isRoomPublic,
+    toggleRoomPrivacy,
+    roomName,
+    isOnlineUsersOpen,
+    toggleOnlineUsers,
+  } = useGameStore()
   const { mapData, isEditorOpen, toggleEditor } = useMapStore()
   const { isChatOpen, toggleChat, channels } = useChatStore()
   const { isMuted, toggleMute } = useMediaStore()
@@ -58,19 +72,6 @@ export const TopNavBar: React.FC<Props> = ({
     navigator.clipboard.writeText(roomId)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
-  }
-
-  const handleQuickWave = () => {
-    const reaction = {
-      id: 'react-' + Math.random().toString(36).substring(2, 7),
-      playerId: localPlayer.id,
-      emoji: '👋',
-      x: localPlayer.x,
-      y: localPlayer.y,
-      createdAt: Date.now(),
-    }
-    useGameStore.getState().addReaction(reaction)
-    PeerManager.getInstance().sendReaction(reaction)
   }
 
   return (
@@ -109,18 +110,18 @@ export const TopNavBar: React.FC<Props> = ({
           </button>
         )}
 
-        {/* Room Privacy Toggle Badge (Host can switch Public / Private) */}
+        {/* Room Privacy Toggle Badge (Owner can switch Public / Private) */}
         {roomId && (
           <button
-            onClick={isHost ? toggleRoomPrivacy : undefined}
-            disabled={!isHost}
+            onClick={isOwner ? toggleRoomPrivacy : undefined}
+            disabled={!isOwner}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
               isRoomPublic
                 ? 'bg-blue-500/15 border-blue-500/40 text-blue-300 hover:bg-blue-500/25'
                 : 'bg-[#1b202c] border-[#2a3142] text-slate-300 hover:bg-slate-800'
-            } ${!isHost ? 'cursor-default opacity-80' : 'cursor-pointer hover:scale-105 active:scale-95'}`}
+            } ${!isOwner ? 'cursor-default opacity-80' : 'cursor-pointer hover:scale-105 active:scale-95'}`}
             title={
-              isHost
+              isOwner
                 ? isRoomPublic
                   ? 'Esta sala está Pública (visível na lista de Salas Disponíveis). Clique para torná-la Privada.'
                   : 'Esta sala está Privada (somente via código). Clique para torná-la Pública na lista de Salas Disponíveis.'
@@ -140,9 +141,9 @@ export const TopNavBar: React.FC<Props> = ({
                 <span>Privada</span>
               </>
             )}
-            {isHost && (
-              <span className="text-[9px] bg-white/10 px-1 py-0.2 rounded text-slate-300 ml-0.5">
-                Host
+            {isOwner && (
+              <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1 py-0.2 rounded font-bold ml-0.5">
+                Dono
               </span>
             )}
           </button>
@@ -170,16 +171,6 @@ export const TopNavBar: React.FC<Props> = ({
 
       {/* Right Controls */}
       <div className="flex items-center gap-2.5">
-        {/* Quick Acenar / Wave button */}
-        <button
-          onClick={handleQuickWave}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1b202c] hover:bg-slate-800 border border-[#2a3142] text-xs font-medium text-slate-200 transition-all hover:scale-105 active:scale-95"
-          title="Mandar um aceno para quem estiver perto"
-        >
-          <span>👋</span>
-          <span className="hidden sm:inline">Acenar</span>
-        </button>
-
         {/* Auto-saved Feedback indicator */}
         {autoSavedNotice && (
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-xs font-semibold text-emerald-300 animate-in fade-in duration-200">
@@ -220,11 +211,19 @@ export const TopNavBar: React.FC<Props> = ({
           )}
         </button>
 
-        {/* Online Count */}
-        <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#1b202c] border border-[#2a3142] text-xs font-semibold text-slate-300">
-          <Users className="w-3.5 h-3.5 text-emerald-400" />
+        {/* Online People Toggle Button */}
+        <button
+          onClick={toggleOnlineUsers}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+            isOnlineUsersOpen
+              ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30 ring-2 ring-indigo-500/30'
+              : 'bg-[#1b202c] hover:bg-slate-800 border-[#2a3142] text-slate-300 hover:text-white'
+          }`}
+          title="Ver Participantes Online, Amigos e Gerenciar Permissões"
+        >
+          <Users className={`w-3.5 h-3.5 ${isOnlineUsersOpen ? 'text-white' : 'text-emerald-400'}`} />
           <span>{remotePlayerList.length + 1}</span>
-        </div>
+        </button>
 
         {/* Available Update Notification Rocket */}
         {hasUpdate && onOpenUpdateModal && (
@@ -270,6 +269,18 @@ export const TopNavBar: React.FC<Props> = ({
             </div>
           </div>
         </button>
+
+        {/* Disconnect / Leave Space Button */}
+        {onDisconnect && (
+          <button
+            onClick={onDisconnect}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-950/40 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 hover:text-rose-100 rounded-xl text-xs font-bold transition-all active:scale-95 group shadow-sm hover:shadow-rose-500/20"
+            title="Sair / Desconectar deste espaço"
+          >
+            <LogOut className="w-3.5 h-3.5 text-rose-400 group-hover:text-rose-200 transition-colors" />
+            <span className="hidden sm:inline">Sair</span>
+          </button>
+        )}
       </div>
     </header>
   )

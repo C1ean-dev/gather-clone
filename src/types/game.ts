@@ -61,6 +61,15 @@ export interface AvatarConfig {
   otherColor: string
 }
 
+export type UserRole = 'owner' | 'host' | 'admin' | 'member' | 'guest'
+
+export interface PlayerPermissions {
+  canEditMap?: boolean
+  canManageRoles?: boolean
+  canMuteOthers?: boolean
+  canKick?: boolean
+}
+
 export interface Player {
   id: string
   name: string
@@ -76,7 +85,11 @@ export interface Player {
   statusEmoji?: string
   currentZoneId?: string | null
   lastUpdated: number
+  isOwner?: boolean
   isHost?: boolean
+  ping?: number
+  role?: UserRole
+  permissions?: PlayerPermissions
   isMuted?: boolean
   isCameraOff?: boolean
   isScreenSharing?: boolean

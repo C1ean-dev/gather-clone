@@ -14,6 +14,9 @@ let mainWindow: BrowserWindow | null = null
 const GITHUB_REPO = 'C1ean-dev/gather-clone'
 const CURRENT_VERSION = app.getVersion() || '1.0.0'
 
+// Prevent AMD GPU DirectComposition video overlay driver warning on Windows
+app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,

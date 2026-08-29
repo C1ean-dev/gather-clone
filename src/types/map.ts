@@ -63,6 +63,13 @@ export interface PrivateZone {
   maxCapacity?: number
   hasWalls?: boolean // whether this zone has perimeter walls (default true)
   wallType?: WallType | string // texture/material for the zone walls
+
+  // Room Specific Configuration, Roles & Access
+  admins?: string[]        // Names or User IDs of room administrators
+  members?: string[]       // Names or User IDs of authorized room members
+  isLocked?: boolean       // Whether room is locked/restricted to non-members
+  allowKnock?: boolean     // Whether non-members can knock/request entrance
+  welcomeMessage?: string  // Custom greeting displayed upon entering
 }
 
 export interface MapData {
