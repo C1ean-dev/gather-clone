@@ -24,8 +24,8 @@ export class AvatarRenderer {
     size: number = TILE_SIZE,
     showNameTag: boolean = true
   ) {
-    const px = Math.floor(player.x * size)
-    const py = Math.floor(player.y * size)
+    const px = player.x * size
+    const py = player.y * size
     const avatar = player.avatar || {}
     const dir = player.direction || 'down'
 

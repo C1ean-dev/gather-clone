@@ -20,11 +20,15 @@ export class CameraManager {
   }
 
   /**
-   * Smooth Camera Following of Local Player
+   * Smooth, jitter-free Camera Following of Local Player with exponential decay
    */
-  public followPlayer(localX: number, localY: number, lerpFactor: number = 0.15) {
-    this.x += (localX * TILE_SIZE - this.x) * lerpFactor
-    this.y += (localY * TILE_SIZE - this.y) * lerpFactor
+  public followPlayer(localX: number, localY: number, deltaTime: number = 0.016) {
+    const targetX = localX * TILE_SIZE
+    const targetY = localY * TILE_SIZE
+    const clampedDelta = Math.max(0.001, Math.min(deltaTime, 0.1))
+    const factor = 1 - Math.exp(-14 * clampedDelta)
+    this.x += (targetX - this.x) * factor
+    this.y += (targetY - this.y) * factor
   }
 
   /**
@@ -50,8 +54,8 @@ export class CameraManager {
   public screenToTile(canvas: HTMLCanvasElement, screenX: number, screenY: number): { x: number; y: number } {
     const viewWidth = canvas.width / this.zoom
     const viewHeight = canvas.height / this.zoom
-    const offsetX = Math.floor(viewWidth / 2 - this.x)
-    const offsetY = Math.floor(viewHeight / 2 - this.y)
+    const offsetX = viewWidth / 2 - this.x
+    const offsetY = viewHeight / 2 - this.y
 
     const worldX = screenX / this.zoom - offsetX
     const worldY = screenY / this.zoom - offsetY

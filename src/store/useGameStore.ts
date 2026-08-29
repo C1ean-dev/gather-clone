@@ -301,10 +301,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   setLocalPlayer: (data) => {
-    saveProfile({
-      name: data.name,
-      avatar: data.avatar,
-    })
+    if (data.name !== undefined || data.avatar !== undefined) {
+      saveProfile({
+        name: data.name,
+        avatar: data.avatar,
+      })
+    }
     set((state) => ({
       localPlayer: { ...state.localPlayer, ...data, lastUpdated: Date.now() },
     }))

@@ -48,8 +48,8 @@ export class WorldRenderer {
       ctx.scale(camera.zoom, camera.zoom)
       ctx.imageSmoothingEnabled = false
       ctx.translate(
-        Math.floor(viewWidth / 2 - camera.x),
-        Math.floor(viewHeight / 2 - camera.y)
+        viewWidth / 2 - camera.x,
+        viewHeight / 2 - camera.y
       )
 
       // 1. Draw Floors (Optimized with Viewport Culling for high FPS)

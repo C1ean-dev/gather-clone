@@ -116,6 +116,8 @@ export class CanvasEngine {
     this.animationFrameId = requestAnimationFrame(this.loop)
   }
 
+  private lastMovementBroadcast: number = 0
+
   /**
    * Physics, Input, Collision, and Zone update
    */
@@ -144,25 +146,31 @@ export class CanvasEngine {
         finalY = targetY
       }
 
-      gameStore.setLocalPlayer({
-        x: finalX,
-        y: finalY,
-        direction: nextDirection,
-        isMoving: true,
-      })
+      gameStore.setLocalPosition(finalX, finalY, nextDirection, true)
 
-      // Broadcast Movement
-      PeerManager.getInstance().sendMovement(finalX, finalY, nextDirection, true)
-    } else if (local.isMoving) {
-      gameStore.setLocalPlayer({ isMoving: false })
-      PeerManager.getInstance().sendMovement(local.x, local.y, local.direction, false)
+      // Throttled Broadcast Movement (25Hz) to prevent WebRTC DataChannel congestion
+      const now = performance.now()
+      if (!local.isMoving || now - this.lastMovementBroadcast >= 40) {
+        this.lastMovementBroadcast = now
+        PeerManager.getInstance().sendMovement(finalX, finalY, nextDirection, true)
+      }
+
+      // Smooth Camera Following synchronized with new position
+      this.camera.followPlayer(finalX, finalY, deltaTime)
+
+      // Zone Detection
+      checkZonePresence(finalX, finalY, map)
+    } else {
+      if (local.isMoving) {
+        gameStore.setLocalPosition(local.x, local.y, local.direction, false)
+        PeerManager.getInstance().sendMovement(local.x, local.y, local.direction, false)
+        this.lastMovementBroadcast = performance.now()
+      }
+
+      // Keep camera smoothly aligned even when standing still
+      this.camera.followPlayer(local.x, local.y, deltaTime)
+      checkZonePresence(local.x, local.y, map)
     }
-
-    // Smooth Camera Following
-    this.camera.followPlayer(local.x, local.y)
-
-    // Zone Detection
-    checkZonePresence(local.x, local.y, map)
   }
 
   /**
