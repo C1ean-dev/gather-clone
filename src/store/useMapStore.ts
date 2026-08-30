@@ -2,8 +2,11 @@ import { create } from 'zustand'
 import { MapData, FloorType, WallType, PlacedFurniture, PrivateZone, EditorTool } from '../types/map'
 import { createEmptyWorkspace, createBlacksmithWorkshopTemplate } from '../editor/templates'
 import { generateWallsAndDoorsForZones, snapAndAlignZone } from '../editor/zoneWallGenerator'
+import { getNextAvailableZoneColor, FURNITURE_CATALOG } from '../engine/Constants'
 import { useSavedSpacesStore } from './useSavedSpacesStore'
 import { useGameStore } from './useGameStore'
+import { useCustomAssetsStore } from './useCustomAssetsStore'
+import { PeerManager } from '../p2p/PeerManager'
 
 const MAP_STORAGE_KEY = 'gather_v2_custom_map'
 
@@ -88,6 +91,14 @@ interface MapStore {
   selectedFurnitureDefId: string
   setSelectedFurnitureDefId: (defId: string) => void
 
+  // Interactive Furniture Selection & Context Actions
+  selectedPlacedFurnitureId: string | null
+  setSelectedPlacedFurnitureId: (id: string | null) => void
+  isMovingFurniture: boolean
+  setIsMovingFurniture: (moving: boolean) => void
+  updateFurniture: (id: string, partial: Partial<PlacedFurniture>) => void
+  removeFurnitureById: (id: string) => void
+
   // Zone Draft (for click-and-drag drawing)
   zoneDraft: { name: string; color: string; hasWalls: boolean; wallType: WallType | string }
   setZoneDraft: (draft: { name: string; color: string; hasWalls: boolean; wallType: WallType | string }) => void
@@ -96,7 +107,8 @@ interface MapStore {
   setFloorTile: (x: number, y: number, floor: FloorType) => void
   setWallTile: (x: number, y: number, wall: WallType | null) => void
   addFurniture: (furniture: PlacedFurniture) => void
-  removeFurnitureAt: (tileX: number, tileY: number) => void
+  removeFurnitureAt: (tileX: number, tileY: number) => boolean
+  removeZoneAt: (tileX: number, tileY: number) => boolean
   addOrUpdateZone: (zone: PrivateZone) => void
   updateZone: (id: string, partial: Partial<PrivateZone>) => void
   renameZone: (id: string, newName: string) => void
@@ -160,9 +172,43 @@ export const useMapStore = create<MapStore>((set, get) => ({
   selectedFurnitureDefId: 'window_grid_large',
   setSelectedFurnitureDefId: (defId) => set({ selectedFurnitureDefId: defId, activeTool: 'place_furniture' }),
 
+  selectedPlacedFurnitureId: null,
+  setSelectedPlacedFurnitureId: (id) => set({ selectedPlacedFurnitureId: id, isMovingFurniture: false }),
+
+  isMovingFurniture: false,
+  setIsMovingFurniture: (moving) => set({ isMovingFurniture: moving }),
+
+  updateFurniture: (id, partial) =>
+    set((state) => {
+      const updatedFurniture = state.mapData.furniture.map((f) =>
+        f.id === id ? { ...f, ...partial } : f
+      )
+      const updatedMap = {
+        ...state.mapData,
+        furniture: updatedFurniture,
+      }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
+    }),
+
+  removeFurnitureById: (id) =>
+    set((state) => {
+      const updatedFurniture = state.mapData.furniture.filter((f) => f.id !== id)
+      const updatedMap = {
+        ...state.mapData,
+        furniture: updatedFurniture,
+      }
+      saveMap(updatedMap)
+      return {
+        mapData: updatedMap,
+        selectedPlacedFurnitureId: state.selectedPlacedFurnitureId === id ? null : state.selectedPlacedFurnitureId,
+        isMovingFurniture: false,
+      }
+    }),
+
   zoneDraft: {
     name: 'Nova Sala Privada',
-    color: '#4c6ef5',
+    color: getNextAvailableZoneColor(initialMap.zones || []),
     hasWalls: true,
     wallType: 'drywall_white',
   },
@@ -200,15 +246,48 @@ export const useMapStore = create<MapStore>((set, get) => ({
       return { mapData: updatedMap }
     }),
 
-  removeFurnitureAt: (tileX, tileY) =>
+  removeFurnitureAt: (tileX, tileY) => {
+    let removedAny = false
     set((state) => {
-      const updatedMap = {
-        ...state.mapData,
-        furniture: state.mapData.furniture.filter((f) => f.x !== tileX || f.y !== tileY),
+      const customAssets = useCustomAssetsStore.getState().customAssets
+      const remainingFurniture = state.mapData.furniture.filter((f) => {
+        const custom = customAssets.find((a) => a.id === f.defId)
+        const def = custom || FURNITURE_CATALOG.find((cat) => cat.id === f.defId)
+        const w = def?.width || 1
+        const h = def?.height || 1
+        const isInside = tileX >= f.x && tileX < f.x + w && tileY >= f.y && tileY < f.y + h
+        if (isInside) {
+          removedAny = true
+          return false
+        }
+        return true
+      })
+
+      if (removedAny) {
+        const updatedMap = {
+          ...state.mapData,
+          furniture: remainingFurniture,
+        }
+        saveMap(updatedMap)
+        return { mapData: updatedMap }
       }
-      saveMap(updatedMap)
-      return { mapData: updatedMap }
-    }),
+      return state
+    })
+    return removedAny
+  },
+
+  removeZoneAt: (tileX, tileY) => {
+    const zones = get().mapData.zones
+    const targetZone = zones.find((z) => {
+      return tileX >= z.x && tileX < z.x + z.width && tileY >= z.y && tileY < z.y + z.height
+    })
+    if (targetZone) {
+      get().removeZone(targetZone.id)
+      PeerManager.getInstance().sendMapEdit('remove_zone', { id: targetZone.id })
+      return true
+    }
+    return false
+  },
 
   // Automatically snap and enclose zones with clean walls and smart doorways
   addOrUpdateZone: (zone) =>

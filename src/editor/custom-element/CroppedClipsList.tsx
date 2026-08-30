@@ -19,18 +19,18 @@ export const CroppedClipsList: React.FC<Props> = ({
         <div className="flex items-center gap-2">
           <Scissors className="w-4 h-4 text-emerald-400" />
           <span className="text-xs font-bold text-slate-200">
-            Biblioteca de Peças Recortadas ({croppedClips.length})
+            Biblioteca de Peças & Desenhos ({croppedClips.length})
           </span>
         </div>
-        <span className="text-[10px] text-slate-400">Clique para adicionar ao quadro</span>
+        <span className="text-[10px] text-slate-400">Clique para adicionar à mesa</span>
       </div>
 
       {croppedClips.length === 0 ? (
         <div className="text-center py-6 border border-dashed border-[#2b2d31] rounded-xl p-3 space-y-1">
           <Scissors className="w-5 h-5 text-slate-500 mx-auto" />
-          <div className="text-xs text-slate-400 font-semibold">Nenhuma peça recortada ainda</div>
+          <div className="text-xs text-slate-400 font-semibold">Nenhuma peça criada ainda</div>
           <div className="text-[10px] text-slate-500">
-            Selecione uma área na imagem e clique em "Recortar & Salvar Peça"
+            Recorte de uma imagem ou use a aba "2. Desenhar à Mão" para criar peças livres!
           </div>
         </div>
       ) : (

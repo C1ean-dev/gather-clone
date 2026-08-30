@@ -45,7 +45,7 @@ export const AssetPropertiesForm: React.FC<Props> = ({
           type="text"
           value={elementName}
           onChange={(e) => setElementName(e.target.value)}
-          placeholder="Ex: Forja de Armas, Trono de Ouro..."
+          placeholder="Ex: Forja de Armas, Trono de Ouro, Parede Rústica..."
           className="w-full bg-[#12151d] border border-[#2b2d31] rounded-xl px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
           maxLength={30}
         />

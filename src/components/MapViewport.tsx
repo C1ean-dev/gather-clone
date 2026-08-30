@@ -1,12 +1,15 @@
 import React, { useEffect, useRef } from 'react'
 import { Sparkles } from 'lucide-react'
 import { CanvasEngine } from '../engine/CanvasEngine'
+import { getNextAvailableZoneColor, FURNITURE_CATALOG } from '../engine/Constants'
 import { useMapStore } from '../store/useMapStore'
 import { useGameStore } from '../store/useGameStore'
+import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { PlacedFurniture, PrivateZone } from '../types/map'
 import { MapControlsWidget } from './MapControlsWidget'
 import { SimplifiedMapView } from './SimplifiedMapView'
+import { FurnitureContextMenu } from '../editor/FurnitureContextMenu'
 
 export const MapViewport: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -19,11 +22,17 @@ export const MapViewport: React.FC = () => {
     selectedFloor,
     selectedWall,
     selectedFurnitureDefId,
+    selectedPlacedFurnitureId,
+    setSelectedPlacedFurnitureId,
+    isMovingFurniture,
+    setIsMovingFurniture,
+    updateFurniture,
     zoneDraft,
     setFloorTile,
     setWallTile,
     addFurniture,
     removeFurnitureAt,
+    removeZoneAt,
     addOrUpdateZone,
     mapData,
   } = useMapStore()
@@ -105,6 +114,46 @@ export const MapViewport: React.FC = () => {
     lastPaintedTileRef.current = `${tile.x},${tile.y}`
 
     if (isEditorOpen) {
+      // 1. Moving an existing selected furniture
+      if (isMovingFurniture && selectedPlacedFurnitureId) {
+        updateFurniture(selectedPlacedFurnitureId, { x: tile.x, y: tile.y })
+        const updatedFurn = mapData.furniture.find((f) => f.id === selectedPlacedFurnitureId)
+        if (updatedFurn) {
+          PeerManager.getInstance().sendMapEdit('add_furniture', {
+            furniture: { ...updatedFurn, x: tile.x, y: tile.y },
+          })
+        }
+        setIsMovingFurniture(false)
+        return
+      }
+
+      // 2. Check if user clicked directly on an existing furniture
+      const customAssets = useCustomAssetsStore.getState().customAssets
+      const clickedFurn = mapData.furniture.find((f) => {
+        const custom = customAssets.find((a) => a.id === f.defId)
+        const def = custom || FURNITURE_CATALOG.find((cat) => cat.id === f.defId)
+        const w = def?.width || 1
+        const h = def?.height || 1
+        return tile.x >= f.x && tile.x < f.x + w && tile.y >= f.y && tile.y < f.y + h
+      })
+
+      // If clicked on furniture and not painting floors/walls or drawing zone:
+      if (clickedFurn && activeTool !== 'paint_floor' && activeTool !== 'paint_wall' && activeTool !== 'draw_zone') {
+        if (activeTool === 'eraser') {
+          removeFurnitureAt(tile.x, tile.y)
+          PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
+        } else {
+          // Select furniture and open contextual menu
+          setSelectedPlacedFurnitureId(clickedFurn.id)
+        }
+        return
+      }
+
+      // If clicked on empty space and not moving, deselect furniture
+      if (!clickedFurn && selectedPlacedFurnitureId && activeTool !== 'eraser') {
+        setSelectedPlacedFurnitureId(null)
+      }
+
       if (activeTool === 'draw_zone') {
         engineRef.current.zoneDragStart = tile
         engineRef.current.zoneDragCurrent = tile
@@ -124,10 +173,15 @@ export const MapViewport: React.FC = () => {
         addFurniture(newFurn)
         PeerManager.getInstance().sendMapEdit('add_furniture', { furniture: newFurn })
       } else if (activeTool === 'eraser') {
-        removeFurnitureAt(tile.x, tile.y)
+        const hadFurniture = removeFurnitureAt(tile.x, tile.y)
         setWallTile(tile.x, tile.y, null)
+        setFloorTile(tile.x, tile.y, 'habbo_parquet')
         PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
         PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: null })
+        PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: 'habbo_parquet' })
+        if (!hadFurniture) {
+          removeZoneAt(tile.x, tile.y)
+        }
       }
     } else {
       // Regular mode: Click to move
@@ -158,10 +212,15 @@ export const MapViewport: React.FC = () => {
           setWallTile(tile.x, tile.y, selectedWall)
           PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: selectedWall })
         } else if (activeTool === 'eraser') {
-          removeFurnitureAt(tile.x, tile.y)
+          const hadFurniture = removeFurnitureAt(tile.x, tile.y)
           setWallTile(tile.x, tile.y, null)
+          setFloorTile(tile.x, tile.y, 'habbo_parquet')
           PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
           PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: null })
+          PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: 'habbo_parquet' })
+          if (!hadFurniture) {
+            removeZoneAt(tile.x, tile.y)
+          }
         }
       }
     }
@@ -218,10 +277,11 @@ export const MapViewport: React.FC = () => {
       })
 
       if (width >= 2 && height >= 2 && !hasOverlap) {
+        const uniqueColor = getNextAvailableZoneColor(mapData.zones || [])
         const newZone: PrivateZone = {
           id: 'zone-' + Math.random().toString(36).substring(2, 7),
           name: zoneDraft.name.trim() || 'Nova Sala Privada',
-          color: zoneDraft.color || '#4c6ef5',
+          color: uniqueColor,
           x: minX,
           y: minY,
           width,
@@ -232,6 +292,14 @@ export const MapViewport: React.FC = () => {
         }
 
         addOrUpdateZone(newZone)
+
+        // Automatically update the draft color for the next zone to create
+        const nextZones = [...(mapData.zones || []), newZone]
+        useMapStore.getState().setZoneDraft({
+          ...zoneDraft,
+          color: getNextAvailableZoneColor(nextZones),
+        })
+
         PeerManager.getInstance().broadcast({
           type: 'MAP_SYNC',
           senderId: 'host',
@@ -290,6 +358,9 @@ export const MapViewport: React.FC = () => {
 
       {/* Simplified Vector Map View */}
       {mapViewMode === 'simplified' && <SimplifiedMapView />}
+
+      {/* Furniture Contextual Action Menu (Move / Color / Delete) */}
+      <FurnitureContextMenu />
 
       {/* Floating Bottom-Right Map Controls Widget (Modes + Zoom) */}
       <div className="absolute bottom-4 right-4 z-40">

@@ -3,6 +3,7 @@ import {
   X,
   Sparkles,
   Scissors,
+  Pencil,
   Check,
   RotateCcw,
 } from 'lucide-react'
@@ -16,6 +17,7 @@ import {
   PRESET_BG_COLORS,
 } from '../utils/imageTransparency'
 import { CropStudio, CroppedClip } from './custom-element/CropStudio'
+import { DrawStudio } from './custom-element/DrawStudio'
 import { CompositionStudio, CompositeLayer } from './custom-element/CompositionStudio'
 import { CroppedClipsList } from './custom-element/CroppedClipsList'
 import { LayerManager } from './custom-element/LayerManager'
@@ -36,8 +38,8 @@ export const CustomElementModal: React.FC = () => {
   } = useCustomAssetsStore()
   const { setSelectedFurnitureDefId, setSelectedFloor, setSelectedWall, setActiveTool } = useMapStore()
 
-  // Studio Mode: 'crop' (Recorte de Sprites) vs 'compose' (Composição de Quadros)
-  const [studioMode, setStudioMode] = useState<'crop' | 'compose'>('crop')
+  // Studio Mode: 'crop' (Recorte de Sprites) vs 'draw' (Desenhar à Mão) vs 'compose' (Mesa de Montagem)
+  const [studioMode, setStudioMode] = useState<'crop' | 'draw' | 'compose'>('crop')
 
   // Source Image State
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null)
@@ -161,23 +163,15 @@ export const CustomElementModal: React.FC = () => {
 
   const handleSelectElementType = (newType: CustomAssetType) => {
     setElementType(newType)
-    if (newType === 'floor' || newType === 'wall') {
-      setBoardSizeInTiles(1, 1)
-      setSelection((prev) => ({ ...prev, w: 32, h: 32 }))
-      setComposeTool('move')
-      setShowCollisionOverlay(false)
-      handleSetAllCollision(false)
-      if (newType === 'floor' && (category === 'Forja Antiga' || category === 'Geral')) {
+    if (newType === 'floor') {
+      if (category === 'Forja Antiga' || category === 'Geral') {
         setCategory('Pisos Personalizados')
-      } else if (newType === 'wall' && (category === 'Forja Antiga' || category === 'Geral')) {
+      }
+    } else if (newType === 'wall') {
+      if (category === 'Forja Antiga' || category === 'Geral') {
         setCategory('Paredes das Zonas')
       }
     } else {
-      setShowCollisionOverlay(true)
-      if (tileWidth === 1 && tileHeight === 1) {
-        setBoardSizeInTiles(2, 2)
-      }
-      handleSetBottomHalfCollision()
       if (category === 'Pisos Personalizados' || category === 'Paredes das Zonas') {
         setCategory('Forja Antiga')
       }
@@ -512,10 +506,36 @@ export const CustomElementModal: React.FC = () => {
     reader.readAsDataURL(file)
   }
 
-  // Handle Drag Selection on Source Canvas
+  // Handle Drag Selection on Source Canvas / Eyedropper
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (isEyedropperActive || !mainCanvasRef.current) return
+    if (!mainCanvasRef.current || !sourceImage) return
     const rect = mainCanvasRef.current.getBoundingClientRect()
+    const scaleX = mainCanvasRef.current.width / rect.width
+    const scaleY = mainCanvasRef.current.height / rect.height
+    const canvasPxX = Math.floor((e.clientX - rect.left) * scaleX)
+    const canvasPxY = Math.floor((e.clientY - rect.top) * scaleY)
+
+    if (isEyedropperActive) {
+      const sampleCanvas = document.createElement('canvas')
+      sampleCanvas.width = sourceImage.naturalWidth
+      sampleCanvas.height = sourceImage.naturalHeight
+      const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true })
+      if (sampleCtx) {
+        sampleCtx.drawImage(sourceImage, 0, 0)
+        const imgX = Math.max(0, Math.min(sourceImage.naturalWidth - 1, Math.floor(canvasPxX / zoom)))
+        const imgY = Math.max(0, Math.min(sourceImage.naturalHeight - 1, Math.floor(canvasPxY / zoom)))
+        const pixel = sampleCtx.getImageData(imgX, imgY, 1, 1).data
+        setTargetColor({
+          r: pixel[0],
+          g: pixel[1],
+          b: pixel[2],
+        })
+        setEnableBgRemoval(true)
+      }
+      setIsEyedropperActive(false)
+      return
+    }
+
     let rawX = (e.clientX - rect.left) / zoom
     let rawY = (e.clientY - rect.top) / zoom
 
@@ -683,6 +703,23 @@ export const CustomElementModal: React.FC = () => {
 
     setCompositeLayers((prev) => [...prev, newLayer])
     setSelectedLayerId(newLayerId)
+  }
+
+  // Handlers for Hand-Drawn Pixel Art Pieces
+  const handleAddDrawingToComposition = (clip: CroppedClip) => {
+    setCroppedClips((prev) => {
+      const exists = prev.some((c) => c.id === clip.id)
+      return exists ? prev : [...prev, clip]
+    })
+    handleAddClipToCompositionBoard(clip)
+    setStudioMode('compose')
+  }
+
+  const handleSaveDrawingAsClip = (clip: CroppedClip) => {
+    setCroppedClips((prev) => {
+      const exists = prev.some((c) => c.id === clip.id)
+      return exists ? prev : [...prev, clip]
+    })
   }
 
   const handleBakeCompositionToFrame = () => {
@@ -948,27 +985,40 @@ export const CustomElementModal: React.FC = () => {
             <button
               type="button"
               onClick={() => setStudioMode('crop')}
-              className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                 studioMode === 'crop'
                   ? 'bg-indigo-600 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <Scissors className="w-3.5 h-3.5" />
-              <span>1. Recorte da Imagem Original</span>
+              <span>1. Recortar Imagem</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStudioMode('draw')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                studioMode === 'draw'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Pencil className="w-3.5 h-3.5 text-amber-300" />
+              <span>2. Desenhar à Mão</span>
             </button>
 
             <button
               type="button"
               onClick={() => setStudioMode('compose')}
-              className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                 studioMode === 'compose'
                   ? 'bg-indigo-600 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>2. Mesa de Montagem & Colisão</span>
+              <Sparkles className="w-3.5 h-3.5 text-emerald-300" />
+              <span>3. Montagem & Colisão</span>
             </button>
           </div>
 
@@ -1002,6 +1052,14 @@ export const CustomElementModal: React.FC = () => {
                 onCanvasMouseMove={handleCanvasMouseMove}
                 onCanvasMouseUp={handleCanvasMouseUp}
                 onCropAndSaveClip={handleSaveCurrentCropToLibrary}
+              />
+            ) : studioMode === 'draw' ? (
+              <DrawStudio
+                tileWidth={tileWidth}
+                tileHeight={tileHeight}
+                setBoardSizeInTiles={setBoardSizeInTiles}
+                onAddDrawingToComposition={handleAddDrawingToComposition}
+                onSaveDrawingAsClip={handleSaveDrawingAsClip}
               />
             ) : (
               <CompositionStudio

@@ -61,91 +61,96 @@ export const CompositionStudio: React.FC<Props> = ({
     <div className="flex-1 flex flex-col bg-[#12151d] rounded-2xl border border-[#2b2d31] overflow-hidden">
       {/* Top Toolbar: Tile Dimensions & Interactive Tools */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#2b2d31] bg-[#18191c]/80 shrink-0">
-        {/* Tile Size Dimensions (e.g. 4x6 tiles) */}
+        {/* Typeable Tile Dimensions */}
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-slate-300">Tamanho no Mapa:</span>
-          {elementType === 'furniture' ? (
-            <div className="flex items-center gap-1.5 bg-[#12151d] px-2 py-1 rounded-xl border border-[#2b2d31]">
-              <span className="text-[11px] text-slate-400">Largura:</span>
-              <select
+          <div className="flex items-center gap-2 bg-[#12151d] px-2.5 py-1 rounded-xl border border-[#2b2d31]">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-slate-400 font-semibold">Largura:</span>
+              <input
+                type="number"
+                min={1}
+                max={10}
                 value={tileWidth}
-                onChange={(e) => setBoardSizeInTiles(Number(e.target.value), tileHeight)}
-                className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer"
-              >
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                  <option key={n} value={n} className="bg-slate-900">
-                    {n} tiles ({n * 32}px)
-                  </option>
-                ))}
-              </select>
-
-              <span className="text-slate-600">×</span>
-
-              <span className="text-[11px] text-slate-400">Altura:</span>
-              <select
-                value={tileHeight}
-                onChange={(e) => setBoardSizeInTiles(tileWidth, Number(e.target.value))}
-                className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer"
-              >
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                  <option key={n} value={n} className="bg-slate-900">
-                    {n} tiles ({n * 32}px)
-                  </option>
-                ))}
-              </select>
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10)
+                  if (!isNaN(val)) {
+                    setBoardSizeInTiles(val, tileHeight)
+                  }
+                }}
+                className="w-12 bg-[#18191c] border border-[#2b2d31] rounded-lg px-1.5 py-0.5 text-xs font-bold text-center text-white focus:outline-none focus:border-indigo-500"
+              />
+              <span className="text-[10px] text-slate-400 font-mono">({tileWidth * 32}px)</span>
             </div>
-          ) : (
-            <span className="text-xs font-mono font-bold text-slate-400 bg-[#12151d] px-2.5 py-1 rounded-xl border border-[#2b2d31]">
-              1x1 Tile Padrão (32x32px)
-            </span>
-          )}
+
+            <span className="text-slate-600 font-bold">×</span>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-slate-400 font-semibold">Altura:</span>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={tileHeight}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10)
+                  if (!isNaN(val)) {
+                    setBoardSizeInTiles(tileWidth, val)
+                  }
+                }}
+                className="w-12 bg-[#18191c] border border-[#2b2d31] rounded-lg px-1.5 py-0.5 text-xs font-bold text-center text-white focus:outline-none focus:border-indigo-500"
+              />
+              <span className="text-[10px] text-slate-400 font-mono">({tileHeight * 32}px)</span>
+            </div>
+          </div>
         </div>
 
         {/* Tools: Move Layers vs Paint Collision */}
-        {elementType === 'furniture' && (
-          <div className="flex items-center gap-1.5">
-            <div className="flex bg-[#12151d] p-1 rounded-xl border border-[#2b2d31]">
-              <button
-                type="button"
-                onClick={() => setComposeTool('move')}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                  composeTool === 'move'
-                    ? 'bg-indigo-600 text-white shadow'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Move className="w-3.5 h-3.5" />
-                <span>Mover Peças</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setComposeTool('collision')}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                  composeTool === 'collision'
-                    ? 'bg-rose-600 text-white shadow animate-pulse'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Brush className="w-3.5 h-3.5" />
-                <span>Pintar Colisão (Tiles)</span>
-              </button>
-            </div>
+        <div className="flex items-center gap-1.5">
+          <div className="flex bg-[#12151d] p-1 rounded-xl border border-[#2b2d31]">
+            <button
+              type="button"
+              onClick={() => setComposeTool('move')}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                composeTool === 'move'
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Move className="w-3.5 h-3.5" />
+              <span>Mover Peças</span>
+            </button>
 
             <button
               type="button"
-              onClick={() => setShowCollisionOverlay(!showCollisionOverlay)}
-              className={`p-1.5 rounded-xl border transition-colors ${
-                showCollisionOverlay
-                  ? 'bg-rose-600/20 border-rose-500 text-rose-400'
-                  : 'bg-[#12151d] border-[#2b2d31] text-slate-400 hover:text-white'
+              onClick={() => {
+                setComposeTool('collision')
+                setShowCollisionOverlay(true)
+              }}
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                composeTool === 'collision'
+                  ? 'bg-rose-600 text-white shadow animate-pulse'
+                  : 'text-slate-400 hover:text-slate-200'
               }`}
-              title="Exibir/Ocultar grade de colisão vermelha"
             >
-              <Eye className="w-4 h-4" />
+              <Brush className="w-3.5 h-3.5" />
+              <span>Pintar Colisão (Tiles)</span>
             </button>
           </div>
-        )}
+
+          <button
+            type="button"
+            onClick={() => setShowCollisionOverlay(!showCollisionOverlay)}
+            className={`p-1.5 rounded-xl border transition-colors ${
+              showCollisionOverlay
+                ? 'bg-rose-600/20 border-rose-500 text-rose-400'
+                : 'bg-[#12151d] border-[#2b2d31] text-slate-400 hover:text-white'
+            }`}
+            title="Exibir/Ocultar grade de colisão vermelha"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Composition Canvas Stage */}

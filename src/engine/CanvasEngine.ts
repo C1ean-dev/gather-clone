@@ -1,6 +1,7 @@
 import { CameraManager } from './camera/CameraManager'
 import { InputHandler } from './input/InputHandler'
 import { checkCollision, checkZonePresence } from './physics/collision'
+import { findPath } from './physics/pathfinding'
 import { WorldRenderer } from './rendering/worldRenderer'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
@@ -22,6 +23,7 @@ export class CanvasEngine {
   private frameCount: number = 0
   private lastFpsUpdate: number = performance.now()
   private fps: number = 60
+  private stuckCounter: number = 0
 
   // Editor hover preview & Drag-to-Draw Zone
   public hoverTile: { x: number; y: number } | null = null
@@ -46,8 +48,17 @@ export class CanvasEngine {
     this.canvas.addEventListener('wheel', this.camera.handleWheel, { passive: false })
   }
 
+  /**
+   * Calculates intelligent collision-avoidance path from current player position to target tile
+   */
   public setClickTarget(tileX: number, tileY: number) {
-    this.input.setClickTarget(tileX, tileY)
+    const local = useGameStore.getState().localPlayer
+    const map = useMapStore.getState().mapData
+    const path = findPath(local.x, local.y, tileX, tileY, map)
+    if (path.length > 0) {
+      this.input.setPath(path)
+      this.stuckCounter = 0
+    }
   }
 
   /**
@@ -146,6 +157,30 @@ export class CanvasEngine {
         finalY = targetY
       }
 
+      // Check if character got stuck against an obstacle while following a path
+      if (this.input.path.length > 0) {
+        if (finalX === local.x && finalY === local.y) {
+          this.stuckCounter++
+          if (this.stuckCounter > 15) {
+            // Re-calculate path around obstacle or abort
+            const dest = this.input.finalDestination
+            if (dest) {
+              const newPath = findPath(local.x, local.y, dest.x, dest.y, map)
+              if (newPath.length > 0) {
+                this.input.setPath(newPath)
+              } else {
+                this.input.clearPath()
+              }
+            } else {
+              this.input.clearPath()
+            }
+            this.stuckCounter = 0
+          }
+        } else {
+          this.stuckCounter = 0
+        }
+      }
+
       gameStore.setLocalPosition(finalX, finalY, nextDirection, true)
 
       // Throttled Broadcast Movement (25Hz) to prevent WebRTC DataChannel congestion
@@ -185,7 +220,8 @@ export class CanvasEngine {
       this.zoneDragStart,
       this.zoneDragCurrent,
       currentTime,
-      this.fps
+      this.fps,
+      this.input.finalDestination
     )
   }
 

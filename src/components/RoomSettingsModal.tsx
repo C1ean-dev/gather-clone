@@ -108,19 +108,6 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose }) =>
     onClose()
   }
 
-  const colorPalette = [
-    '#4c6ef5', // Blue
-    '#20c997', // Emerald
-    '#fab005', // Amber
-    '#ff6b6b', // Coral Red
-    '#be4bdb', // Purple
-    '#339af0', // Cyan
-    '#e03131', // Crimson
-    '#ec4899', // Pink
-    '#10b981', // Green
-    '#8b5cf6', // Violet
-  ]
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
       <div className="relative w-full max-w-lg bg-[#0e121a] border border-[#232c3d] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -207,26 +194,21 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose }) =>
                 />
               </div>
 
-              {/* Color Picker */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-200">
-                  Cor da Identificação
-                </label>
-                <div className="flex flex-wrap gap-2.5 pt-1">
-                  {colorPalette.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setColor(c)}
-                      className={`w-7 h-7 rounded-full border-2 transition-transform ${
-                        color === c
-                          ? 'scale-115 border-white ring-2 ring-indigo-500/50 shadow-lg'
-                          : 'border-transparent hover:scale-105'
-                      }`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
+              {/* Room Unique Color (Auto-Assigned) */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-[#161c27] border border-[#263145]">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-5 h-5 rounded-full shadow-md border-2 border-white/20 shrink-0"
+                    style={{ backgroundColor: color }}
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-slate-200">Cor de Identificação Única</div>
+                    <div className="text-[10px] text-slate-400">Gerada e atribuída automaticamente de forma exclusiva</div>
+                  </div>
                 </div>
+                <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                  Exclusiva ✨
+                </span>
               </div>
 
               {/* Welcome Greeting Message */}

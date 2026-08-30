@@ -50,6 +50,15 @@ export class FurnitureRenderer {
         ctx.fillStyle = customAsset.iconColor || '#e03131'
         ctx.fillRect(px + 2, py + 2, w - 4, h - 4)
       }
+
+      if (furn.tintColor) {
+        ctx.save()
+        ctx.fillStyle = furn.tintColor
+        ctx.globalAlpha = 0.35
+        ctx.fillRect(px, py, w, h)
+        ctx.restore()
+      }
+
       ctx.restore()
       return
     }
@@ -510,6 +519,14 @@ export class FurnitureRenderer {
         ctx.fillStyle = def.iconColor || '#4c6ef5'
         ctx.fillRect(px + 2, py + 2, w - 4, h - 4)
         break
+    }
+
+    if (furn.tintColor) {
+      ctx.save()
+      ctx.fillStyle = furn.tintColor
+      ctx.globalAlpha = 0.35
+      ctx.fillRect(px, py, w, h)
+      ctx.restore()
     }
 
     ctx.restore()

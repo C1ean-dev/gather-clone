@@ -1,8 +1,10 @@
 import { Direction } from '../../types/game'
+import { Point } from '../physics/pathfinding'
 
 export class InputHandler {
   public keysPressed: Set<string> = new Set()
-  public targetTile: { x: number; y: number } | null = null
+  public path: Point[] = []
+  public finalDestination: Point | null = null
 
   public setup() {
     window.addEventListener('keydown', this.handleKeyDown)
@@ -22,7 +24,7 @@ export class InputHandler {
     const key = e.key.toLowerCase()
     if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
       this.keysPressed.add(key)
-      this.targetTile = null
+      this.clearPath()
     }
   }
 
@@ -31,8 +33,14 @@ export class InputHandler {
     this.keysPressed.delete(key)
   }
 
-  public setClickTarget(tileX: number, tileY: number) {
-    this.targetTile = { x: tileX, y: tileY }
+  public setPath(path: Point[]) {
+    this.path = [...path]
+    this.finalDestination = path.length > 0 ? path[path.length - 1] : null
+  }
+
+  public clearPath() {
+    this.path = []
+    this.finalDestination = null
   }
 
   public computeMovement(localX: number, localY: number, currentDirection: Direction): {
@@ -44,7 +52,7 @@ export class InputHandler {
     let dy = 0
     let nextDirection: Direction = currentDirection
 
-    // 1. Keyboard Movement
+    // 1. Keyboard Movement (Takes Priority)
     if (this.keysPressed.has('w') || this.keysPressed.has('arrowup')) {
       dy -= 1
       nextDirection = 'up'
@@ -62,27 +70,40 @@ export class InputHandler {
       nextDirection = 'right'
     }
 
-    // 2. Click to Move Path Guidance
-    if (this.targetTile && dx === 0 && dy === 0) {
-      const diffX = this.targetTile.x - localX
-      const diffY = this.targetTile.y - localY
-      const dist = Math.hypot(diffX, diffY)
+    // 2. Intelligent Pathfinding Waypoint Traversal
+    if (dx === 0 && dy === 0 && this.path.length > 0) {
+      // Consume reached waypoints until we find the next target waypoint
+      while (this.path.length > 0) {
+        const nextWaypoint = this.path[0]
+        const diffX = nextWaypoint.x - localX
+        const diffY = nextWaypoint.y - localY
+        const dist = Math.hypot(diffX, diffY)
 
-      if (dist < 0.1) {
-        this.targetTile = null
-      } else {
+        // If close enough to waypoint, pop it and move to the next
+        if (dist < 0.16) {
+          this.path.shift()
+          if (this.path.length === 0) {
+            this.finalDestination = null
+            break
+          }
+          continue
+        }
+
+        // Steer towards active waypoint
         dx = diffX / dist
         dy = diffY / dist
+
         if (Math.abs(diffX) > Math.abs(diffY)) {
           nextDirection = diffX > 0 ? 'right' : 'left'
         } else {
           nextDirection = diffY > 0 ? 'down' : 'up'
         }
+        break
       }
     }
 
-    // Normalize diagonal movement
-    if (dx !== 0 && dy !== 0) {
+    // Normalize diagonal keyboard movement
+    if (dx !== 0 && dy !== 0 && this.keysPressed.size > 0) {
       const length = Math.hypot(dx, dy)
       dx /= length
       dy /= length

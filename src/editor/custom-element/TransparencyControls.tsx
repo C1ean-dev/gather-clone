@@ -1,6 +1,6 @@
 import React from 'react'
 import { Pipette, Wand2, Sliders } from 'lucide-react'
-import { RGBColor, PRESET_BG_COLORS } from '../../utils/imageTransparency'
+import { RGBColor } from '../../utils/imageTransparency'
 
 interface Props {
   enableBgRemoval: boolean
@@ -51,10 +51,21 @@ export const TransparencyControls: React.FC<Props> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-300">Cor de Fundo Alvo:</span>
-              <div
-                className="w-6 h-6 rounded-lg border border-white/20 shadow-inner"
-                style={{ backgroundColor: `rgb(${targetColor.r}, ${targetColor.g}, ${targetColor.b})` }}
-              />
+              <div className="relative flex items-center">
+                <input
+                  type="color"
+                  value={`#${((1 << 24) + (targetColor.r << 16) + (targetColor.g << 8) + targetColor.b).toString(16).slice(1)}`}
+                  onChange={(e) => {
+                    const hex = e.target.value
+                    const r = parseInt(hex.slice(1, 3), 16)
+                    const g = parseInt(hex.slice(3, 5), 16)
+                    const b = parseInt(hex.slice(5, 7), 16)
+                    setTargetColor({ r, g, b })
+                  }}
+                  className="w-7 h-7 rounded-lg border border-white/20 shadow-inner cursor-pointer p-0 bg-transparent overflow-hidden"
+                  title="Clique para escolher a cor ou use o Conta-gotas"
+                />
+              </div>
             </div>
             <button
               type="button"
@@ -70,33 +81,7 @@ export const TransparencyControls: React.FC<Props> = ({
             </button>
           </div>
 
-          {/* Color Presets */}
-          <div className="space-y-1">
-            <span className="text-[10px] font-semibold text-slate-400">Paletas Comuns (Spritesheets):</span>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {[
-                { name: 'LPC Escuro', color: PRESET_BG_COLORS.LPC_DARK },
-                { name: 'Preto', color: PRESET_BG_COLORS.BLACK },
-                { name: 'Branco', color: PRESET_BG_COLORS.WHITE },
-                { name: 'Magenta', color: PRESET_BG_COLORS.MAGENTA },
-                { name: 'Verde Croma', color: PRESET_BG_COLORS.GREEN },
-                { name: 'Azul', color: PRESET_BG_COLORS.CYAN },
-              ].map((preset) => (
-                <button
-                  key={preset.name}
-                  type="button"
-                  onClick={() => setTargetColor(preset.color)}
-                  className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[#12151d] hover:bg-slate-800 border border-[#2b2d31] text-slate-300 hover:text-white transition-colors flex items-center gap-1"
-                >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full border border-white/20"
-                    style={{ backgroundColor: `rgb(${preset.color.r}, ${preset.color.g}, ${preset.color.b})` }}
-                  />
-                  <span>{preset.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+
 
           {/* Tolerance Slider */}
           <div className="space-y-1">

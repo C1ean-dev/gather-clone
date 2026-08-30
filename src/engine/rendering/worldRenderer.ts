@@ -17,7 +17,8 @@ export class WorldRenderer {
     zoneDragStart: { x: number; y: number } | null,
     zoneDragCurrent: { x: number; y: number } | null,
     currentTime: number,
-    fps: number
+    fps: number,
+    destination?: { x: number; y: number } | null
   ) {
     const mapStore = useMapStore.getState()
     const map = mapStore.mapData
@@ -106,6 +107,59 @@ export class WorldRenderer {
       // 4. Draw Placed Furniture & Wall Windows
       for (const item of map.furniture || []) {
         PixelArtRenderer.drawFurniture(ctx, item)
+      }
+
+      // 4b. Draw Click-to-Move Path Destination Indicator
+      if (destination && !isEditorOpen) {
+        ctx.save()
+        const destX = destination.x * TILE_SIZE + 16
+        const destY = destination.y * TILE_SIZE + 16
+        const pulse = (Math.sin(currentTime / 160) + 1) / 2
+        const ringRadius = 7 + pulse * 5
+
+        // Outer glowing pulse ring
+        ctx.strokeStyle = `rgba(99, 102, 241, ${0.4 + pulse * 0.45})`
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(destX, destY, ringRadius, 0, Math.PI * 2)
+        ctx.stroke()
+
+        // Inner solid core
+        ctx.fillStyle = '#6366f1'
+        ctx.beginPath()
+        ctx.arc(destX, destY, 3, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.restore()
+      }
+
+      // 4c. Draw Selected Furniture Highlight (in Editor Mode)
+      if (isEditorOpen && mapStore.selectedPlacedFurnitureId) {
+        const selFurn = (map.furniture || []).find((f) => f.id === mapStore.selectedPlacedFurnitureId)
+        if (selFurn) {
+          const customAsset = useCustomAssetsStore.getState().getAssetById(selFurn.defId)
+          const def = customAsset || FURNITURE_CATALOG.find((f) => f.id === selFurn.defId)
+          const fw = (def?.width || 1) * TILE_SIZE
+          const fh = (def?.height || 1) * TILE_SIZE
+          const fx = selFurn.x * TILE_SIZE
+          const fy = selFurn.y * TILE_SIZE
+
+          ctx.save()
+          const pulse = (Math.sin(currentTime / 180) + 1) / 2
+          ctx.strokeStyle = `rgba(99, 102, 241, ${0.8 + pulse * 0.2})`
+          ctx.lineWidth = 2.5
+          ctx.setLineDash([6, 3])
+          ctx.strokeRect(fx - 1, fy - 1, fw + 2, fh + 2)
+
+          // Corner handles
+          ctx.setLineDash([])
+          ctx.fillStyle = '#ffffff'
+          const handleSz = 5
+          ctx.fillRect(fx - handleSz / 2, fy - handleSz / 2, handleSz, handleSz)
+          ctx.fillRect(fx + fw - handleSz / 2, fy - handleSz / 2, handleSz, handleSz)
+          ctx.fillRect(fx - handleSz / 2, fy + fh - handleSz / 2, handleSz, handleSz)
+          ctx.fillRect(fx + fw - handleSz / 2, fy + fh - handleSz / 2, handleSz, handleSz)
+          ctx.restore()
+        }
       }
 
       // 5. Sort and Draw Players by Y-depth

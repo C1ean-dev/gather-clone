@@ -72,22 +72,18 @@ export const ZonesTab: React.FC<Props> = ({
           />
         </div>
 
-        {/* Color Picker */}
-        <div>
-          <label className="block text-[10px] font-semibold text-slate-400 mb-1">Cor da Identificação</label>
-          <div className="flex gap-2">
-            {['#4c6ef5', '#20c997', '#fab005', '#ff6b6b', '#be4bdb', '#339af0', '#e03131'].map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setZoneDraft({ ...zoneDraft, color: c })}
-                className={`w-7 h-7 rounded-full border-2 transition-transform ${
-                  zoneDraft.color === c ? 'scale-115 border-white ring-2 ring-white/40' : 'border-transparent'
-                }`}
-                style={{ backgroundColor: c }}
-              />
-            ))}
+        {/* Auto-Generated Unique Identification Color Badge */}
+        <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/60 border border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div
+              className="w-4 h-4 rounded-full shadow-md border-2 border-white/20 shrink-0"
+              style={{ backgroundColor: zoneDraft.color || '#4c6ef5' }}
+            />
+            <span className="text-[11px] font-semibold text-slate-300">Cor de Identificação</span>
           </div>
+          <span className="text-[10px] text-indigo-300 font-semibold bg-indigo-500/15 px-2 py-0.5 rounded-full border border-indigo-500/25">
+            Gerada Automaticamente ✨
+          </span>
         </div>
 
         {/* Zone Walls & Texture Config */}
@@ -107,52 +103,64 @@ export const ZonesTab: React.FC<Props> = ({
           {zoneDraft.hasWalls !== false && (
             <div className="space-y-1.5">
               <div className="text-[10px] font-semibold text-slate-400">Textura das Paredes da Sala:</div>
-              <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto p-1 bg-slate-950/40 rounded-xl border border-slate-800/80">
+              <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto p-1 bg-slate-950/40 rounded-xl border border-slate-800/80">
                 {walls.map((wall) => {
                   const isSelected = (zoneDraft.wallType || 'drywall_white') === wall.id
                   const isCustom = wall.isCustom
                   return (
-                    <div key={wall.id} className="relative group">
+                    <div
+                      key={wall.id}
+                      className={`relative p-2 rounded-xl border flex flex-col items-center gap-1.5 text-left transition-all group ${
+                        isSelected
+                          ? 'border-indigo-500 bg-indigo-500/15 shadow-lg shadow-indigo-500/10 ring-2 ring-indigo-500/30'
+                          : 'border-[#2a3142] bg-[#12151d]/50 hover:border-slate-500'
+                      }`}
+                    >
+                      {/* Left Edit Button */}
+                      {isCustom && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openEditModal(wall.id)
+                          }}
+                          className="absolute top-1.5 left-1.5 p-1 rounded-md bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 hover:text-blue-200 opacity-80 hover:opacity-100 transition-all z-10"
+                          title="Editar esta parede"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      )}
+
+                      {/* Right Delete Button */}
+                      {isCustom && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setAssetToDelete({ id: wall.id as string, name: wall.name })
+                          }}
+                          className="absolute top-1.5 right-1.5 p-1 rounded-md bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 hover:text-rose-200 opacity-80 hover:opacity-100 transition-all z-10"
+                          title="Excluir parede customizada"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => setZoneDraft({ ...zoneDraft, wallType: wall.id as any })}
-                        className={`w-full p-1.5 rounded-lg border flex items-center gap-2 text-left transition-all ${
-                          isSelected
-                            ? 'border-indigo-500 bg-indigo-500/20 ring-1 ring-indigo-500'
-                            : 'border-slate-800 bg-slate-900/60 hover:border-slate-700'
-                        }`}
+                        className="w-full flex flex-col items-center gap-1.5"
                       >
-                        <div className="w-6 h-6 rounded overflow-hidden shrink-0 border border-white/10 flex items-center justify-center bg-slate-950">
-                          <PixelArtThumbnail type="wall" id={wall.id} size={24} />
+                        <div className="w-full h-12 rounded-lg overflow-hidden border border-white/10 shadow-inner bg-[#181d28] flex items-center justify-center">
+                          <PixelArtThumbnail type="wall" id={wall.id} size={48} />
                         </div>
-                        <span className="text-[10px] font-medium text-slate-300 truncate">{wall.name}</span>
+                        <div className="w-full">
+                          <div className="text-xs font-semibold text-slate-200 truncate">{wall.name}</div>
+                          <div className="text-[10px] text-slate-400">
+                            {wall.isCustom ? 'Parede Customizada • 🛡️' : 'Parede Sólida • 🛡️'}
+                          </div>
+                        </div>
                       </button>
-                      {isCustom && (
-                        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-950/90 px-1 py-0.5 rounded-md border border-slate-800 z-10">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              openEditModal(wall.id)
-                            }}
-                            className="p-1 rounded hover:bg-blue-500/20 text-blue-400"
-                            title="Editar esta parede"
-                          >
-                            <Pencil className="w-2.5 h-2.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setAssetToDelete({ id: wall.id as string, name: wall.name })
-                            }}
-                            className="p-1 rounded hover:bg-rose-500/20 text-rose-400"
-                            title="Excluir parede"
-                          >
-                            <Trash2 className="w-2.5 h-2.5" />
-                          </button>
-                        </div>
-                      )}
                     </div>
                   )
                 })}

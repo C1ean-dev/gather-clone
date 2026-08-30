@@ -34,36 +34,40 @@ export const FloorsTab: React.FC<Props> = ({
           return (
             <div
               key={floor.id}
-              className={`relative p-2.5 rounded-xl border flex flex-col items-center gap-1.5 text-left transition-all ${
+              className={`relative p-2.5 rounded-xl border flex flex-col items-center gap-1.5 text-left transition-all group ${
                 isSelected
-                  ? 'border-indigo-500 bg-indigo-500/15 ring-2 ring-indigo-500/30'
+                  ? 'border-indigo-500 bg-indigo-500/15 shadow-lg shadow-indigo-500/10 ring-2 ring-indigo-500/30'
                   : 'border-[#2a3142] bg-[#12151d]/50 hover:border-slate-500'
               }`}
             >
+              {/* Left Edit Button */}
               {isCustom && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
                     openEditModal(floor.id)
                   }}
-                  className="absolute top-1.5 left-1.5 p-1 rounded-md bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 hover:text-blue-200 z-10"
+                  className="absolute top-1.5 left-1.5 p-1 rounded-md bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 hover:text-blue-200 opacity-80 hover:opacity-100 transition-all z-10"
                   title="Editar este piso"
                 >
                   <Pencil className="w-3 h-3" />
                 </button>
               )}
+
+              {/* Right Delete Button */}
               {isCustom && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
                     setAssetToDelete({ id: floor.id, name: floor.name })
                   }}
-                  className="absolute top-1.5 right-1.5 p-1 rounded-md bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 hover:text-rose-200 z-10"
-                  title="Excluir piso"
+                  className="absolute top-1.5 right-1.5 p-1 rounded-md bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 hover:text-rose-200 opacity-80 hover:opacity-100 transition-all z-10"
+                  title="Excluir piso customizado"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
               )}
+
               <button
                 onClick={() => {
                   setSelectedFloor(floor.id as any)
@@ -71,10 +75,15 @@ export const FloorsTab: React.FC<Props> = ({
                 }}
                 className="w-full flex flex-col items-center gap-1.5"
               >
-                <div className="w-full h-10 rounded-lg overflow-hidden border border-white/15 shadow-inner bg-[#181d28] flex items-center justify-center">
-                  <PixelArtThumbnail type="floor" id={floor.id} size={40} />
+                <div className="w-full h-12 rounded-lg overflow-hidden border border-white/10 shadow-inner bg-[#181d28] flex items-center justify-center">
+                  <PixelArtThumbnail type="floor" id={floor.id} size={48} />
                 </div>
-                <span className="text-xs font-medium text-slate-300 text-center truncate w-full">{floor.name}</span>
+                <div className="w-full">
+                  <div className="text-xs font-semibold text-slate-200 truncate">{floor.name}</div>
+                  <div className="text-[10px] text-slate-400">
+                    {floor.isCustom ? 'Piso Customizado • Livre' : 'Piso Padrão • Chão'}
+                  </div>
+                </div>
               </button>
             </div>
           )

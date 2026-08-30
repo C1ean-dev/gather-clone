@@ -4,7 +4,8 @@
     "Forja Antiga",
     "Escritório",
     "Medieval",
-    "Decoração"
+    "Decoração",
+    "Pisos Personalizados"
   ],
   "assets": [
     {
@@ -144,6 +145,74 @@
       "frameRateMs": 160,
       "iconColor": "#e03131",
       "createdAt": 1787945438028
+    },
+    {
+      "id": "custom_1788044152066_rtuds",
+      "name": "Meu Elemento Composto",
+      "type": "wall",
+      "category": "Pisos Personalizados",
+      "width": 1,
+      "height": 1,
+      "isObstacle": true,
+      "collisionGrid": [
+        [
+          false
+        ]
+      ],
+      "frames": [
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAO0lEQVR4AezXwQkAMAgDwND9d27rBD4FOdB3wv1yktzJrwI/f+4UIECAAAECBAgQIECAAAEC+wW63f0AAAD//+3aM8YAAAAGSURBVAMABkQgIT13JVIAAAAASUVORK5CYII="
+      ],
+      "frameLayers": [
+        [
+          {
+            "id": "layer_1788044146891_10vi",
+            "clipId": "draw_1788044146891_pbp6",
+            "name": "Desenho (32x32)",
+            "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAO0lEQVR4AezXwQkAMAgDwND9d27rBD4FOdB3wv1yktzJrwI/f+4UIECAAAECBAgQIECAAAEC+wW63f0AAAD//+3aM8YAAAAGSURBVAMABkQgIT13JVIAAAAASUVORK5CYII=",
+            "x": 0,
+            "y": 0,
+            "width": 32,
+            "height": 32,
+            "flipH": false,
+            "opacity": 1
+          }
+        ]
+      ],
+      "frameRateMs": 160,
+      "iconColor": "#f59f00",
+      "createdAt": 1788044152066
+    },
+    {
+      "id": "custom_1788055301508_zlspb",
+      "name": "Meu Elemento Composto",
+      "type": "floor",
+      "category": "Pisos Personalizados",
+      "width": 4,
+      "height": 6,
+      "isObstacle": false,
+      "collisionGrid": [],
+      "frames": [
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAADACAYAAADMZmunAAAEm0lEQVR4AeySW4obAQwEl9z/zkkW7B+DmZce3VJBgll7Rmp11Z+fn5+//N/bwa8A//nzb2sDCLCV/OtuBHgVsfUDAbaSf92NAK8itn4gwFbyr7sR4FXEto/3vQjwbmLpJwIsBf8+GwHeTSz9RICl4N9nI8C7iaWfCLAU/PtsBHg3sfQTAZaB/zwXAT4bWfY3AiwD/nkuAnw2suxvBFgG/PNcBPhsZNnfCLAM+Oe5CPDZyLK/EWAJ8G9nIsC3ZpZ8jwBLQH87EwG+NbPkewRYAvrbmQjwrZkl3yPAEtDfzkSAb80s+R4BhoM+Og8Bjhoa/jsCDAd8dB4CHDU0/HcEGA746DwEOGpo+O8IMBzw0XkIcNTQ8N8RYCjgs2chwNmmhj6HAEPBnj0LAc42NfQ5BBgK9uxZCHC2qaHPIcBQsGfPQoCzTQ19DgGGgb16DgJcbWzY8wgwDOjVcxDgamPDnkeAYUCvnoMAVxsb9jwCDAN69RwEuNrYsOcRYAjQu2cgwN3mhryHAENA3j0DAe42N+Q9BBgC8u4ZCHC3uSHvIcAQkHfPQIC7zQ15DwHMQT6NjwBPGzR/HwHMAT6NjwBPGzR/HwHMAT6NjwBPGzR/HwHMAT6NjwBPGzR/HwFMAUbFRoCoJk3nIIApuKjYCBDVpOkcBDAFFxUbAaKaNJ2DAKbgomIjQFSTpnMQwAxcdFwEiG7UbB4CmAGLjosA0Y2azUMAM2DRcREgulGzeQhgBiw6LgJEN2o2DwFMgGXFRICsZk3mIoAJqKyYCJDVrMlcBDABlRUTAbKaNZmLACagsmIiQFazJnMRQBxUdjwEyG5YfD4CiAPKjocA2Q2Lz0cAcUDZ8RAgu2Hx+QggDig7HgJkNyw+HwFEAVXFQoCqpkX3IIAomKpYCFDVtOgeBBAFUxULAaqaFt2DAKJgqmIhQFXTonsQQAxMdRwEqG5cbB8CiAGpjoMA1Y2L7UMAMSDVcRCgunGxfQggBqQ6DgJUNy62DwFEgHTFQICu5kX2IoAIiK4YCNDVvMheBBAB0RUDAbqaF9mLACIgumIgQFfzInsRoBlE93oE6CbQvB8BmgF0r0eAbgLN+xGgGUD3egToJtC8HwGaAXSvR4BuAs37EaAJgMpaBFAh0ZQDAZqKV1mLACokmnIgQFPxKmsRQIVEUw4EaCpeZS0CqJBoyoEAxcWrrUMANSLFeRCguHC1dQigRqQ4DwIUF662DgHUiBTnQYDiwtXWIYAakeI8CFBUuOoaBFAlU5QLAYqKVl2DAKpkinIhQFHRqmsQQJVMUS4EKCpadQ0CqJIpyoUAyUWrj0cAdULJ+RAguWD18QigTig5HwIkF6w+HgHUCSXnQ4DkgtXHI4A6oeR8CJBUsMtYBHAhlZQTAZKKdRmLAC6kknIiQFKxLmMRwIVUUk4ESCrWZSwCuJBKyokAwcW6jUMAN2LBeREguFC3cQjgRiw4LwIEF+o2DgHciAXnRYDgQt3GIYAbseC8CBBUqOsYBHAlF5QbAYKKdB2DAK7kgnIjQFCRrmMQwJVcUG4ECCrSdQwCuJILyo0AD4t0f/0fAAAA///8RTuFAAAABklEQVQDAPcDgQH6CmK1AAAAAElFTkSuQmCC"
+      ],
+      "frameLayers": [
+        [
+          {
+            "id": "layer_1788055290776_hdm5",
+            "clipId": "draw_1788055290776_a28d",
+            "name": "Desenho (4x6 tiles)",
+            "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAADACAYAAADMZmunAAAEm0lEQVR4AeySW4obAQwEl9z/zkkW7B+DmZce3VJBgll7Rmp11Z+fn5+//N/bwa8A//nzb2sDCLCV/OtuBHgVsfUDAbaSf92NAK8itn4gwFbyr7sR4FXEto/3vQjwbmLpJwIsBf8+GwHeTSz9RICl4N9nI8C7iaWfCLAU/PtsBHg3sfQTAZaB/zwXAT4bWfY3AiwD/nkuAnw2suxvBFgG/PNcBPhsZNnfCLAM+Oe5CPDZyLK/EWAJ8G9nIsC3ZpZ8jwBLQH87EwG+NbPkewRYAvrbmQjwrZkl3yPAEtDfzkSAb80s+R4BhoM+Og8Bjhoa/jsCDAd8dB4CHDU0/HcEGA746DwEOGpo+O8IMBzw0XkIcNTQ8N8RYCjgs2chwNmmhj6HAEPBnj0LAc42NfQ5BBgK9uxZCHC2qaHPIcBQsGfPQoCzTQ19DgGGgb16DgJcbWzY8wgwDOjVcxDgamPDnkeAYUCvnoMAVxsb9jwCDAN69RwEuNrYsOcRYAjQu2cgwN3mhryHAENA3j0DAe42N+Q9BBgC8u4ZCHC3uSHvIcAQkHfPQIC7zQ15DwHMQT6NjwBPGzR/HwHMAT6NjwBPGzR/HwHMAT6NjwBPGzR/HwHMAT6NjwBPGzR/HwFMAUbFRoCoJk3nIIApuKjYCBDVpOkcBDAFFxUbAaKaNJ2DAKbgomIjQFSTpnMQwAxcdFwEiG7UbB4CmAGLjosA0Y2azUMAM2DRcREgulGzeQhgBiw6LgJEN2o2DwFMgGXFRICsZk3mIoAJqKyYCJDVrMlcBDABlRUTAbKaNZmLACagsmIiQFazJnMRQBxUdjwEyG5YfD4CiAPKjocA2Q2Lz0cAcUDZ8RAgu2Hx+QggDig7HgJkNyw+HwFEAVXFQoCqpkX3IIAomKpYCFDVtOgeBBAFUxULAaqaFt2DAKJgqmIhQFXTonsQQAxMdRwEqG5cbB8CiAGpjoMA1Y2L7UMAMSDVcRCgunGxfQggBqQ6DgJUNy62DwFEgHTFQICu5kX2IoAIiK4YCNDVvMheBBAB0RUDAbqaF9mLACIgumIgQFfzInsRoBlE93oE6CbQvB8BmgF0r0eAbgLN+xGgGUD3egToJtC8HwGaAXSvR4BuAs37EaAJgMpaBFAh0ZQDAZqKV1mLACokmnIgQFPxKmsRQIVEUw4EaCpeZS0CqJBoyoEAxcWrrUMANSLFeRCguHC1dQigRqQ4DwIUF662DgHUiBTnQYDiwtXWIYAakeI8CFBUuOoaBFAlU5QLAYqKVl2DAKpkinIhQFHRqmsQQJVMUS4EKCpadQ0CqJIpyoUAyUWrj0cAdULJ+RAguWD18QigTig5HwIkF6w+HgHUCSXnQ4DkgtXHI4A6oeR8CJBUsMtYBHAhlZQTAZKKdRmLAC6kknIiQFKxLmMRwIVUUk4ESCrWZSwCuJBKyokAwcW6jUMAN2LBeREguFC3cQjgRiw4LwIEF+o2DgHciAXnRYDgQt3GIYAbseC8CBBUqOsYBHAlF5QbAYKKdB2DAK7kgnIjQFCRrmMQwJVcUG4ECCrSdQwCuJILyo0AD4t0f/0fAAAA///8RTuFAAAABklEQVQDAPcDgQH6CmK1AAAAAElFTkSuQmCC",
+            "x": 0,
+            "y": 0,
+            "width": 128,
+            "height": 192,
+            "flipH": false,
+            "opacity": 1
+          }
+        ]
+      ],
+      "frameRateMs": 160,
+      "iconColor": "#20c997",
+      "createdAt": 1788055301508
     }
   ]
 }
