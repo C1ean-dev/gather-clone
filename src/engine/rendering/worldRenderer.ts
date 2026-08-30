@@ -255,11 +255,63 @@ export class WorldRenderer {
           ctx.lineWidth = 2
           ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, w - 1, h - 1)
         } else if (activeTool === 'paint_floor') {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
-          ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-          ctx.strokeStyle = '#20c997'
-          ctx.lineWidth = 2
-          ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1)
+          // Floor paint only works inside zones. When the cursor is
+          // over a zone, highlight the whole zone footprint so the
+          // user can see what will be filled. When the cursor is
+          // outside any zone, show a small "forbidden" outline so
+          // the user knows why nothing will happen on click.
+          const zones = (mapStore as any).mapData?.zones as
+            | { id: string; x: number; y: number; width: number; height: number }[]
+            | undefined
+          let insideZone: { x: number; y: number; width: number; height: number } | null = null
+          if (zones) {
+            let best: { x: number; y: number; width: number; height: number } | null = null
+            let bestArea = Number.POSITIVE_INFINITY
+            for (const z of zones) {
+              if (tx < z.x || tx >= z.x + z.width) continue
+              if (ty < z.y || ty >= z.y + z.height) continue
+              const area = z.width * z.height
+              if (area < bestArea) {
+                best = z
+                bestArea = area
+              }
+            }
+            insideZone = best
+          }
+          if (insideZone) {
+            ctx.fillStyle = 'rgba(32, 201, 151, 0.18)'
+            ctx.fillRect(
+              insideZone.x * TILE_SIZE,
+              insideZone.y * TILE_SIZE,
+              insideZone.width * TILE_SIZE,
+              insideZone.height * TILE_SIZE
+            )
+            ctx.strokeStyle = '#20c997'
+            ctx.lineWidth = 2
+            ctx.strokeRect(
+              insideZone.x * TILE_SIZE + 0.5,
+              insideZone.y * TILE_SIZE + 0.5,
+              insideZone.width * TILE_SIZE - 1,
+              insideZone.height * TILE_SIZE - 1
+            )
+          } else {
+            // Forbidden — paint is a no-op outside zones.
+            ctx.strokeStyle = '#fa5252'
+            ctx.lineWidth = 2
+            ctx.strokeRect(
+              tx * TILE_SIZE + 0.5,
+              ty * TILE_SIZE + 0.5,
+              TILE_SIZE - 1,
+              TILE_SIZE - 1
+            )
+            // Diagonal slash to make the "no entry" read clear.
+            ctx.beginPath()
+            ctx.moveTo(tx * TILE_SIZE + 4, ty * TILE_SIZE + 4)
+            ctx.lineTo(tx * TILE_SIZE + TILE_SIZE - 5, ty * TILE_SIZE + TILE_SIZE - 5)
+            ctx.moveTo(tx * TILE_SIZE + TILE_SIZE - 5, ty * TILE_SIZE + 4)
+            ctx.lineTo(tx * TILE_SIZE + 4, ty * TILE_SIZE + TILE_SIZE - 5)
+            ctx.stroke()
+          }
         } else if (activeTool === 'paint_wall') {
           ctx.fillStyle = 'rgba(232, 212, 162, 0.4)'
           ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)

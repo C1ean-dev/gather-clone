@@ -105,6 +105,27 @@ interface MapStore {
 
   // Editing Actions
   setFloorTile: (x: number, y: number, floor: FloorType) => void
+  /**
+   * Find the zone that owns the cell at (x, y), or null if the cell
+   * is not inside any zone. Used by the editor to decide whether a
+   * paint-floor click should fill the whole zone or do nothing.
+   *
+   * The "winner" when zones overlap is the one with the smallest
+   * area (the more specific zone wins) — matches the existing
+   * "furniture" overlap rules in the engine.
+   */
+  findZoneAt: (x: number, y: number) => PrivateZone | null
+  /**
+   * Fill the entire footprint of `zoneId` with `floor`. Used by the
+   * paint-floor tool: when the user clicks a cell inside a zone,
+   * the whole zone is repainted with the selected floor in one
+   * operation. Cells outside the zone are left alone.
+   *
+   * If `zoneId` doesn't exist, no-op. The map is saved and a P2P
+   * message is broadcast by the caller (MapViewport) so peers stay
+   * in sync.
+   */
+  paintFloorInZone: (zoneId: string, floor: FloorType) => void
   setWallTile: (x: number, y: number, wall: WallType | null) => void
   addFurniture: (furniture: PlacedFurniture) => void
   removeFurnitureAt: (tileX: number, tileY: number) => boolean
@@ -220,6 +241,46 @@ export const useMapStore = create<MapStore>((set, get) => ({
       const floors = state.mapData.floors.map((row, rIdx) =>
         rIdx === y ? row.map((col, cIdx) => (cIdx === x ? floor : col)) : row
       )
+      const updatedMap = { ...state.mapData, floors }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
+    }),
+
+  findZoneAt: (x, y) => {
+    const zones = get().mapData.zones || []
+    // Smallest-area zone wins (matches the furniture overlap
+    // resolution). This matters when zones are nested.
+    let best: PrivateZone | null = null
+    let bestArea = Number.POSITIVE_INFINITY
+    for (const z of zones) {
+      if (x < z.x || x >= z.x + z.width) continue
+      if (y < z.y || y >= z.y + z.height) continue
+      const area = z.width * z.height
+      if (area < bestArea) {
+        best = z
+        bestArea = area
+      }
+    }
+    return best
+  },
+
+  paintFloorInZone: (zoneId, floor) =>
+    set((state) => {
+      const zone = (state.mapData.zones || []).find((z) => z.id === zoneId)
+      if (!zone) return state
+      // Clip the zone footprint to the map so we never write past
+      // the map grid. Same convention as drawZone.
+      const x0 = Math.max(0, zone.x)
+      const y0 = Math.max(0, zone.y)
+      const x1 = Math.min(state.mapData.width, zone.x + zone.width)
+      const y1 = Math.min(state.mapData.height, zone.y + zone.height)
+      if (x1 <= x0 || y1 <= y0) return state
+      const floors = state.mapData.floors.map((row, rIdx) => {
+        if (rIdx < y0 || rIdx >= y1) return row
+        return row.map((col, cIdx) =>
+          cIdx >= x0 && cIdx < x1 ? floor : col
+        )
+      })
       const updatedMap = { ...state.mapData, floors }
       saveMap(updatedMap)
       return { mapData: updatedMap }

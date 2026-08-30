@@ -117,6 +117,11 @@ export function processNetworkMessage(
       const { action, data } = msg.payload
       if (action === 'set_floor') {
         useMapStore.getState().setFloorTile(data.x, data.y, data.floor)
+      } else if (action === 'paint_floor_in_zone') {
+        // A remote peer clicked inside a zone with paint_floor
+        // selected; replicate the same "fill the whole zone" effect
+        // locally so both sides stay in sync.
+        useMapStore.getState().paintFloorInZone(data.zoneId, data.floor)
       } else if (action === 'set_wall') {
         useMapStore.getState().setWallTile(data.x, data.y, data.wall)
       } else if (action === 'add_furniture') {

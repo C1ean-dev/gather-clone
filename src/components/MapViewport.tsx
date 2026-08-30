@@ -28,12 +28,13 @@ export const MapViewport: React.FC = () => {
     setIsMovingFurniture,
     updateFurniture,
     zoneDraft,
-    setFloorTile,
     setWallTile,
     addFurniture,
     removeFurnitureAt,
     removeZoneAt,
     addOrUpdateZone,
+    paintFloorInZone,
+    findZoneAt,
     mapData,
   } = useMapStore()
 
@@ -99,6 +100,22 @@ export const MapViewport: React.FC = () => {
     }
   }, [mapViewMode])
 
+  // Apply a floor to the zone the user just clicked. The user can't
+  // paint a single cell — clicking inside a zone repaints the whole
+  // zone footprint. If the click is outside any zone, the action is
+  // a no-op (the cursor preview shows a "forbidden" outline so the
+  // user knows why nothing happened).
+  const applyFloorToZoneAt = (tileX: number, tileY: number, floor: string) => {
+    const zone = findZoneAt(tileX, tileY)
+    if (!zone) return false
+    paintFloorInZone(zone.id, floor as any)
+    PeerManager.getInstance().sendMapEdit('paint_floor_in_zone', {
+      zoneId: zone.id,
+      floor,
+    })
+    return true
+  }
+
   // Handle Canvas Mouse Clicks & Editor Interactions
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!engineRef.current || !canvasRef.current) return
@@ -158,8 +175,11 @@ export const MapViewport: React.FC = () => {
         engineRef.current.zoneDragStart = tile
         engineRef.current.zoneDragCurrent = tile
       } else if (activeTool === 'paint_floor') {
-        setFloorTile(tile.x, tile.y, selectedFloor)
-        PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: selectedFloor })
+        // Floor paint only works inside zones. If the click is
+        // outside any zone, do nothing — the cursor preview
+        // already shows the "forbidden" outline so the user gets
+        // visual feedback for why nothing changed.
+        applyFloorToZoneAt(tile.x, tile.y, selectedFloor)
       } else if (activeTool === 'paint_wall') {
         setWallTile(tile.x, tile.y, selectedWall)
         PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: selectedWall })
@@ -175,10 +195,19 @@ export const MapViewport: React.FC = () => {
       } else if (activeTool === 'eraser') {
         const hadFurniture = removeFurnitureAt(tile.x, tile.y)
         setWallTile(tile.x, tile.y, null)
-        setFloorTile(tile.x, tile.y, 'habbo_parquet')
+        // Eraser on a floor inside a zone: revert the whole zone to
+        // the default floor (same behaviour as before, but applied
+        // to the whole zone, not a single cell).
+        const zone = findZoneAt(tile.x, tile.y)
+        if (zone) {
+          paintFloorInZone(zone.id, 'habbo_parquet')
+          PeerManager.getInstance().sendMapEdit('paint_floor_in_zone', {
+            zoneId: zone.id,
+            floor: 'habbo_parquet',
+          })
+        }
         PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
         PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: null })
-        PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: 'habbo_parquet' })
         if (!hadFurniture) {
           removeZoneAt(tile.x, tile.y)
         }
@@ -189,7 +218,7 @@ export const MapViewport: React.FC = () => {
     }
   }
 
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleCanvasMouseMove = (e: React.MouseEvent) => {
     if (!engineRef.current || !canvasRef.current) return
     const rect = canvasRef.current.getBoundingClientRect()
     const scaleX = canvasRef.current.width / (rect.width || 1)
@@ -206,18 +235,25 @@ export const MapViewport: React.FC = () => {
       if (lastPaintedTileRef.current !== tileKey) {
         lastPaintedTileRef.current = tileKey
         if (activeTool === 'paint_floor') {
-          setFloorTile(tile.x, tile.y, selectedFloor)
-          PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: selectedFloor })
+          // Floor paint only works inside zones; outside a zone
+          // the click is a no-op.
+          applyFloorToZoneAt(tile.x, tile.y, selectedFloor)
         } else if (activeTool === 'paint_wall') {
           setWallTile(tile.x, tile.y, selectedWall)
           PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: selectedWall })
         } else if (activeTool === 'eraser') {
           const hadFurniture = removeFurnitureAt(tile.x, tile.y)
           setWallTile(tile.x, tile.y, null)
-          setFloorTile(tile.x, tile.y, 'habbo_parquet')
+          const zone = findZoneAt(tile.x, tile.y)
+          if (zone) {
+            paintFloorInZone(zone.id, 'habbo_parquet')
+            PeerManager.getInstance().sendMapEdit('paint_floor_in_zone', {
+              zoneId: zone.id,
+              floor: 'habbo_parquet',
+            })
+          }
           PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
           PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: null })
-          PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: 'habbo_parquet' })
           if (!hadFurniture) {
             removeZoneAt(tile.x, tile.y)
           }
@@ -353,6 +389,15 @@ export const MapViewport: React.FC = () => {
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-indigo-600/90 backdrop-blur-md border border-indigo-400/40 text-white px-4 py-2 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold animate-pulse select-none z-30">
           <Sparkles className="w-4 h-4 text-amber-300" />
           <span>Clique e arraste no mapa para demarcar a zona privada</span>
+        </div>
+      )}
+
+      {/* Floor paint active banner — reminds the user that the click
+          will fill the WHOLE zone, not a single cell. */}
+      {isEditorOpen && activeTool === 'paint_floor' && mapViewMode !== 'simplified' && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-emerald-600/90 backdrop-blur-md border border-emerald-400/40 text-white px-4 py-2 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold select-none z-30">
+          <Sparkles className="w-4 h-4 text-amber-300" />
+          <span>Clique dentro de uma zona para preencher ela inteira com o piso selecionado</span>
         </div>
       )}
 

@@ -26,7 +26,26 @@ export const FloorsTab: React.FC<Props> = ({
   const [assetToDelete, setAssetToDelete] = useState<{ id: string; name: string } | null>(null)
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      {/* Rule banner: floor paint only works inside zones. The user
+          has to draw a zone first (using the "Demarcar zona" tool)
+          and then click inside it to fill the whole zone with the
+          selected floor. Clicking outside a zone is a no-op (the
+          cursor preview already shows a forbidden outline). */}
+      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-2.5">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300 px-1 pb-1.5">
+          Como pintar pisos
+        </div>
+        <div className="text-[11px] text-emerald-100 px-1 leading-relaxed">
+          1. Use a aba <span className="font-semibold">Zonas</span> para
+          demarcar uma zona no mapa.
+          <br />
+          2. Volte aqui, escolha um piso e clique{' '}
+          <span className="font-semibold">dentro da zona</span> — ela
+          será preenchida inteira com o piso selecionado.
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto p-1">
         {floors.map((floor) => {
           const isSelected = selectedFloor === floor.id && activeTool === 'paint_floor'
