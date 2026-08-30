@@ -80,6 +80,10 @@ release/
 out/
 .vite/
 
+# RNNoise binaries (regenerated from node_modules/@jitsi/rnnoise-wasm by vite.config.ts on every dev/build)
+public/rnnoise.wasm
+public/rnnoise.wasm-loader.js
+
 # Editor / IDE settings
 .vscode/*
 !.vscode/extensions.json

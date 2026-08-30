@@ -1,5 +1,14 @@
 import { create } from 'zustand'
-import { SensitivityMode } from '../types/audio'
+import { SensitivityMode, AudioProcessorMode } from '../types/audio'
+
+export interface MicCalibration {
+  noiseFloorDb: number
+  peakRmsDb: number
+  snrDb: number
+  recommendedMode: AudioProcessorMode
+  recommendedSensitivity: number
+  calibratedAt: number // timestamp ms
+}
 
 interface MediaStore {
   // Local Streams
@@ -35,6 +44,14 @@ interface MediaStore {
   manualSensitivityThreshold: number // 0 to 100
   echoCancellation: boolean
   autoGainControl: boolean
+  audioProcessorMode: AudioProcessorMode
+  /**
+   * When true, audioProcessorMode reflects the user's *manual* choice and
+   * must not be auto-overridden by a stored calibration. When false, the
+   * MediaManager is allowed to apply the calibrated recommendation as
+   * the default engine on startup.
+   */
+  hasUserChosenProcessorMode: boolean
   screenShareAudioVolume: number // 0 to 100 (percentage, default 50)
   duckingEnabled: boolean // Auto-reduce screen sound when user talks
 
@@ -46,8 +63,16 @@ interface MediaStore {
   setManualSensitivityThreshold: (val: number) => void
   setEchoCancellation: (enabled: boolean) => void
   setAutoGainControl: (enabled: boolean) => void
+  setAudioProcessorMode: (mode: AudioProcessorMode) => void
   setScreenShareAudioVolume: (vol: number) => void
   setDuckingEnabled: (enabled: boolean) => void
+
+  // Mic calibration per deviceId
+  micCalibrations: Record<string, MicCalibration>
+  isCalibrating: boolean
+  setMicCalibration: (deviceId: string, cal: MicCalibration) => void
+  clearMicCalibration: (deviceId: string) => void
+  setIsCalibrating: (calibrating: boolean) => void
 
   // Audio Level meter & Gate state (for visual speaker aura & settings VU meter)
   localAudioLevel: number
@@ -96,6 +121,9 @@ const saveAudioSettings = (settings: Record<string, any>) => {
   }
 }
 
+const isValidMode = (m: any): m is AudioProcessorMode =>
+  m === 'classic' || m === 'soft' || m === 'rnnoise'
+
 export const useMediaStore = create<MediaStore>((set, get) => ({
   localStream: null,
   localScreenStream: null,
@@ -118,8 +146,16 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   manualSensitivityThreshold: saved.manualSensitivityThreshold !== undefined ? saved.manualSensitivityThreshold : 20,
   echoCancellation: saved.echoCancellation !== undefined ? saved.echoCancellation : true,
   autoGainControl: saved.autoGainControl !== undefined ? saved.autoGainControl : true,
+  audioProcessorMode: isValidMode(saved.audioProcessorMode) ? saved.audioProcessorMode : 'classic',
+  // Default false: on first launch MediaManager is allowed to apply the
+  // calibrated recommendation (if any) to pick the initial engine.
+  hasUserChosenProcessorMode: saved.hasUserChosenProcessorMode === true,
   screenShareAudioVolume: saved.screenShareAudioVolume !== undefined ? saved.screenShareAudioVolume : 50,
   duckingEnabled: saved.duckingEnabled !== undefined ? saved.duckingEnabled : true,
+
+  // Per-device calibrations, persisted as a flat map.
+  micCalibrations: (saved.micCalibrations as Record<string, MicCalibration>) || {},
+  isCalibrating: false,
 
   setSelectedAudioInput: (selectedAudioInput) => {
     saveAudioSettings({ selectedAudioInput })
@@ -153,6 +189,13 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
     saveAudioSettings({ autoGainControl })
     set({ autoGainControl })
   },
+  setAudioProcessorMode: (audioProcessorMode) => {
+    saveAudioSettings({
+      audioProcessorMode,
+      hasUserChosenProcessorMode: true, // any user click is a manual override
+    })
+    set({ audioProcessorMode, hasUserChosenProcessorMode: true })
+  },
   setScreenShareAudioVolume: (screenShareAudioVolume) => {
     saveAudioSettings({ screenShareAudioVolume })
     set({ screenShareAudioVolume })
@@ -161,6 +204,19 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
     saveAudioSettings({ duckingEnabled })
     set({ duckingEnabled })
   },
+
+  setMicCalibration: (deviceId, cal) => {
+    const next = { ...get().micCalibrations, [deviceId]: cal }
+    saveAudioSettings({ micCalibrations: next })
+    set({ micCalibrations: next })
+  },
+  clearMicCalibration: (deviceId) => {
+    const next = { ...get().micCalibrations }
+    delete next[deviceId]
+    saveAudioSettings({ micCalibrations: next })
+    set({ micCalibrations: next })
+  },
+  setIsCalibrating: (isCalibrating) => set({ isCalibrating }),
 
   toggleMute: () => {
     const { localStream, isMuted } = get()

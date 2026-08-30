@@ -1,8 +1,11 @@
 import { NoiseSuppressor } from './NoiseSuppressor'
+import { SoftDspProcessor } from './SoftDspProcessor'
+import { RnnoiseProcessor } from './RnnoiseProcessor'
+import { MicCalibrator } from './MicCalibrator'
 import { useMediaStore } from '../store/useMediaStore'
 import { useGameStore } from '../store/useGameStore'
 import { PeerManager } from '../p2p/PeerManager'
-import { SensitivityMode } from '../types/audio'
+import { SensitivityMode, AudioProcessorMode } from '../types/audio'
 
 export interface ScreenShareConfig {
   sourceId?: string
@@ -11,16 +14,42 @@ export interface ScreenShareConfig {
   fps?: 30 | 60
 }
 
+/**
+  * Common interface implemented by every audio cleanup engine so
+  * MediaManager can swap between them without knowing the internals.
+  */
+interface AudioEngine {
+  processStream(
+    inputStream: MediaStream,
+    enableSuppression: boolean,
+    initialInputVolume: number,
+    sensitivityMode: SensitivityMode,
+    manualThresholdPercent: number,
+    onAudioLevel?: (level: number, gateOpen: boolean, rawRms: number) => void
+  ): MediaStream | Promise<MediaStream>
+  setInputVolume(percentage: number): void
+  setSensitivity(mode: SensitivityMode, manualThresholdPercent: number): void
+  setSuppressionEnabled(enabled: boolean): void
+  setTestLoopback(enabled: boolean): void
+  dispose(): void
+}
+
 export class MediaManager {
   private static instance: MediaManager
-  private noiseSuppressor: NoiseSuppressor
+  private classicEngine: NoiseSuppressor
+  private softEngine: SoftDspProcessor
+  private rnnoiseEngine: RnnoiseProcessor
+  private activeEngine: AudioEngine | null = null
   private rawUserStream: MediaStream | null = null
   private screenAudioContext: AudioContext | null = null
   private screenGainNode: GainNode | null = null
   private screenDuckInterval: number | null = null
+  private currentProcessorMode: AudioProcessorMode = 'classic'
 
   private constructor() {
-    this.noiseSuppressor = new NoiseSuppressor()
+    this.classicEngine = new NoiseSuppressor()
+    this.softEngine = new SoftDspProcessor()
+    this.rnnoiseEngine = new RnnoiseProcessor()
   }
 
   public static getInstance(): MediaManager {
@@ -31,54 +60,185 @@ export class MediaManager {
   }
 
   /**
-   * Start User Webcam & Microphone with selected constraints and device IDs
-   */
+    * Map the user's processor-mode setting to the concrete engine instance.
+    *
+    * Two overrides are consulted:
+    *   1. If `hasUserChosenProcessorMode` is true, the user's manual choice
+    *      always wins.
+    *   2. Otherwise we look for a stored calibration for the current input
+    *      device and use its recommendedMode.
+    *   3. If neither exists we fall back to 'classic' (the original default).
+    */
+  private selectEngine(): AudioEngine {
+    const state = useMediaStore.getState()
+    const manual = state.hasUserChosenProcessorMode
+    const cal = state.micCalibrations[state.selectedAudioInput]
+    const mode: AudioProcessorMode = manual
+      ? state.audioProcessorMode
+      : cal?.recommendedMode ?? state.audioProcessorMode ?? 'classic'
+    this.currentProcessorMode = mode
+    if (mode === 'rnnoise') return this.rnnoiseEngine
+    if (mode === 'soft') return this.softEngine
+    return this.classicEngine
+  }
+
+  /**
+    * Manually run a 5-second mic calibration against the user's raw input
+    * stream and store the result. The recommendation is **not** applied
+    * automatically — it is surfaced to the UI so the user can accept it
+    * with a single click. The previous behaviour of auto-applying the
+    * mode change made the "Aplicar" button a no-op and confused users
+    * ("nothing changed when I clicked").
+    *
+    * Sensitivity *is* still applied automatically because it is per-device
+    * and never visible to the user otherwise.
+    */
+    public async calibrateMicrophone(
+      inputStream: MediaStream,
+      durationMs: number = 5000,
+      onProgress?: (elapsedMs: number, totalMs: number, currentDb: number) => void
+    ): Promise<{
+      noiseFloorDb: number
+      peakRmsDb: number
+      snrDb: number
+      recommendedMode: AudioProcessorMode
+      recommendedSensitivity: number
+    }> {
+      const state = useMediaStore.getState()
+      const deviceId = state.selectedAudioInput
+      state.setIsCalibrating(true)
+      try {
+        const calibrator = new MicCalibrator()
+        const result = await calibrator.calibrate(inputStream, durationMs, (p) => {
+          onProgress?.(p.elapsedMs, p.totalMs, p.currentRmsDb)
+        })
+        const cal = {
+          noiseFloorDb: result.noiseFloorDb,
+          peakRmsDb: result.peakRmsDb,
+          snrDb: result.snrDb,
+          recommendedMode: result.recommendedMode,
+          recommendedSensitivity: result.recommendedSensitivity,
+          calibratedAt: Date.now(),
+        }
+        state.setMicCalibration(deviceId, cal)
+        // Sensitivity is per-device and applied unconditionally — it has no
+        // visible UI control aside from this calibration wizard.
+        state.setManualSensitivityThreshold(result.recommendedSensitivity)
+
+        return {
+          noiseFloorDb: cal.noiseFloorDb,
+          peakRmsDb: cal.peakRmsDb,
+          snrDb: cal.snrDb,
+          recommendedMode: cal.recommendedMode,
+          recommendedSensitivity: cal.recommendedSensitivity,
+        }
+      } finally {
+        useMediaStore.getState().setIsCalibrating(false)
+      }
+    }
+
+  /**
+    * Pipe an input MediaStream through the active engine and return the
+    * processed stream. Handles both sync (classic/soft) and async
+    * (RNNoise) engines, and falls back to the soft DSP if the user
+    * picked RNNoise but the WASM module failed to load.
+    */
+  private async runEngine(
+    inputStream: MediaStream,
+    levelCallback: (level: number, isGateOpen: boolean) => void
+  ): Promise<MediaStream> {
+    const state = useMediaStore.getState()
+    const nextEngine = this.selectEngine()
+
+    // Tear down whatever engine was previously in use. Without this the
+    // RNNoise worklet (or DSP analyser) keeps running in parallel and the
+    // user hears the OLD engine after a mode swap.
+    if (this.activeEngine && this.activeEngine !== nextEngine) {
+      try {
+        this.activeEngine.dispose()
+      } catch (err) {
+        console.warn('[MediaManager] failed to dispose previous engine:', err)
+      }
+    }
+    this.activeEngine = nextEngine
+
+    const result = nextEngine.processStream(
+      inputStream,
+      state.isNoiseSuppressionEnabled,
+      state.inputVolume,
+      state.sensitivityMode,
+      state.manualSensitivityThreshold,
+      (level, gateOpen) => levelCallback(level, gateOpen)
+    )
+
+    const processed = result instanceof Promise ? await result : result
+
+    if (processed === inputStream && this.currentProcessorMode === 'rnnoise') {
+      console.warn(
+        '[MediaManager] RNNoise failed to initialise, falling back to soft DSP'
+      )
+      try {
+        this.activeEngine.dispose()
+      } catch {}
+      this.activeEngine = this.softEngine
+      return this.softEngine.processStream(
+        inputStream,
+        state.isNoiseSuppressionEnabled,
+        state.inputVolume,
+        state.sensitivityMode,
+        state.manualSensitivityThreshold,
+        (level, gateOpen) => levelCallback(level, gateOpen)
+      )
+    }
+
+    return processed
+  }
+
+  /**
+    * Start User Webcam & Microphone with selected constraints and device IDs
+    */
   public async startMedia(video: boolean = true, audio: boolean = true): Promise<MediaStream | null> {
     try {
       const state = useMediaStore.getState()
 
-      const audioConstraints: any = audio
-        ? {
-            deviceId: state.selectedAudioInput && state.selectedAudioInput !== 'default'
-              ? { exact: state.selectedAudioInput }
-              : undefined,
-            echoCancellation: state.echoCancellation,
-            autoGainControl: state.autoGainControl,
-            noiseSuppression: false, // We use our superior dynamic DSP Noise Suppressor
-          }
-        : false
-
-      const constraints: MediaStreamConstraints = {
-        video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } } : false,
-        audio: audioConstraints,
-      }
-
-      this.rawUserStream = await navigator.mediaDevices.getUserMedia(constraints)
-
-      const isSuppressionEnabled = state.isNoiseSuppressionEnabled
-      const processedStream = this.noiseSuppressor.processStream(
-        this.rawUserStream,
-        isSuppressionEnabled,
-        state.inputVolume,
-        state.sensitivityMode,
-        state.manualSensitivityThreshold,
-        (level, isGateOpen) => {
-          useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
+    const audioConstraints: any = audio
+      ? {
+        deviceId:
+          state.selectedAudioInput && state.selectedAudioInput !== 'default'
+            ? { exact: state.selectedAudioInput }
+            : undefined,
+        echoCancellation: state.echoCancellation,
+        autoGainControl: state.autoGainControl,
+        noiseSuppression: false, // We use our own dynamic DSP / RNNoise
         }
-      )
+      : false
 
-      // Apply initial mute and camera off state
-      const isMuted = useMediaStore.getState().isMuted
-      const isCameraOff = useMediaStore.getState().isCameraOff
-      processedStream.getAudioTracks().forEach((track) => {
-        track.enabled = !isMuted
-      })
-      processedStream.getVideoTracks().forEach((track) => {
-        track.enabled = !isCameraOff
-      })
+    const constraints: MediaStreamConstraints = {
+      video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } } : false,
+      audio: audioConstraints,
+    }
 
-      useMediaStore.getState().setLocalStream(processedStream)
-      return processedStream
+    this.rawUserStream = await navigator.mediaDevices.getUserMedia(constraints)
+
+    const processedStream = await this.runEngine(
+      this.rawUserStream,
+      (level, isGateOpen) => {
+        useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
+      }
+    )
+
+    // Apply initial mute and camera off state
+    const isMuted = useMediaStore.getState().isMuted
+    const isCameraOff = useMediaStore.getState().isCameraOff
+    processedStream.getAudioTracks().forEach((track) => {
+      track.enabled = !isMuted
+    })
+    processedStream.getVideoTracks().forEach((track) => {
+      track.enabled = !isCameraOff
+    })
+
+    useMediaStore.getState().setLocalStream(processedStream)
+    return processedStream
     } catch (err) {
       console.warn('Could not access camera/mic with selected constraints, trying fallback:', err)
       try {
@@ -87,19 +247,13 @@ export class MediaManager {
           video: video,
           audio: audio,
         })
-        const isSuppressionEnabled = useMediaStore.getState().isNoiseSuppressionEnabled
-        const processedStream = this.noiseSuppressor.processStream(
+        const processedStream = await this.runEngine(
           this.rawUserStream,
-          isSuppressionEnabled,
-          100,
-          'auto',
-          20,
           (level, isGateOpen) => {
             useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
           }
         )
 
-        // Apply initial mute and camera off state
         const isMuted = useMediaStore.getState().isMuted
         const isCameraOff = useMediaStore.getState().isCameraOff
         processedStream.getAudioTracks().forEach((track) => {
@@ -119,12 +273,11 @@ export class MediaManager {
   }
 
   /**
-   * Switch Audio Input Microphone on the fly
-   */
+    * Switch Audio Input Microphone on the fly
+    */
   public async changeAudioInput(deviceId: string): Promise<boolean> {
     try {
       useMediaStore.getState().setSelectedAudioInput(deviceId)
-      const currentLocalStream = useMediaStore.getState().localStream
       const state = useMediaStore.getState()
 
       const newAudioStream = await navigator.mediaDevices.getUserMedia({
@@ -139,7 +292,6 @@ export class MediaManager {
       const newAudioTrack = newAudioStream.getAudioTracks()[0]
       if (!newAudioTrack) return false
 
-      // Replace audio track in rawUserStream
       if (this.rawUserStream) {
         this.rawUserStream.getAudioTracks().forEach((t) => t.stop())
         this.rawUserStream.removeTrack(this.rawUserStream.getAudioTracks()[0])
@@ -148,13 +300,8 @@ export class MediaManager {
         this.rawUserStream = newAudioStream
       }
 
-      // Reprocess through NoiseSuppressor
-      const processedStream = this.noiseSuppressor.processStream(
+      const processedStream = await this.runEngine(
         this.rawUserStream,
-        state.isNoiseSuppressionEnabled,
-        state.inputVolume,
-        state.sensitivityMode,
-        state.manualSensitivityThreshold,
         (level, isGateOpen) => {
           useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
         }
@@ -175,8 +322,8 @@ export class MediaManager {
   }
 
   /**
-   * Switch Audio Output Device for all audio elements
-   */
+    * Switch Audio Output Device for all audio elements
+    */
   public async changeAudioOutput(deviceId: string): Promise<boolean> {
     try {
       useMediaStore.getState().setSelectedAudioOutput(deviceId)
@@ -198,9 +345,9 @@ export class MediaManager {
   }
 
   /**
-   * Start Screen Sharing with Customizable Source, Audio, Resolution (480p, 720p, 1080p) and FPS (30, 60)
-   * Includes Anti-Reverberation Audio Ducking and Highpass Filter
-   */
+    * Start Screen Sharing with Customizable Source, Audio, Resolution (480p, 720p, 1080p) and FPS (30, 60)
+    * Includes Anti-Reverberation Audio Ducking and Highpass Filter
+    */
   public async startScreenShare(config: ScreenShareConfig = {}): Promise<MediaStream | null> {
     try {
       const {
@@ -306,31 +453,28 @@ export class MediaManager {
           this.screenGainNode.connect(dest)
 
           // 4. Intelligent Voice Ducking loop:
-          // When the user speaks, reduce screen audio so voice cuts through and feedback is suppressed
           if (this.screenDuckInterval) clearInterval(this.screenDuckInterval)
           this.screenDuckInterval = window.setInterval(() => {
             if (!this.screenGainNode || !this.screenAudioContext || this.screenAudioContext.state === 'closed') {
               return
             }
 
-            const state = useMediaStore.getState()
-            if (!state.duckingEnabled) {
-              const targetVol = state.screenShareAudioVolume / 100
+            const st = useMediaStore.getState()
+            if (!st.duckingEnabled) {
+              const targetVol = st.screenShareAudioVolume / 100
               this.screenGainNode.gain.setValueAtTime(targetVol, this.screenAudioContext.currentTime)
               return
             }
 
-            const isSpeaking = state.localAudioLevel > 0.08 || state.isGateOpen
-            const baseVol = state.screenShareAudioVolume / 100
+            const isSpeaking = st.localAudioLevel > 0.08 || st.isGateOpen
+            const baseVol = st.screenShareAudioVolume / 100
             const now = this.screenAudioContext.currentTime
 
             if (isSpeaking) {
-              // Duck screen audio to 25% of its volume while speaking
               const duckedVol = baseVol * 0.25
               this.screenGainNode.gain.cancelScheduledValues(now)
               this.screenGainNode.gain.setTargetAtTime(duckedVol, now, 0.06)
             } else {
-              // Smoothly restore full screen volume when quiet
               this.screenGainNode.gain.cancelScheduledValues(now)
               this.screenGainNode.gain.setTargetAtTime(baseVol, now, 0.2)
             }
@@ -399,7 +543,6 @@ export class MediaManager {
       this.screenGainNode = null
     }
 
-    // Restore original mic track and camera video track
     const localStream = useMediaStore.getState().localStream
     const camTrack = localStream?.getVideoTracks()[0] || null
     const micTrack = localStream?.getAudioTracks()[0] || null
@@ -424,22 +567,74 @@ export class MediaManager {
       this.rawUserStream = null
     }
     try {
-      this.noiseSuppressor.dispose()
-      this.noiseSuppressor = new NoiseSuppressor()
+      this.classicEngine.dispose()
+      this.softEngine.dispose()
+      this.rnnoiseEngine.dispose()
+      this.activeEngine = null
     } catch (e) {}
   }
 
   public updateInputVolume(vol: number) {
-    this.noiseSuppressor.setInputVolume(vol)
+    this.classicEngine.setInputVolume(vol)
+    this.softEngine.setInputVolume(vol)
+    this.rnnoiseEngine.setInputVolume(vol)
   }
 
   public updateSensitivity(mode: SensitivityMode, thresholdPercent: number) {
-    this.noiseSuppressor.setSensitivity(mode, thresholdPercent)
+    this.classicEngine.setSensitivity(mode, thresholdPercent)
+    this.softEngine.setSensitivity(mode, thresholdPercent)
+    this.rnnoiseEngine.setSensitivity(mode, thresholdPercent)
   }
 
   public updateNoiseSuppression(enabled: boolean) {
-    this.noiseSuppressor.setSuppressionEnabled(enabled)
+    this.classicEngine.setSuppressionEnabled(enabled)
+    this.softEngine.setSuppressionEnabled(enabled)
+    this.rnnoiseEngine.setSuppressionEnabled(enabled)
   }
+
+  public updateAudioProcessorMode(_mode: AudioProcessorMode) {
+    // The actual swap happens on the next processStream() call, which
+    // selects the engine based on the current store value. Nothing to do
+    // here — kept so callers can force a state flush if they want.
+    }
+
+    /**
+      * Re-run the active engine over the cached raw user stream and swap the
+      * processed audio track into every connected peer. Used when the user
+      * changes the processor mode without leaving the call — without this
+      * the new engine only takes effect on the next startMedia() / mic swap.
+      *
+      * No-op if no raw stream is cached (caller must request mic permission
+      * first).
+      */
+    public async reprocessStream(): Promise<boolean> {
+      if (!this.rawUserStream) return false
+      try {
+        const processed = await this.runEngine(
+          this.rawUserStream,
+          (level, isGateOpen) => {
+            useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
+          }
+        )
+        // Preserve current mute/cameraOff state on the new track.
+        const isMuted = useMediaStore.getState().isMuted
+        processed.getAudioTracks().forEach((track) => {
+          track.enabled = !isMuted
+        })
+        const existingVideo = useMediaStore.getState().localStream?.getVideoTracks() ?? []
+        existingVideo.forEach((v) => processed.addTrack(v))
+
+        useMediaStore.getState().setLocalStream(processed)
+        const newAudioTrack = processed.getAudioTracks()[0]
+        if (newAudioTrack) {
+          PeerManager.getInstance().replaceAudioTrack(newAudioTrack)
+        }
+        return true
+      } catch (err) {
+        console.warn('[MediaManager] reprocessStream failed:', err)
+        return false
+      }
+    }
 
   public updateScreenShareAudioVolume(vol: number) {
     if (this.screenGainNode && this.screenAudioContext) {
@@ -451,12 +646,14 @@ export class MediaManager {
 
   public setTestMic(enabled: boolean) {
     useMediaStore.getState().setIsTestingMic(enabled)
-    this.noiseSuppressor.setTestLoopback(enabled)
+    this.classicEngine.setTestLoopback(enabled)
+    this.softEngine.setTestLoopback(enabled)
+    this.rnnoiseEngine.setTestLoopback(enabled)
   }
 
   /**
-   * Play a pleasant chime tone to test the selected speakers/headphones
-   */
+    * Play a pleasant chime tone to test the selected speakers/headphones
+    */
   public playAudioTestBeep() {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
@@ -468,12 +665,12 @@ export class MediaManager {
       const gain = testCtx.createGain()
 
       osc1.type = 'sine'
-      osc1.frequency.setValueAtTime(587.33, now) // D5
-      osc1.frequency.setValueAtTime(880, now + 0.12) // A5
+      osc1.frequency.setValueAtTime(587.33, now)
+      osc1.frequency.setValueAtTime(880, now + 0.12)
 
       osc2.type = 'sine'
-      osc2.frequency.setValueAtTime(440, now) // A4
-      osc2.frequency.setValueAtTime(659.25, now + 0.12) // E5
+      osc2.frequency.setValueAtTime(440, now)
+      osc2.frequency.setValueAtTime(659.25, now + 0.12)
 
       gain.gain.setValueAtTime(0.01, now)
       gain.gain.exponentialRampToValueAtTime(0.3, now + 0.04)
@@ -503,6 +700,8 @@ export class MediaManager {
       this.rawUserStream = null
     }
     useMediaStore.getState().setLocalStream(null)
-    this.noiseSuppressor.dispose()
+    this.classicEngine.dispose()
+    this.softEngine.dispose()
+    this.rnnoiseEngine.dispose()
   }
 }

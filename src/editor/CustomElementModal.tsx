@@ -491,6 +491,18 @@ export const CustomElementModal: React.FC = () => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    processFile(file)
+    // Allow the same file to be re-selected later
+    e.target.value = ''
+  }
+
+  // Shared file-loading pipeline used by both the <input type="file"> change
+  // handler and native HTML5 drag-and-drop events from the CropStudio.
+  const processFile = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      console.warn('[CustomElementModal] dropped file is not an image:', file.type)
+      return
+    }
 
     const reader = new FileReader()
     reader.onload = (event) => {
@@ -507,6 +519,32 @@ export const CustomElementModal: React.FC = () => {
   }
 
   // Handle Drag Selection on Source Canvas / Eyedropper
+  // Refs to keep the latest mouse handlers reachable from window listeners
+  // without re-binding them on every state change.
+  const dragStateRef = useRef<{
+    isDragging: boolean
+    startX: number
+    startY: number
+    clientX: number
+    clientY: number
+  }>({ isDragging: false, startX: 0, startY: 0, clientX: 0, clientY: 0 })
+
+  // Helper: convert a viewport-space point to canvas-space (image coords),
+  // clamped to the source image bounds. Returns null if the point is outside
+  // the canvas.
+  const viewportToImageCoords = (clientX: number, clientY: number): { x: number; y: number } | null => {
+    const canvas = mainCanvasRef.current
+    if (!canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+      return null
+    }
+    return {
+      x: (clientX - rect.left) / zoom,
+      y: (clientY - rect.top) / zoom,
+    }
+  }
+
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!mainCanvasRef.current || !sourceImage) return
     const rect = mainCanvasRef.current.getBoundingClientRect()
@@ -547,29 +585,82 @@ export const CustomElementModal: React.FC = () => {
     setIsDraggingSelection(true)
     setDragSelectionStart({ x: rawX, y: rawY })
     setSelection({ x: rawX, y: rawY, w: 32, h: 32 })
+
+    // Persist drag origin for the global window listeners.
+    dragStateRef.current = {
+      isDragging: true,
+      startX: rawX,
+      startY: rawY,
+      clientX: e.clientX,
+      clientY: e.clientY,
+    }
   }
 
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDraggingSelection || !mainCanvasRef.current) return
-    const rect = mainCanvasRef.current.getBoundingClientRect()
-    let currentX = (e.clientX - rect.left) / zoom
-    let currentY = (e.clientY - rect.top) / zoom
+  // Global mouse move — keeps updating the selection rectangle even when the
+  // cursor leaves the canvas (e.g. user drags past the image edge). Without
+  // this the selection freezes as soon as the pointer exits the canvas.
+  useEffect(() => {
+    if (!isDraggingSelection) return
 
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      const canvas = mainCanvasRef.current
+      if (!canvas || !dragStateRef.current.isDragging) return
+      const rect = canvas.getBoundingClientRect()
+      let currentX = (e.clientX - rect.left) / zoom
+      let currentY = (e.clientY - rect.top) / zoom
+
+      if (snapToGrid) {
+        currentX = Math.round(currentX / 32) * 32
+        currentY = Math.round(currentY / 32) * 32
+      }
+
+      const minX = Math.min(dragSelectionStart.x, currentX)
+      const minY = Math.min(dragSelectionStart.y, currentY)
+      const width = Math.max(32, Math.abs(currentX - dragSelectionStart.x))
+      const height = Math.max(32, Math.abs(currentY - dragSelectionStart.y))
+
+      setSelection({ x: minX, y: minY, w: width, h: height })
+      dragStateRef.current.clientX = e.clientX
+      dragStateRef.current.clientY = e.clientY
+    }
+
+    const handleWindowMouseUp = () => {
+      dragStateRef.current.isDragging = false
+      setIsDraggingSelection(false)
+    }
+
+    window.addEventListener('mousemove', handleWindowMouseMove)
+    window.addEventListener('mouseup', handleWindowMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove)
+      window.removeEventListener('mouseup', handleWindowMouseUp)
+    }
+  }, [isDraggingSelection, dragSelectionStart, snapToGrid, zoom])
+
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // The actual drag update happens via the window-level listener above so
+    // the rectangle continues to track when the pointer leaves the canvas.
+    // Keep this handler only as a no-op so the canvas keeps receiving focus
+    // events while a drag is in progress.
+    if (!isDraggingSelection) return
+    const coords = viewportToImageCoords(e.clientX, e.clientY)
+    if (coords === null) return
+    let currentX = coords.x
+    let currentY = coords.y
     if (snapToGrid) {
       currentX = Math.round(currentX / 32) * 32
       currentY = Math.round(currentY / 32) * 32
     }
-
     const minX = Math.min(dragSelectionStart.x, currentX)
     const minY = Math.min(dragSelectionStart.y, currentY)
     const width = Math.max(32, Math.abs(currentX - dragSelectionStart.x))
     const height = Math.max(32, Math.abs(currentY - dragSelectionStart.y))
-
     setSelection({ x: minX, y: minY, w: width, h: height })
   }
 
   const handleCanvasMouseUp = () => {
     setIsDraggingSelection(false)
+    dragStateRef.current.isDragging = false
   }
 
   // Composition Mouse Handlers
@@ -1048,6 +1139,7 @@ export const CustomElementModal: React.FC = () => {
                 mainCanvasRef={mainCanvasRef}
                 fileInputRef={fileInputRef}
                 onUploadImage={handleFileUpload}
+                onDropFile={processFile}
                 onCanvasMouseDown={handleCanvasMouseDown}
                 onCanvasMouseMove={handleCanvasMouseMove}
                 onCanvasMouseUp={handleCanvasMouseUp}

@@ -7,6 +7,20 @@ import fs from 'fs'
 
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, './package.json'), 'utf-8'))
 
+// Copy the RNNoise WASM binary into the dist output so the worklet can
+// fetch it from a stable URL in both `vite dev` and the Electron build.
+const rnnoiseWasmSrc = path.resolve(
+  __dirname,
+  'node_modules/@jitsi/rnnoise-wasm/dist/rnnoise.wasm'
+)
+const rnnoiseWasmDest = path.resolve(__dirname, 'public/rnnoise.wasm')
+try {
+  fs.mkdirSync(path.dirname(rnnoiseWasmDest), { recursive: true })
+  fs.copyFileSync(rnnoiseWasmSrc, rnnoiseWasmDest)
+} catch (e) {
+  console.warn('[vite] could not pre-stage rnnoise.wasm:', e?.message ?? e)
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   define: {
@@ -41,6 +55,12 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  optimizeDeps: {
+    // The RNNoise package ships a hand-rolled Emscripten loader that resolves
+    // the .wasm via fetch(); pre-bundling it confuses that path.
+    exclude: ['@jitsi/rnnoise-wasm'],
+  },
+  assetsInclude: ['**/*.wasm'],
   server: {
     port: 5173,
     host: true,
