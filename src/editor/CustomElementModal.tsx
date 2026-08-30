@@ -911,6 +911,18 @@ export const CustomElementModal: React.FC = () => {
     }
   }
 
+  // Clear the composition board AND the baked frames/timeline. Clearing only
+  // compositeLayers left stale frames behind, so handleSaveAsset kept saving
+  // the old artwork (and ignored layers added after clearing).
+  const handleClearBoard = () => {
+    setCompositeLayers([])
+    setSelectedLayerId(null)
+    setFrames([])
+    setFrameLayerStates([])
+    setSelectedFrameIdx(null)
+    setCurrentPreviewFrameIdx(0)
+  }
+
   // Save the custom asset into the store
   const handleSaveAsset = () => {
     let finalFrames = [...frames]
@@ -1255,10 +1267,7 @@ export const CustomElementModal: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => {
-                setCompositeLayers([])
-                setSelectedLayerId(null)
-              }}
+              onClick={handleClearBoard}
               className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors flex items-center gap-1.5"
             >
               <RotateCcw className="w-3.5 h-3.5" />
