@@ -64,5 +64,14 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    watch: {
+      // Data files written at runtime by the Electron main process via IPC
+      // (saveNativeAssets/saveNativeSpaces). They are imported as JSON modules,
+      // so any change triggers a FULL page reload — recreating the camera at
+      // the spawn point and teleporting the view to the top of the map on
+      // every editor save. Runtime data also lives in localStorage, so
+      // skipping the watch here has no functional downside in dev.
+      ignored: ['**/src/data/nativeAssets.json', '**/src/data/nativeSpaces.json'],
+    },
   },
 })
