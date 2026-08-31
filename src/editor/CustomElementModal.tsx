@@ -911,16 +911,23 @@ export const CustomElementModal: React.FC = () => {
     }
   }
 
-  // Clear the composition board AND the baked frames/timeline. Clearing only
-  // compositeLayers left stale frames behind, so handleSaveAsset kept saving
-  // the old artwork (and ignored layers added after clearing).
+  // Full studio reset: clears the loaded source image, clips, the composition
+  // board and the baked frames/timeline, returning every tab to blank state.
+  // Previously it only cleared compositeLayers/frames, so an image loaded in
+  // the "Recortar Imagem" tab stayed on screen and nothing seemed to happen.
   const handleClearBoard = () => {
+    setSourceImage(null)
+    setSourceImageSrc('')
+    setSelection({ x: 0, y: 0, w: 64, h: 128 })
+    setZoom(1)
+    setCroppedClips([])
     setCompositeLayers([])
     setSelectedLayerId(null)
     setFrames([])
     setFrameLayerStates([])
     setSelectedFrameIdx(null)
     setCurrentPreviewFrameIdx(0)
+    setStudioMode('crop')
   }
 
   // Save the custom asset into the store
