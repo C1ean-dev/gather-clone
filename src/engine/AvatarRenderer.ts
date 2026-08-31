@@ -1,5 +1,6 @@
 import { Player, Direction } from '../types/game'
 import { TILE_SIZE } from './Constants'
+import { getCustomAssetImage } from '../store/useCustomAssetsStore'
 import { ClothingRenderer } from './avatar/clothingRenderer'
 import { HairRenderer } from './avatar/hairRenderer'
 import { FaceRenderer } from './avatar/faceRenderer'
@@ -37,41 +38,60 @@ export class AvatarRenderer {
     ctx.ellipse(px + size / 2, py + size - 2, 11, 4.5, 0, 0, Math.PI * 2)
     ctx.fill()
 
-    // 2. Walk Bobbing & Step Cycle (2-step smooth rhythm)
+    // 2. Walk Bobbing & 4-Frame Step Cycle
     let bodyBob = 0
-    let legOffset = 0
-    let armOffset = 0
+    let walkFrame = 0
+    const isMoving = !!player.isMoving
 
-    if (player.isMoving) {
-      const step = Math.floor((animationTick / 110) % 4)
-      if (step === 1) {
-        bodyBob = -1
-        legOffset = 3
-        armOffset = 3
-      } else if (step === 3) {
-        bodyBob = -1
-        legOffset = -3
-        armOffset = -3
+    if (isMoving) {
+      walkFrame = Math.floor((animationTick / 120) % 4)
+      if (walkFrame === 1 || walkFrame === 3) {
+        bodyBob = -1 // Passing position - body peaks 1px up
+      } else {
+        bodyBob = 0 // Stride contact positions
       }
     }
 
     const centerX = px + size / 2
     const baseY = py + size - 7 + bodyBob
 
-    // Normalize Colors and Types with Backward Compatibility
+    // Custom Hand-Drawn Avatar Skin Override
+    if (avatar.customSkinUrl) {
+      const img = getCustomAssetImage(avatar.customSkinUrl)
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.save()
+        if (dir === 'left') {
+          ctx.translate(px + size / 2, 0)
+          ctx.scale(-1, 1)
+          ctx.translate(-(px + size / 2), 0)
+        }
+        ctx.drawImage(img, px, py + bodyBob, size, size)
+        ctx.restore()
+
+        if (showNameTag) {
+          NameTagRenderer.drawNameTag(ctx, player, isLocal, centerX, py - 13)
+        }
+        ctx.restore()
+        return
+      }
+    }
+
+    // Normalize Colors and Types with Backward Compatibility (Default to clean, neutral avatar)
     const skinTone = avatar.skinTone || avatar.skinColor || '#ffd1a4'
     const skinDetail = avatar.skinDetail || 'smooth'
-    const hairStyle = avatar.hairStyle || 'messy'
+    const eyeType = avatar.eyeType || 'normal'
+    const eyeColor = avatar.eyeColor || '#111111'
+    const hairStyle = avatar.hairStyle || 'none'
     const hairColor = avatar.hairColor || '#212529'
     const facialHair = avatar.facialHair || 'none'
     const facialHairColor = avatar.facialHairColor || hairColor
-    const topType = avatar.topType || avatar.shirtType || 'kimono'
+    const topType = avatar.topType || avatar.shirtType || 'none'
     const topColor = avatar.topColor || avatar.shirtColor || '#212529'
     const jacketType = avatar.jacketType || 'none'
     const jacketColor = avatar.jacketColor || '#4c6ef5'
-    const bottomType = avatar.bottomType || (topType === 'kimono' || topType === 'yukata' ? 'kimono_skirt' : 'jeans')
+    const bottomType = avatar.bottomType || 'none'
     const bottomColor = avatar.bottomColor || avatar.pantsColor || '#212529'
-    const shoesType = avatar.shoesType || 'sneakers'
+    const shoesType = avatar.shoesType || 'none'
     const shoesColor = avatar.shoesColor || '#e03131'
     const hatType = avatar.hatType || 'none'
     const hatColor = avatar.hatColor || '#fa5252'
@@ -82,8 +102,41 @@ export class AvatarRenderer {
     const otherType = avatar.otherType || (avatar.accessory === 'headphones' ? 'headphones' : 'none')
     const otherColor = avatar.otherColor || avatar.accessoryColor || '#20c997'
 
+    // Helper to render hand-drawn custom component layers
+    const drawCustomComponent = (dataUrl?: string) => {
+      if (!dataUrl) return
+      const img = getCustomAssetImage(dataUrl)
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.save()
+        if (dir === 'left') {
+          ctx.translate(px + size / 2, 0)
+          ctx.scale(-1, 1)
+          ctx.translate(-(px + size / 2), 0)
+        }
+        ctx.drawImage(img, px, py + bodyBob, size, size)
+        ctx.restore()
+      }
+    }
+
     // ==========================================
-    // 3. LEGS, BOTTOMS & SHOES
+    // 3. BACK ARM (Behind body in side view)
+    // ==========================================
+    ClothingRenderer.drawBackArm(
+      ctx,
+      centerX,
+      baseY,
+      dir,
+      topType,
+      topColor,
+      jacketType,
+      jacketColor,
+      skinTone,
+      walkFrame,
+      isMoving
+    )
+
+    // ==========================================
+    // 4. LEGS, BOTTOMS & SHOES (4-Frame Walk Cycle)
     // ==========================================
     ClothingRenderer.drawLegsAndShoes(
       ctx,
@@ -94,25 +147,31 @@ export class AvatarRenderer {
       bottomColor,
       shoesType,
       shoesColor,
-      legOffset
+      walkFrame,
+      isMoving,
+      skinTone
     )
+    drawCustomComponent(avatar.customComponents?.bottom)
+    drawCustomComponent(avatar.customComponents?.shoes)
 
     // ==========================================
-    // 4. TORSO & TOPS (Kimono, Yukata, T-Shirt, Sweater, etc.)
+    // 5. TORSO & TOPS (Kimono, Yukata, T-Shirt, Sweater, or None)
     // ==========================================
     ClothingRenderer.drawTorsoAndTop(ctx, centerX, baseY, dir, topType, topColor, skinTone)
+    drawCustomComponent(avatar.customComponents?.top)
 
     // ==========================================
-    // 5. JACKET (Open Hoodie, Cardigan, Blazer, Denim)
+    // 6. JACKET (Open Hoodie, Cardigan, Blazer, Denim)
     // ==========================================
     if (jacketType !== 'none') {
       ClothingRenderer.drawJacket(ctx, centerX, baseY, dir, jacketType, jacketColor)
     }
+    drawCustomComponent(avatar.customComponents?.jacket)
 
     // ==========================================
-    // 6. ARMS & SLEEVES (With walk cycle)
+    // 7. FRONT ARM (With 4-Frame natural swing)
     // ==========================================
-    ClothingRenderer.drawArms(
+    ClothingRenderer.drawFrontArm(
       ctx,
       centerX,
       baseY,
@@ -122,13 +181,16 @@ export class AvatarRenderer {
       jacketType,
       jacketColor,
       skinTone,
-      armOffset
+      walkFrame,
+      isMoving
     )
 
     // ==========================================
-    // 7. HEAD, SKIN DETAILS & FACE (Vitiligo, Freckles, Eyes)
+    // 8. HEAD, SKIN DETAILS, EYES & FACE
     // ==========================================
-    FaceRenderer.drawHeadAndFace(ctx, centerX, baseY, dir, skinTone, skinDetail)
+    FaceRenderer.drawHeadAndFace(ctx, centerX, baseY, dir, skinTone, skinDetail, eyeType, eyeColor)
+    drawCustomComponent(avatar.customComponents?.eyes)
+    drawCustomComponent(avatar.customComponents?.skin)
 
     // ==========================================
     // 8. FACIAL HAIR (Beard, Mustache, Goatee, Stubble)
@@ -136,11 +198,13 @@ export class AvatarRenderer {
     if (facialHair !== 'none') {
       FaceRenderer.drawFacialHair(ctx, centerX, baseY, dir, facialHair, facialHairColor)
     }
+    drawCustomComponent(avatar.customComponents?.facialHair)
 
     // ==========================================
     // 9. HAIRSTYLES (Messy, Anime, Long, Curls, Twin-Tails, etc.)
     // ==========================================
     HairRenderer.drawHair(ctx, centerX, baseY, dir, hairStyle, hairColor)
+    drawCustomComponent(avatar.customComponents?.hair)
 
     // ==========================================
     // 10. GLASSES (Round, Square, Sunglasses, Wireframe)
@@ -148,6 +212,7 @@ export class AvatarRenderer {
     if (glassesType !== 'none') {
       AccessoryRenderer.drawGlasses(ctx, centerX, baseY, dir, glassesType, glassesColor)
     }
+    drawCustomComponent(avatar.customComponents?.glasses)
 
     // ==========================================
     // 11. HATS & HAIR ACCESSORIES (Ribbon Bow, Cap, Beanie, Headband)
@@ -155,6 +220,7 @@ export class AvatarRenderer {
     if (hatType !== 'none') {
       AccessoryRenderer.drawHat(ctx, centerX, baseY, dir, hatType, hatColor)
     }
+    drawCustomComponent(avatar.customComponents?.hat)
 
     // ==========================================
     // 12. OTHER (Headphones, Mask, Star Badge)
@@ -162,6 +228,7 @@ export class AvatarRenderer {
     if (otherType !== 'none') {
       AccessoryRenderer.drawOther(ctx, centerX, baseY, dir, otherType, otherColor)
     }
+    drawCustomComponent(avatar.customComponents?.other)
 
     // ==========================================
     // 13. NAME TAG BADGE (Floating above head)

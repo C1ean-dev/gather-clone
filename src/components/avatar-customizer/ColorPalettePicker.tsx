@@ -3,6 +3,7 @@ import { AvatarConfig } from '../../types/game'
 import { CategoryKey } from './CategoryTabs'
 
 export const SKIN_TONES = ['#ffd1a4', '#f5b080', '#e09865', '#ba6c48', '#8c4826', '#5c2d15', '#fdebd0']
+export const EYE_COLORS = ['#111111', '#495057', '#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#78350f', '#06b6d4', '#d97706']
 export const HAIR_COLORS = [
   '#212529',
   '#495057',
@@ -51,6 +52,18 @@ export const ColorPalettePicker: React.FC<Props> = ({ activeCategory, avatar, on
             onClick={() => onChangeAvatar({ ...avatar, skinTone: color })}
             className={`w-7 h-7 rounded-full border-2 transition-all shrink-0 ${
               avatar.skinTone === color ? 'border-white scale-110 shadow-lg' : 'border-transparent'
+            }`}
+            style={{ backgroundColor: color }}
+          />
+        ))}
+
+      {activeCategory === 'eyes' &&
+        EYE_COLORS.map((color) => (
+          <button
+            key={color}
+            onClick={() => onChangeAvatar({ ...avatar, eyeColor: color })}
+            className={`w-7 h-7 rounded-full border-2 transition-all shrink-0 ${
+              (avatar.eyeColor || '#111111') === color ? 'border-white scale-110 shadow-lg' : 'border-transparent'
             }`}
             style={{ backgroundColor: color }}
           />

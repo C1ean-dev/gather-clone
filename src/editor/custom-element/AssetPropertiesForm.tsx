@@ -54,17 +54,18 @@ export const AssetPropertiesForm: React.FC<Props> = ({
       {/* Element Type Selector */}
       <div className="space-y-1">
         <label className="block text-[11px] font-semibold text-slate-300">Tipo de Elemento</label>
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-4 gap-1.5">
           {[
-            { type: 'furniture', label: 'Mobília / Objeto' },
-            { type: 'floor', label: 'Piso do Chão' },
-            { type: 'wall', label: 'Parede' },
+            { type: 'avatar', label: '👤 Avatar' },
+            { type: 'furniture', label: '🪑 Mobília' },
+            { type: 'floor', label: '🟩 Piso' },
+            { type: 'wall', label: '🧱 Parede' },
           ].map((item) => (
             <button
               key={item.type}
               type="button"
               onClick={() => onSelectElementType(item.type as CustomAssetType)}
-              className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition-all ${
+              className={`py-1.5 px-1 rounded-xl text-[11px] font-bold border transition-all ${
                 elementType === item.type
                   ? 'bg-indigo-600 border-indigo-500 text-white shadow-md'
                   : 'bg-[#12151d] border-[#2b2d31] text-slate-400 hover:text-slate-200'

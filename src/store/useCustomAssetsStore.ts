@@ -7,12 +7,13 @@ import nativeAssetsData from '../data/nativeAssets.json'
 const ASSETS_STORAGE_KEY = 'gather_v2_custom_user_assets'
 const CATEGORIES_STORAGE_KEY = 'gather_v2_custom_categories'
 
-const DEFAULT_CATEGORIES = ['Geral', 'Forja Antiga', 'Escritório', 'Medieval', 'Decoração']
+const DEFAULT_CATEGORIES = ['Geral', 'Forja Antiga', 'Escritório', 'Medieval', 'Decoração', 'Avatares']
 
 // In-memory HTMLImageElement cache for fast canvas rendering
 const imageCache: Map<string, HTMLImageElement> = new Map()
 
-export function getCustomAssetImage(dataUrl: string): HTMLImageElement {
+export function getCustomAssetImage(dataUrl: string): HTMLImageElement | null {
+  if (typeof Image === 'undefined') return null
   if (imageCache.has(dataUrl)) {
     return imageCache.get(dataUrl)!
   }
@@ -107,10 +108,11 @@ interface CustomAssetsState {
   customCategories: string[]
   isCustomModalOpen: boolean
   editingAssetId: string | null
+  initialStudioMode: 'crop' | 'compose'
   setCustomModalOpen: (open: boolean) => void
   setEditingAssetId: (id: string | null) => void
-  openCreateModal: () => void
-  openEditModal: (id: string) => void
+  openCreateModal: (mode?: 'crop' | 'compose') => void
+  openEditModal: (id: string, mode?: 'crop' | 'compose') => void
   addCustomAsset: (asset: CustomAsset) => void
   updateCustomAsset: (id: string, asset: Partial<CustomAsset>) => void
   deleteCustomAsset: (id: string) => void
@@ -129,10 +131,17 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
   customCategories: loadSavedCategories(),
   isCustomModalOpen: false,
   editingAssetId: null,
-  setCustomModalOpen: (open) => set({ isCustomModalOpen: open, editingAssetId: open ? get().editingAssetId : null }),
+  initialStudioMode: 'crop',
+  setCustomModalOpen: (open) =>
+    set({
+      isCustomModalOpen: open,
+      editingAssetId: open ? get().editingAssetId : null,
+    }),
   setEditingAssetId: (id) => set({ editingAssetId: id }),
-  openCreateModal: () => set({ isCustomModalOpen: true, editingAssetId: null }),
-  openEditModal: (id) => set({ isCustomModalOpen: true, editingAssetId: id }),
+  openCreateModal: (mode = 'crop') =>
+    set({ isCustomModalOpen: true, editingAssetId: null, initialStudioMode: mode }),
+  openEditModal: (id, mode = 'compose') =>
+    set({ isCustomModalOpen: true, editingAssetId: id, initialStudioMode: mode }),
 
   addCustomAsset: (asset) => {
     // Cache frames

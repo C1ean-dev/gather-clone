@@ -250,15 +250,17 @@ export const CropStudio: React.FC<Props> = ({
             </span>
           </div>
 
-          {/* Action Button: Crop & Save Clip to Collection */}
-          <button
-            type="button"
-            onClick={onCropAndSaveClip}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all active:scale-95"
-          >
-            <Scissors className="w-4 h-4" />
-            <span>Recortar & Salvar Peça na Biblioteca</span>
-          </button>
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onCropAndSaveClip}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all active:scale-95"
+            >
+              <Scissors className="w-4 h-4" />
+              <span>Recortar & Salvar</span>
+            </button>
+          </div>
         </div>
       )}
     </div>

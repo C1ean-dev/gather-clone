@@ -3,12 +3,13 @@ import {
   X,
   Sparkles,
   Scissors,
-  Pencil,
   Check,
   RotateCcw,
 } from 'lucide-react'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { useMapStore } from '../store/useMapStore'
+import { useGameStore } from '../store/useGameStore'
+import { PeerManager } from '../p2p/PeerManager'
 import { CustomAsset, CustomAssetType } from '../types/customAsset'
 import {
   cropImage,
@@ -17,7 +18,6 @@ import {
   PRESET_BG_COLORS,
 } from '../utils/imageTransparency'
 import { CropStudio, CroppedClip } from './custom-element/CropStudio'
-import { DrawStudio } from './custom-element/DrawStudio'
 import { CompositionStudio, CompositeLayer } from './custom-element/CompositionStudio'
 import { CroppedClipsList } from './custom-element/CroppedClipsList'
 import { LayerManager } from './custom-element/LayerManager'
@@ -30,6 +30,7 @@ export const CustomElementModal: React.FC = () => {
     isCustomModalOpen,
     setCustomModalOpen,
     editingAssetId,
+    initialStudioMode,
     updateCustomAsset,
     getAssetById,
     addCustomAsset,
@@ -38,8 +39,8 @@ export const CustomElementModal: React.FC = () => {
   } = useCustomAssetsStore()
   const { setSelectedFurnitureDefId, setSelectedFloor, setSelectedWall, setActiveTool } = useMapStore()
 
-  // Studio Mode: 'crop' (Recorte de Sprites) vs 'draw' (Desenhar à Mão) vs 'compose' (Mesa de Montagem)
-  const [studioMode, setStudioMode] = useState<'crop' | 'draw' | 'compose'>('crop')
+  // Studio Mode: 'crop' (Recorte de Sprites) vs 'compose' (Mesa de Montagem)
+  const [studioMode, setStudioMode] = useState<'crop' | 'compose'>('crop')
 
   // Source Image State
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null)
@@ -164,22 +165,28 @@ export const CustomElementModal: React.FC = () => {
 
   const handleSelectElementType = (newType: CustomAssetType) => {
     setElementType(newType)
-    if (newType === 'floor') {
-      if (category === 'Forja Antiga' || category === 'Geral') {
+    if (newType === 'avatar') {
+      setCategory('Avatares')
+      setTileWidth(1)
+      setTileHeight(1)
+      setCompositeBoardWidth(32)
+      setCompositeBoardHeight(32)
+    } else if (newType === 'floor') {
+      if (category === 'Forja Antiga' || category === 'Geral' || category === 'Avatares') {
         setCategory('Pisos Personalizados')
       }
     } else if (newType === 'wall') {
-      if (category === 'Forja Antiga' || category === 'Geral') {
+      if (category === 'Forja Antiga' || category === 'Geral' || category === 'Avatares') {
         setCategory('Paredes das Zonas')
       }
     } else {
-      if (category === 'Pisos Personalizados' || category === 'Paredes das Zonas') {
+      if (category === 'Pisos Personalizados' || category === 'Paredes das Zonas' || category === 'Avatares') {
         setCategory('Forja Antiga')
       }
     }
   }
 
-  // Load asset data when editing an existing asset
+  // Load asset data when editing an existing asset or opening in crop/compose mode
   useEffect(() => {
     if (!isCustomModalOpen) return
 
@@ -251,10 +258,12 @@ export const CustomElementModal: React.FC = () => {
         }
 
         setSelectedFrameIdx(0)
-        setStudioMode('compose')
+        setStudioMode(initialStudioMode || 'compose')
       }
+    } else {
+      setStudioMode(initialStudioMode || 'crop')
     }
-  }, [isCustomModalOpen, editingAssetId])
+  }, [isCustomModalOpen, editingAssetId, initialStudioMode])
 
   // Animation player ticker
   useEffect(() => {
@@ -810,23 +819,6 @@ export const CustomElementModal: React.FC = () => {
     setSelectedLayerId(newLayerId)
   }
 
-  // Handlers for Hand-Drawn Pixel Art Pieces
-  const handleAddDrawingToComposition = (clip: CroppedClip) => {
-    setCroppedClips((prev) => {
-      const exists = prev.some((c) => c.id === clip.id)
-      return exists ? prev : [...prev, clip]
-    })
-    handleAddClipToCompositionBoard(clip)
-    setStudioMode('compose')
-  }
-
-  const handleSaveDrawingAsClip = (clip: CroppedClip) => {
-    setCroppedClips((prev) => {
-      const exists = prev.some((c) => c.id === clip.id)
-      return exists ? prev : [...prev, clip]
-    })
-  }
-
   const handleBakeCompositionToFrame = () => {
     if (compositeLayers.length === 0) {
       alert('Adicione pelo menos uma camada na mesa de composição antes de mesclar.')
@@ -1043,6 +1035,11 @@ export const CustomElementModal: React.FC = () => {
       } else if (elementType === 'wall') {
         setSelectedWall(editingAssetId as any)
         setActiveTool('paint_wall')
+      } else if (elementType === 'avatar') {
+        const curAvatar = useGameStore.getState().localPlayer.avatar
+        const updatedAvatar = { ...curAvatar, customSkinUrl: finalFrames[0], customAvatarId: editingAssetId }
+        useGameStore.getState().setLocalPlayer({ avatar: updatedAvatar })
+        PeerManager.getInstance().sendPlayerUpdate({ avatar: updatedAvatar })
       }
 
       setCustomModalOpen(false)
@@ -1053,7 +1050,7 @@ export const CustomElementModal: React.FC = () => {
 
     const newAsset: CustomAsset = {
       id,
-      name: elementName.trim() || 'Elemento Customizado',
+      name: elementName.trim() || (elementType === 'avatar' ? 'Skin de Avatar' : 'Elemento Customizado'),
       type: elementType,
       category: finalCategory,
       width: tileWidth,
@@ -1063,7 +1060,7 @@ export const CustomElementModal: React.FC = () => {
       frames: finalFrames,
       frameLayers: finalFrameLayers,
       frameRateMs,
-      iconColor: isFloor ? '#20c997' : isWall ? '#f59f00' : '#e03131',
+      iconColor: elementType === 'avatar' ? '#8b5cf6' : isFloor ? '#20c997' : isWall ? '#f59f00' : '#e03131',
       createdAt: Date.now(),
     }
 
@@ -1078,6 +1075,11 @@ export const CustomElementModal: React.FC = () => {
     } else if (elementType === 'wall') {
       setSelectedWall(id as any)
       setActiveTool('paint_wall')
+    } else if (elementType === 'avatar') {
+      const curAvatar = useGameStore.getState().localPlayer.avatar
+      const updatedAvatar = { ...curAvatar, customSkinUrl: finalFrames[0], customAvatarId: id }
+      useGameStore.getState().setLocalPlayer({ avatar: updatedAvatar })
+      PeerManager.getInstance().sendPlayerUpdate({ avatar: updatedAvatar })
     }
 
     setCustomModalOpen(false)
@@ -1117,19 +1119,6 @@ export const CustomElementModal: React.FC = () => {
             >
               <Scissors className="w-3.5 h-3.5" />
               <span>1. Recortar Imagem</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setStudioMode('draw')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                studioMode === 'draw'
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Pencil className="w-3.5 h-3.5 text-amber-300" />
-              <span>2. Desenhar à Mão</span>
             </button>
 
             <button
@@ -1177,14 +1166,6 @@ export const CustomElementModal: React.FC = () => {
                 onCanvasMouseMove={handleCanvasMouseMove}
                 onCanvasMouseUp={handleCanvasMouseUp}
                 onCropAndSaveClip={handleSaveCurrentCropToLibrary}
-              />
-            ) : studioMode === 'draw' ? (
-              <DrawStudio
-                tileWidth={tileWidth}
-                tileHeight={tileHeight}
-                setBoardSizeInTiles={setBoardSizeInTiles}
-                onAddDrawingToComposition={handleAddDrawingToComposition}
-                onSaveDrawingAsClip={handleSaveDrawingAsClip}
               />
             ) : (
               <CompositionStudio

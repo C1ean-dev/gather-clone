@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { PixelArtThumbnail } from '../../PixelArtThumbnail'
-import { FurnitureDef } from '../../../engine/PixelArtRenderer'
 import { ConfirmModal } from '../../../components/ConfirmModal'
 
 interface FurnitureTabItem {
@@ -26,7 +25,6 @@ interface Props {
   setSelectedFurnitureDefId: (id: string) => void
   activeTool: string
   setActiveTool: (tool: any) => void
-  openEditModal: (id: string) => void
   deleteCustomAsset: (id: string) => void
 }
 
@@ -41,7 +39,6 @@ export const FurnitureTab: React.FC<Props> = ({
   setSelectedFurnitureDefId,
   activeTool,
   setActiveTool,
-  openEditModal,
   deleteCustomAsset,
 }) => {
   const [isAddingCategory, setIsAddingCategory] = useState(false)
@@ -137,20 +134,6 @@ export const FurnitureTab: React.FC<Props> = ({
                     : 'border-[#2a3142] bg-[#12151d]/50 hover:border-slate-500'
                 }`}
               >
-                {/* Left Edit Pencil Button */}
-                {isCustom && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      openEditModal(item.id)
-                    }}
-                    className="absolute top-1.5 left-1.5 p-1 rounded-md bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 hover:text-blue-200 opacity-80 hover:opacity-100 transition-all z-10"
-                    title="Editar este elemento"
-                  >
-                    <Pencil className="w-3 h-3" />
-                  </button>
-                )}
-
                 {/* Right Delete Button for custom items */}
                 {isCustom && (
                   <button

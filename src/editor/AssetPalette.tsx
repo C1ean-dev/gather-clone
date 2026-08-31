@@ -12,7 +12,6 @@ import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { WallType, FloorType } from '../types/map'
 import { FURNITURE_CATALOG } from '../engine/Constants'
 import { createEmptyWorkspace } from './templates'
-import { CustomElementModal } from './CustomElementModal'
 import { PeerManager } from '../p2p/PeerManager'
 import { ActiveItemSummary } from './palette/ActiveItemSummary'
 import { FurnitureTab } from './palette/tabs/FurnitureTab'
@@ -225,7 +224,6 @@ export const AssetPalette: React.FC = () => {
               setSelectedFurnitureDefId={setSelectedFurnitureDefId}
               activeTool={activeTool}
               setActiveTool={setActiveTool}
-              openEditModal={openEditModal}
               deleteCustomAsset={deleteCustomAsset}
             />
           )}
@@ -237,7 +235,6 @@ export const AssetPalette: React.FC = () => {
               setSelectedFloor={setSelectedFloor}
               activeTool={activeTool}
               setActiveTool={setActiveTool}
-              openEditModal={openEditModal}
               deleteCustomAsset={deleteCustomAsset}
             />
           )}
@@ -264,9 +261,6 @@ export const AssetPalette: React.FC = () => {
           onResetWorkspace={handleResetWorkspace}
         />
       </div>
-
-      {/* Custom Element Studio / Asset Importer Modal */}
-      <CustomElementModal />
 
       {/* Confirm Reset Space Modal */}
       <ConfirmModal

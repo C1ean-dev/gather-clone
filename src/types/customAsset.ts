@@ -1,4 +1,4 @@
-export type CustomAssetType = 'furniture' | 'floor' | 'wall'
+export type CustomAssetType = 'furniture' | 'floor' | 'wall' | 'avatar'
 
 export interface CustomAssetLayer {
   id: string

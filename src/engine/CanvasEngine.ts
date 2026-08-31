@@ -1,7 +1,7 @@
 import { CameraManager } from './camera/CameraManager'
 import { InputHandler } from './input/InputHandler'
 import { checkCollision, checkZonePresence } from './physics/collision'
-import { findPath } from './physics/pathfinding'
+import { findPath, hasLineOfSight } from './physics/pathfinding'
 import { WorldRenderer } from './rendering/worldRenderer'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
@@ -57,6 +57,11 @@ export class CanvasEngine {
     const path = findPath(local.x, local.y, tileX, tileY, map)
     if (path.length > 0) {
       this.input.setPath(path)
+      this.stuckCounter = 0
+    } else {
+      // Do not keep following a previous route when the new destination is
+      // unreachable (for example, a closed room with no valid doorway).
+      this.input.clearPath()
       this.stuckCounter = 0
     }
   }
@@ -142,39 +147,106 @@ export class CanvasEngine {
     const { dx, dy, nextDirection } = this.input.computeMovement(local.x, local.y, local.direction)
 
     // Collision Detection & Step Validation
+    // Sub-stepping (MAX_SUBSTEP = 0.05 < player radius 0.22) keeps every sample
+    // inside any wall band the player could be crossing. If a sub-step would
+    // tunnel through, the midpoint between current and target is also checked
+    // so we never miss a sample inside the wall band.
     if (dx !== 0 || dy !== 0) {
-      const stepDist = moveSpeed * deltaTime
-      const targetX = local.x + dx * stepDist
-      const targetY = local.y + dy * stepDist
+      const requestedStep = moveSpeed * deltaTime
+      // Never step past the active waypoint. This matters when a frame is
+      // delayed: the old movement could overshoot a corner waypoint and then
+      // oscillate forever on the opposite side of it.
+      const followingPath = this.input.keysPressed.size === 0 && this.input.path.length > 0
+      const waypointDistance = followingPath
+        ? this.input.distanceToActiveWaypoint(local.x, local.y)
+        : Infinity
+      const stepDist = Math.min(requestedStep, waypointDistance)
+      const MAX_SUBSTEP = 0.05
+      const subSteps = Math.max(1, Math.ceil(stepDist / MAX_SUBSTEP))
+      const subStepDist = stepDist / subSteps
 
       let finalX = local.x
       let finalY = local.y
 
-      if (!checkCollision(targetX, local.y, map)) {
-        finalX = targetX
-      }
-      if (!checkCollision(local.x, targetY, map)) {
-        finalY = targetY
+      for (let i = 0; i < subSteps; i++) {
+        const tryX = finalX + dx * subStepDist
+        const tryY = finalY + dy * subStepDist
+
+        // Check both the endpoint and the midpoint. The midpoint protects
+        // against crossing a thin wall when a sub-step starts and ends just
+        // outside its collision band.
+        const canMoveTogether =
+          !checkCollision(tryX, tryY, map) &&
+          !checkCollision((finalX + tryX) / 2, (finalY + tryY) / 2, map)
+
+        if (canMoveTogether) {
+          finalX = tryX
+          finalY = tryY
+          continue
+        }
+
+        // If the diagonal move hits a corner, preserve wall sliding by testing
+        // each axis independently. A candidate also gets a midpoint check so
+        // neither slide can tunnel through a thin wall.
+        const canMoveX =
+          !checkCollision(tryX, finalY, map) &&
+          !checkCollision((finalX + tryX) / 2, finalY, map)
+        const canMoveY =
+          !checkCollision(finalX, tryY, map) &&
+          !checkCollision(finalX, (finalY + tryY) / 2, map)
+
+        if (canMoveX && canMoveY) {
+          // Both slides are possible but the combined corner is not. Pick the
+          // axis that advances farther in the requested direction; the next
+          // sub-step can then use the other axis once the corner is cleared.
+          const xProgress = dx * (tryX - finalX)
+          const yProgress = dy * (tryY - finalY)
+          if (xProgress >= yProgress) {
+            finalX = tryX
+          } else {
+            finalY = tryY
+          }
+        } else if (canMoveX) {
+          finalX = tryX
+        } else if (canMoveY) {
+          finalY = tryY
+        } else {
+          // Stop if both axes are blocked — no point continuing to integrate.
+          break
+        }
       }
 
       // Check if character got stuck against an obstacle while following a path
       if (this.input.path.length > 0) {
         if (finalX === local.x && finalY === local.y) {
-          this.stuckCounter++
-          if (this.stuckCounter > 15) {
-            // Re-calculate path around obstacle or abort
-            const dest = this.input.finalDestination
-            if (dest) {
-              const newPath = findPath(local.x, local.y, dest.x, dest.y, map)
-              if (newPath.length > 0) {
-                this.input.setPath(newPath)
+          // If the active waypoint is an unreachable corner but the following
+          // waypoint is directly reachable, safely skip only that waypoint.
+          // Blindly dropping a waypoint can make the player cut through a wall.
+          const nextWaypoint = this.input.path[1]
+          if (
+            nextWaypoint &&
+            !checkCollision(nextWaypoint.x, nextWaypoint.y, map) &&
+            hasLineOfSight(local.x, local.y, nextWaypoint.x, nextWaypoint.y, map)
+          ) {
+            this.input.advanceWaypoint()
+            this.stuckCounter = 0
+          } else {
+            this.stuckCounter++
+            if (this.stuckCounter > 15) {
+              // Re-calculate path around obstacle or abort
+              const dest = this.input.finalDestination
+              if (dest) {
+                const newPath = findPath(local.x, local.y, dest.x, dest.y, map)
+                if (newPath.length > 0) {
+                  this.input.setPath(newPath)
+                } else {
+                  this.input.clearPath()
+                }
               } else {
                 this.input.clearPath()
               }
-            } else {
-              this.input.clearPath()
+              this.stuckCounter = 0
             }
-            this.stuckCounter = 0
           }
         } else {
           this.stuckCounter = 0

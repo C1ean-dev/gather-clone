@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { PixelArtThumbnail } from '../../PixelArtThumbnail'
 import { FloorType } from '../../../types/map'
 import { ConfirmModal } from '../../../components/ConfirmModal'
@@ -10,7 +10,6 @@ interface Props {
   setSelectedFloor: (floor: FloorType) => void
   activeTool: string
   setActiveTool: (tool: any) => void
-  openEditModal: (id: string) => void
   deleteCustomAsset: (id: string) => void
 }
 
@@ -20,7 +19,6 @@ export const FloorsTab: React.FC<Props> = ({
   setSelectedFloor,
   activeTool,
   setActiveTool,
-  openEditModal,
   deleteCustomAsset,
 }) => {
   const [assetToDelete, setAssetToDelete] = useState<{ id: string; name: string } | null>(null)
@@ -59,20 +57,6 @@ export const FloorsTab: React.FC<Props> = ({
                   : 'border-[#2a3142] bg-[#12151d]/50 hover:border-slate-500'
               }`}
             >
-              {/* Left Edit Button */}
-              {isCustom && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    openEditModal(floor.id)
-                  }}
-                  className="absolute top-1.5 left-1.5 p-1 rounded-md bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 hover:text-blue-200 opacity-80 hover:opacity-100 transition-all z-10"
-                  title="Editar este piso"
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-              )}
-
               {/* Right Delete Button */}
               {isCustom && (
                 <button

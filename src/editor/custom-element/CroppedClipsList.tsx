@@ -19,7 +19,7 @@ export const CroppedClipsList: React.FC<Props> = ({
         <div className="flex items-center gap-2">
           <Scissors className="w-4 h-4 text-emerald-400" />
           <span className="text-xs font-bold text-slate-200">
-            Biblioteca de Peças & Desenhos ({croppedClips.length})
+            Biblioteca de Peças ({croppedClips.length})
           </span>
         </div>
         <span className="text-[10px] text-slate-400">Clique para adicionar à mesa</span>
@@ -30,7 +30,7 @@ export const CroppedClipsList: React.FC<Props> = ({
           <Scissors className="w-5 h-5 text-slate-500 mx-auto" />
           <div className="text-xs text-slate-400 font-semibold">Nenhuma peça criada ainda</div>
           <div className="text-[10px] text-slate-500">
-            Recorte de uma imagem ou use a aba "2. Desenhar à Mão" para criar peças livres!
+            Recorte uma imagem para criar peças e clique nelas para adicioná-las à mesa.
           </div>
         </div>
       ) : (

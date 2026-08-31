@@ -6,6 +6,7 @@ import { MiniCallOverlay } from './components/MiniCallOverlay'
 import { FullScreenGrid } from './components/FullScreenGrid'
 import { ChatDrawer } from './components/ChatDrawer'
 import { AvatarCustomizerModal } from './components/AvatarCustomizerModal'
+import { CustomElementModal } from './editor/CustomElementModal'
 import { LobbyModal } from './components/LobbyModal'
 import { AudioSettingsModal } from './components/AudioSettingsModal'
 import { UpdateModal } from './components/UpdateModal'
@@ -131,6 +132,9 @@ export const App: React.FC = () => {
         isOpen={isAvatarModalOpen}
         onClose={() => setIsAvatarModalOpen(false)}
       />
+
+      {/* Custom Element Studio & Hand-Drawing Modal */}
+      <CustomElementModal />
 
       {/* Automatic Update Modal */}
       <UpdateModal

@@ -226,9 +226,17 @@ export class WallRenderer {
 
   /**
    * Draw Exact Gather Room Architecture Textured with Zone Wall Type:
-   * 1. Tall Themed Back Wall with trim & baseboard.
-   * 2. Side Partitions with corresponding material.
-   * 3. Solid 3D Front Wall Blocks with doorway.
+   *  1. Tall Themed Back Wall with trim & baseboard.
+   *  2. Side Partitions with corresponding material.
+   *  3. Solid 3D Front Wall Blocks with doorway.
+   *
+   * Visual connection between back wall and side walls: instead of drawing a
+   * horizontal shadow across the entire bottom of the back wall (which reads
+   * as a visible seam), the side walls extend a few pixels above `backWallH`
+   * and receive a vertical corner-shadow gradient at their top. That gradient
+   * mimics ambient occlusion at the inside corner, making the two surfaces
+   * appear as one continuous wall — matching the reference look where the
+   * top edges blend into a single shape.
    */
   static drawGatherRoom(ctx: CanvasRenderingContext2D, zone: PrivateZone, zones: PrivateZone[] = []) {
     if (zone.hasWalls === false) return
@@ -257,16 +265,23 @@ export class WallRenderer {
     const theme = getZoneWallTheme(zone.wallType || 'drywall_white')
     const wallBodyColor = theme.wallBody
 
-    // Height of back wall (approx 2 tiles = 64px)
-    const backWallH = Math.min(Math.floor(h * 0.32), 64)
-    // Height of front wall blocks (approx 1.5 tiles = 48px)
-    const frontWallH = Math.min(Math.floor(h * 0.24), 48)
+    // Mirrors collision.ts exactly. The collision cap is 2.0 tiles for back,
+    // 1.5 tiles for front, 2.0 tiles for door width.
+    const backWallH = Math.min(Math.floor(h * 0.32), Math.floor(2.0 * TILE_SIZE))
+    const frontWallH = Math.min(Math.floor(h * 0.24), Math.floor(1.5 * TILE_SIZE))
     const frontWallY = maxY - frontWallH
 
-    // Doorway opening in middle
-    const doorW = Math.min(Math.floor(w * 0.38), 64)
+    const doorW = Math.min(Math.floor(w * 0.38), Math.floor(2.0 * TILE_SIZE))
     const doorStartX = minX + Math.floor((w - doorW) / 2)
     const doorEndX = doorStartX + doorW
+
+    // Side wall visual thickness. Slim to keep the room airy.
+    const SIDE_WALL_PX = 6
+    // Pixel overlap past the back/front bands so seams are sealed.
+    const SEAM_OVERLAP_PX = 3
+    // Vertical shadow length at the top of each side wall, fading downward
+    // to fake ambient occlusion at the inside corner.
+    const TOP_CORNER_SHADOW_PX = 18
 
     // Unified helper to render the wall material/texture seamlessly
     const fillWallTexture = (rx: number, ry: number, rw: number, rh: number) => {
@@ -294,22 +309,35 @@ export class WallRenderer {
       }
     }
 
+    // Draw the upper-corner shadow gradient on a side wall. Used by both
+    // left and right branches below so the look is symmetric.
+    const drawTopCornerShadow = (rx: number, ry: number, rw: number, maxLen: number) => {
+      const len = Math.min(TOP_CORNER_SHADOW_PX, maxLen)
+      if (len <= 0) return
+      const grad = ctx.createLinearGradient(0, ry, 0, ry + len)
+      grad.addColorStop(0, 'rgba(0, 0, 0, 0.40)')
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)')
+      ctx.fillStyle = grad
+      ctx.fillRect(rx, ry, rw, len)
+    }
+
     // ==========================================
     // 1. TALL BACK WALL (Parede de Fundo 100% com a Textura da Parede)
     // ==========================================
     fillWallTexture(minX, minY, w, backWallH)
 
-    // Subtle natural depth shadows (ceiling top shadow & floor contact shadow)
+    // Subtle ceiling shadow only — no full-width bottom shadow, since that used
+    // to read as a visible seam where the back wall "ended".
     ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
     ctx.fillRect(minX, minY, w, 2)
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)'
-    ctx.fillRect(minX, minY + backWallH - 3, w, 3)
 
     // ==========================================
     // 2. SIDE WALLS (Paredes Laterais com a Textura Real)
     // ==========================================
-    const sideTopY = minY + backWallH
-    const sideBottomY = frontWallY
+    // Side walls extend SEAM_OVERLAP_PX above the bottom of the back wall and
+    // SEAM_OVERLAP_PX below the top of the front wall, sealing every seam.
+    const sideTopY = minY + backWallH - SEAM_OVERLAP_PX
+    const sideBottomY = frontWallY + SEAM_OVERLAP_PX
 
     // Check adjacent neighbor zones on Left & Right
     const leftNeighbor = zones.find(
@@ -338,22 +366,25 @@ export class WallRenderer {
       const doorEndY = doorStartY + doorH
 
       if (doorStartY > sideTopY) {
-        fillWallTexture(minX, sideTopY, 6, doorStartY - sideTopY)
+        fillWallTexture(minX, sideTopY, SIDE_WALL_PX, doorStartY - sideTopY)
+        // Inner vertical edge shadow (right side of the left wall strip)
         ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
-        ctx.fillRect(minX + 5, sideTopY, 1, doorStartY - sideTopY)
+        ctx.fillRect(minX + SIDE_WALL_PX - 1, sideTopY, 1, doorStartY - sideTopY)
+        drawTopCornerShadow(minX, sideTopY, SIDE_WALL_PX, doorStartY - sideTopY)
       }
       if (sideBottomY > doorEndY) {
-        fillWallTexture(minX, doorEndY, 6, sideBottomY - doorEndY)
+        fillWallTexture(minX, doorEndY, SIDE_WALL_PX, sideBottomY - doorEndY)
         ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
-        ctx.fillRect(minX + 5, doorEndY, 1, sideBottomY - doorEndY)
+        ctx.fillRect(minX + SIDE_WALL_PX - 1, doorEndY, 1, sideBottomY - doorEndY)
       }
 
       // Draw Side Connecting Doorway Arch & Threshold
       DoorRenderer.drawSideDoorway(ctx, minX, doorStartY, doorEndY, theme, 'left')
     } else if (sideBottomY > sideTopY) {
-      fillWallTexture(minX, sideTopY, 6, sideBottomY - sideTopY)
+      fillWallTexture(minX, sideTopY, SIDE_WALL_PX, sideBottomY - sideTopY)
       ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
-      ctx.fillRect(minX + 5, sideTopY, 1, sideBottomY - sideTopY)
+      ctx.fillRect(minX + SIDE_WALL_PX - 1, sideTopY, 1, sideBottomY - sideTopY)
+      drawTopCornerShadow(minX, sideTopY, SIDE_WALL_PX, sideBottomY - sideTopY)
     }
 
     // --- RIGHT SIDE WALL ---
@@ -366,22 +397,24 @@ export class WallRenderer {
       const doorEndY = doorStartY + doorH
 
       if (doorStartY > sideTopY) {
-        fillWallTexture(maxX - 6, sideTopY, 6, doorStartY - sideTopY)
+        fillWallTexture(maxX - SIDE_WALL_PX, sideTopY, SIDE_WALL_PX, doorStartY - sideTopY)
         ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
-        ctx.fillRect(maxX - 6, sideTopY, 1, doorStartY - sideTopY)
+        ctx.fillRect(maxX - SIDE_WALL_PX, sideTopY, 1, doorStartY - sideTopY)
+        drawTopCornerShadow(maxX - SIDE_WALL_PX, sideTopY, SIDE_WALL_PX, doorStartY - sideTopY)
       }
       if (sideBottomY > doorEndY) {
-        fillWallTexture(maxX - 6, doorEndY, 6, sideBottomY - doorEndY)
+        fillWallTexture(maxX - SIDE_WALL_PX, doorEndY, SIDE_WALL_PX, sideBottomY - doorEndY)
         ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
-        ctx.fillRect(maxX - 6, doorEndY, 1, sideBottomY - doorEndY)
+        ctx.fillRect(maxX - SIDE_WALL_PX, doorEndY, 1, sideBottomY - doorEndY)
       }
 
       // Draw Side Connecting Doorway Arch & Threshold
-      DoorRenderer.drawSideDoorway(ctx, maxX - 6, doorStartY, doorEndY, theme, 'right')
+      DoorRenderer.drawSideDoorway(ctx, maxX - SIDE_WALL_PX, doorStartY, doorEndY, theme, 'right')
     } else if (sideBottomY > sideTopY) {
-      fillWallTexture(maxX - 6, sideTopY, 6, sideBottomY - sideTopY)
+      fillWallTexture(maxX - SIDE_WALL_PX, sideTopY, SIDE_WALL_PX, sideBottomY - sideTopY)
       ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
-      ctx.fillRect(maxX - 6, sideTopY, 1, sideBottomY - sideTopY)
+      ctx.fillRect(maxX - SIDE_WALL_PX, sideTopY, 1, sideBottomY - sideTopY)
+      drawTopCornerShadow(maxX - SIDE_WALL_PX, sideTopY, SIDE_WALL_PX, sideBottomY - sideTopY)
     }
 
     // ==========================================
