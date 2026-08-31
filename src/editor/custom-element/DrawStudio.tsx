@@ -20,6 +20,9 @@ import {
   Check,
   User,
   CheckCircle2,
+  Eye,
+  EyeOff,
+  Ghost,
 } from 'lucide-react'
 import { CroppedClip } from './CropStudio'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
@@ -29,6 +32,7 @@ import { PixelArtRenderer } from '../../engine/PixelArtRenderer'
 import { AvatarRenderer } from '../../engine/AvatarRenderer'
 import { FloorType, WallType, PlacedFurniture } from '../../types/map'
 import { DEFAULT_AVATAR } from '../../engine/Constants'
+import { AvatarComponentSlot, Player } from '../../types/game'
 
 export type DrawTool = 'pencil' | 'eraser' | 'bucket' | 'picker'
 
@@ -40,6 +44,8 @@ interface Props {
   onSaveDrawingAsClip: (clip: CroppedClip) => void
   initialArtworkDataUrl?: string | null
   initialArtworkName?: string | null
+  avatarComponentSlot?: AvatarComponentSlot
+  showGhostAvatarInitial?: boolean
   croppedClips?: CroppedClip[]
 }
 
@@ -50,7 +56,20 @@ const PRESET_PALETTE = [
   '#20c997', '#2f9e44', '#15aabf', '#339af0', '#4c6ef5', '#be4bdb',
 ]
 
-// Built-in Game Preset Definitions for instant pixel-level editing
+const COMPONENT_LABELS: Record<AvatarComponentSlot, string> = {
+  hair: 'Cabelo',
+  top: 'Parte de Cima (Roupa)',
+  jacket: 'Jaqueta',
+  bottom: 'Parte de Baixo',
+  shoes: 'Sapatos',
+  hat: 'Chapéu / Tiara',
+  glasses: 'Óculos',
+  facialHair: 'Pelos Faciais',
+  eyes: 'Olhos',
+  other: 'Acessório',
+  skin: 'Tom da Pele',
+}
+
 interface PresetItem {
   id: string
   name: string
@@ -78,6 +97,8 @@ export const DrawStudio: React.FC<Props> = ({
   onSaveDrawingAsClip,
   initialArtworkDataUrl,
   initialArtworkName,
+  avatarComponentSlot,
+  showGhostAvatarInitial,
   croppedClips = [],
 }) => {
   const pixelWidth = tileWidth * 32
@@ -91,11 +112,20 @@ export const DrawStudio: React.FC<Props> = ({
   const [color, setColor] = useState<string>('#4c6ef5')
   const [brushSize, setBrushSize] = useState<number>(1)
 
-  // Current Artwork Name
-  const [artworkName, setArtworkName] = useState<string>(initialArtworkName || 'Meu Desenho Pixel Art')
-  const [avatarSaveToast, setAvatarSaveToast] = useState<boolean>(false)
+  // Current Artwork Name & Toast Feedback
+  const [artworkName, setArtworkName] = useState<string>(
+    initialArtworkName ||
+      (avatarComponentSlot ? `Desenho de ${COMPONENT_LABELS[avatarComponentSlot]}` : 'Meu Desenho Pixel Art')
+  )
+  const [avatarSaveToast, setAvatarSaveToast] = useState<string | null>(null)
 
-  // Calculate initial optimal zoom so canvas fits within ~480px (range: 1x to 20x)
+  // Ghost Reference Underlay (Overview do personagem com transparência)
+  const [showGhostAvatar, setShowGhostAvatar] = useState<boolean>(
+    showGhostAvatarInitial !== undefined ? showGhostAvatarInitial : !!avatarComponentSlot
+  )
+  const [ghostOpacity, setGhostOpacity] = useState<number>(0.38)
+
+  // Optimal initial zoom (1x to 20x)
   const [zoom, setZoom] = useState<number>(() => {
     const maxDim = Math.max(tileWidth * 32, tileHeight * 32)
     return Math.max(1, Math.min(20, Math.floor(480 / maxDim)))
@@ -121,6 +151,7 @@ export const DrawStudio: React.FC<Props> = ({
 
   // Canvas Refs & Stored Artwork Buffer
   const drawCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const ghostCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const stageContainerRef = useRef<HTMLDivElement | null>(null)
   const fileUploadInputRef = useRef<HTMLInputElement | null>(null)
   const savedDataUrlRef = useRef<string | null>(initialArtworkDataUrl || null)
@@ -131,6 +162,39 @@ export const DrawStudio: React.FC<Props> = ({
   const historyStepRef = useRef<number>(-1)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
+
+  // Render Ghost Base Avatar Underlay
+  useEffect(() => {
+    const gCanvas = ghostCanvasRef.current
+    if (!gCanvas) return
+    const gCtx = gCanvas.getContext('2d')
+    if (!gCtx) return
+
+    gCtx.imageSmoothingEnabled = false
+    gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height)
+
+    if (tileWidth === 1 && tileHeight === 1) {
+      // Draw Neutral Character Body as a reference alignment
+      const ghostPlayer: Player = {
+        id: 'ghost_preview',
+        name: '',
+        x: 0,
+        y: 0,
+        direction: 'down',
+        isMoving: false,
+        status: 'available',
+        lastUpdated: 0,
+        avatar: {
+          ...DEFAULT_AVATAR,
+          skinTone: localPlayer.avatar?.skinTone || '#ffd1a4',
+          // Show eyes and details for alignment
+          eyeType: localPlayer.avatar?.eyeType || 'normal',
+          eyeColor: localPlayer.avatar?.eyeColor || '#111111',
+        },
+      }
+      AvatarRenderer.drawPlayer(gCtx, ghostPlayer, false, 0, 32, false)
+    }
+  }, [tileWidth, tileHeight, localPlayer])
 
   // Save current canvas state to history
   const saveHistoryState = useCallback(() => {
@@ -197,7 +261,7 @@ export const DrawStudio: React.FC<Props> = ({
     }
   }, [initialArtworkDataUrl])
 
-  // Auto-fit zoom when tile dimensions change so the artwork is immediately visible (range: 1x to 20x)
+  // Auto-fit zoom when tile dimensions change so the artwork is immediately visible
   useEffect(() => {
     if (prevDimensionsRef.current.w !== tileWidth || prevDimensionsRef.current.h !== tileHeight) {
       prevDimensionsRef.current = { w: tileWidth, h: tileHeight }
@@ -527,34 +591,50 @@ export const DrawStudio: React.FC<Props> = ({
     }
   }
 
-  // Save directly to the player's avatar
+  // Save directly to the avatar: either a specific component slot or full avatar skin
   const handleSaveToAvatar = () => {
     const canvas = drawCanvasRef.current
     if (!canvas) return
     const dataUrl = canvas.toDataURL('image/png')
-    const name = artworkName.trim() || 'Meu Avatar Desenhado'
-
-    // 1. Save into customAssets store under 'avatar' type
-    const asset = saveAvatarSkin(name, dataUrl)
-
-    // 2. Set as player active custom skin
     const curAvatar = localPlayer.avatar || DEFAULT_AVATAR
-    const newAvatar = {
-      ...curAvatar,
-      customSkinUrl: dataUrl,
-      customAvatarId: asset.id,
+
+    if (avatarComponentSlot) {
+      // 1. Save only into this specific component layer!
+      const slotName = COMPONENT_LABELS[avatarComponentSlot] || avatarComponentSlot
+      const newCustomComponents = {
+        ...(curAvatar.customComponents || {}),
+        [avatarComponentSlot]: dataUrl,
+      }
+      const newAvatar = {
+        ...curAvatar,
+        customComponents: newCustomComponents,
+      }
+      setLocalPlayer({ avatar: newAvatar })
+      PeerManager.getInstance().sendPlayerUpdate({ avatar: newAvatar })
+
+      setAvatarSaveToast(`${slotName} salvo e aplicado no seu avatar com sucesso!`)
+      setTimeout(() => {
+        setAvatarSaveToast(null)
+        setCustomModalOpen(false)
+      }, 1000)
+    } else {
+      // Save as a full avatar skin
+      const name = artworkName.trim() || 'Meu Avatar Desenhado'
+      const asset = saveAvatarSkin(name, dataUrl)
+      const newAvatar = {
+        ...curAvatar,
+        customSkinUrl: dataUrl,
+        customAvatarId: asset.id,
+      }
+      setLocalPlayer({ avatar: newAvatar })
+      PeerManager.getInstance().sendPlayerUpdate({ avatar: newAvatar })
+
+      setAvatarSaveToast('Skin de avatar salva e aplicada com sucesso!')
+      setTimeout(() => {
+        setAvatarSaveToast(null)
+        setCustomModalOpen(false)
+      }, 1000)
     }
-    setLocalPlayer({ avatar: newAvatar })
-
-    // 3. Broadcast to all peers
-    PeerManager.getInstance().sendPlayerUpdate({ avatar: newAvatar })
-
-    // 4. Show success toast and close
-    setAvatarSaveToast(true)
-    setTimeout(() => {
-      setAvatarSaveToast(false)
-      setCustomModalOpen(false)
-    }, 1000)
   }
 
   // Load a preset into the drawing canvas
@@ -562,7 +642,6 @@ export const DrawStudio: React.FC<Props> = ({
     let finalDataUrl = preset.dataUrl
 
     if (!finalDataUrl) {
-      // Render offscreen to get exact sprite pixels
       const offscreen = document.createElement('canvas')
       offscreen.width = preset.width * 32
       offscreen.height = preset.height * 32
@@ -615,7 +694,6 @@ export const DrawStudio: React.FC<Props> = ({
 
   // Aggregate all available presets (native, custom, avatars, and cropped clips)
   const allPresets: PresetItem[] = [
-    // Avatars
     {
       id: 'current_avatar',
       name: `${localPlayer.name || 'Avatar'} (Atual)`,
@@ -657,18 +735,18 @@ export const DrawStudio: React.FC<Props> = ({
 
   return (
     <div className="flex flex-col h-full bg-[#12151d] rounded-2xl border border-[#2b2d31] overflow-hidden select-none relative">
-      {/* Save to Avatar Toast Notification */}
+      {/* Toast Notification */}
       {avatarSaveToast && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-top-3 duration-200">
           <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-          <span>Avatar salvo e aplicado com sucesso!</span>
+          <span>{avatarSaveToast}</span>
         </div>
       )}
 
-      {/* Top Toolbar: Name, Presets Button, Tile Dimensions & Drawing Tools */}
+      {/* Top Toolbar: Name, Ghost Toggle, Dimensions & Tools */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#2b2d31] bg-[#18191c]/80 shrink-0 gap-3 flex-wrap">
-        {/* Left Side: Preset Loader & Name */}
-        <div className="flex items-center gap-2">
+        {/* Left Side: Preset Loader, Name & Component Indicator */}
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => setIsPresetModalOpen(true)}
@@ -678,6 +756,14 @@ export const DrawStudio: React.FC<Props> = ({
             <FolderOpen className="w-3.5 h-3.5" />
             <span>Carregar Preset / Imagem</span>
           </button>
+
+          {/* Component Badge if editing a specific avatar slot */}
+          {avatarComponentSlot && (
+            <div className="px-2.5 py-1 rounded-xl bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 font-bold text-xs flex items-center gap-1.5 shadow-sm">
+              <User className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Desenhando: {COMPONENT_LABELS[avatarComponentSlot]}</span>
+            </div>
+          )}
 
           {/* Artwork Name Input */}
           <input
@@ -689,9 +775,35 @@ export const DrawStudio: React.FC<Props> = ({
           />
         </div>
 
-        {/* Center: Typeable Tile Dimensions */}
+        {/* Center: Ghost Underlay Controls & Tile Dimensions */}
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-slate-300">Tamanho:</span>
+          {/* Ghost Body Overview Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              if (!showGhostAvatar) {
+                setShowGhostAvatar(true)
+                setGhostOpacity(0.38)
+              } else if (ghostOpacity < 0.6) {
+                setGhostOpacity(0.65)
+              } else {
+                setShowGhostAvatar(false)
+              }
+            }}
+            className={`px-2.5 py-1 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+              showGhostAvatar
+                ? 'bg-indigo-600/30 border-indigo-500/60 text-indigo-200 shadow-sm'
+                : 'bg-[#12151d] border-[#2b2d31] text-slate-400 hover:text-slate-200'
+            }`}
+            title="Mostrar/Ocultar a visualização transparente do corpo do personagem de fundo como referência"
+          >
+            <Ghost className="w-3.5 h-3.5 text-indigo-300" />
+            <span>
+              {showGhostAvatar ? `Fundo Fantasma (${Math.round(ghostOpacity * 100)}%)` : 'Fundo Fantasma: Off'}
+            </span>
+          </button>
+
+          {/* Typeable Tile Dimensions */}
           <div className="flex items-center gap-2 bg-[#12151d] px-2 py-1 rounded-xl border border-[#2b2d31]">
             <div className="flex items-center gap-1">
               <span className="text-[11px] text-slate-400 font-semibold">L:</span>
@@ -901,7 +1013,21 @@ export const DrawStudio: React.FC<Props> = ({
                 'repeating-conic-gradient(#181d28 0% 25%, #12151d 0% 50%) 50% / 16px 16px',
             }}
           >
-            {/* Drawing Canvas */}
+            {/* Ghost Avatar Underlay (Transparent Reference) */}
+            {showGhostAvatar && (
+              <canvas
+                ref={ghostCanvasRef}
+                width={pixelWidth}
+                height={pixelHeight}
+                className="absolute inset-0 pointer-events-none pixelated w-full h-full"
+                style={{
+                  opacity: ghostOpacity,
+                  imageRendering: 'pixelated',
+                }}
+              />
+            )}
+
+            {/* Active Drawing Canvas */}
             <canvas
               ref={drawCanvasRef}
               width={pixelWidth}
@@ -913,7 +1039,7 @@ export const DrawStudio: React.FC<Props> = ({
                 handleMouseUp()
                 setHoverPixel(null)
               }}
-              className={`pixelated w-full h-full block ${
+              className={`pixelated w-full h-full block relative z-10 ${
                 tool === 'picker'
                   ? 'cursor-crosshair'
                   : tool === 'bucket'
@@ -926,7 +1052,7 @@ export const DrawStudio: React.FC<Props> = ({
             {/* Pixel Grid Overlay (Active at zoom >= 4x) */}
             {showGrid && zoom >= 4 && (
               <div
-                className="absolute inset-0 pointer-events-none"
+                className="absolute inset-0 pointer-events-none z-20"
                 style={{
                   backgroundImage: `linear-gradient(to right, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
                                     linear-gradient(to bottom, rgba(255, 255, 255, 0.08) 1px, transparent 1px)`,
@@ -938,7 +1064,7 @@ export const DrawStudio: React.FC<Props> = ({
             {/* 32px Tile Borders Overlay */}
             {showGrid && (
               <div
-                className="absolute inset-0 pointer-events-none"
+                className="absolute inset-0 pointer-events-none z-20"
                 style={{
                   backgroundImage: `linear-gradient(to right, rgba(99, 102, 241, 0.25) 1px, transparent 1px),
                                     linear-gradient(to bottom, rgba(99, 102, 241, 0.25) 1px, transparent 1px)`,
@@ -950,7 +1076,7 @@ export const DrawStudio: React.FC<Props> = ({
             {/* Hover Cursor Box */}
             {hoverPixel && (
               <div
-                className="absolute pointer-events-none border border-white/80 shadow-sm"
+                className="absolute pointer-events-none border border-white/80 shadow-sm z-30"
                 style={{
                   left: `${(hoverPixel.x - Math.floor(brushSize / 2)) * zoom}px`,
                   top: `${(hoverPixel.y - Math.floor(brushSize / 2)) * zoom}px`,
@@ -1029,15 +1155,23 @@ export const DrawStudio: React.FC<Props> = ({
 
           {/* Bottom Actions */}
           <div className="mt-auto pt-3 border-t border-[#2b2d31] space-y-2">
-            {/* Direct Avatar Save Button */}
+            {/* Direct Save to Component or Avatar */}
             <button
               type="button"
               onClick={handleSaveToAvatar}
               className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/30 transition-all active:scale-95"
-              title="Salvar este desenho como skin do seu avatar e aplicar imediatamente"
+              title={
+                avatarComponentSlot
+                  ? `Salvar este desenho apenas no slot de ${COMPONENT_LABELS[avatarComponentSlot]}`
+                  : 'Salvar como skin do seu avatar e aplicar imediatamente'
+              }
             >
               <User className="w-3.5 h-3.5 text-amber-300" />
-              <span>Salvar no Meu Avatar</span>
+              <span>
+                {avatarComponentSlot
+                  ? `Salvar ${COMPONENT_LABELS[avatarComponentSlot]} no Avatar`
+                  : 'Salvar no Meu Avatar'}
+              </span>
             </button>
 
             <button

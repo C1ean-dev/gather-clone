@@ -7,7 +7,7 @@ import {
   Check,
   RotateCcw,
 } from 'lucide-react'
-import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
+import { useCustomAssetsStore, InitialDrawArtworkOptions } from '../store/useCustomAssetsStore'
 import { useMapStore } from '../store/useMapStore'
 import { useGameStore } from '../store/useGameStore'
 import { PeerManager } from '../p2p/PeerManager'
@@ -46,12 +46,7 @@ export const CustomElementModal: React.FC = () => {
   const [studioMode, setStudioMode] = useState<'crop' | 'draw' | 'compose'>('crop')
 
   // Draw Studio Initial Artwork Data
-  const [drawStudioArtwork, setDrawStudioArtwork] = useState<{
-    dataUrl?: string
-    name?: string
-    width?: number
-    height?: number
-  } | null>(null)
+  const [drawStudioArtwork, setDrawStudioArtwork] = useState<InitialDrawArtworkOptions | null>(null)
 
   // Source Image State
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null)
@@ -1249,6 +1244,8 @@ export const CustomElementModal: React.FC = () => {
                 onSaveDrawingAsClip={handleSaveDrawingAsClip}
                 initialArtworkDataUrl={drawStudioArtwork?.dataUrl}
                 initialArtworkName={drawStudioArtwork?.name}
+                avatarComponentSlot={drawStudioArtwork?.avatarComponentSlot}
+                showGhostAvatarInitial={drawStudioArtwork?.showGhostAvatar}
                 croppedClips={croppedClips}
               />
             ) : (

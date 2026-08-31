@@ -55,6 +55,9 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
     if (isOpen) {
       setName(localPlayer.name || 'Player')
       setAvatar({
+        customSkinUrl: localPlayer.avatar?.customSkinUrl,
+        customAvatarId: localPlayer.avatar?.customAvatarId,
+        customComponents: localPlayer.avatar?.customComponents,
         skinTone: localPlayer.avatar?.skinTone || localPlayer.avatar?.skinColor || '#ffd1a4',
         skinDetail: localPlayer.avatar?.skinDetail || 'smooth',
         eyeType: localPlayer.avatar?.eyeType || 'normal',

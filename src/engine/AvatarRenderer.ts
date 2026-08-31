@@ -102,6 +102,22 @@ export class AvatarRenderer {
     const otherType = avatar.otherType || (avatar.accessory === 'headphones' ? 'headphones' : 'none')
     const otherColor = avatar.otherColor || avatar.accessoryColor || '#20c997'
 
+    // Helper to render hand-drawn custom component layers
+    const drawCustomComponent = (dataUrl?: string) => {
+      if (!dataUrl) return
+      const img = getCustomAssetImage(dataUrl)
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.save()
+        if (dir === 'left') {
+          ctx.translate(px + size / 2, 0)
+          ctx.scale(-1, 1)
+          ctx.translate(-(px + size / 2), 0)
+        }
+        ctx.drawImage(img, px, py + bodyBob, size, size)
+        ctx.restore()
+      }
+    }
+
     // ==========================================
     // 3. BACK ARM (Behind body in side view)
     // ==========================================
@@ -135,11 +151,14 @@ export class AvatarRenderer {
       isMoving,
       skinTone
     )
+    drawCustomComponent(avatar.customComponents?.bottom)
+    drawCustomComponent(avatar.customComponents?.shoes)
 
     // ==========================================
     // 5. TORSO & TOPS (Kimono, Yukata, T-Shirt, Sweater, or None)
     // ==========================================
     ClothingRenderer.drawTorsoAndTop(ctx, centerX, baseY, dir, topType, topColor, skinTone)
+    drawCustomComponent(avatar.customComponents?.top)
 
     // ==========================================
     // 6. JACKET (Open Hoodie, Cardigan, Blazer, Denim)
@@ -147,6 +166,7 @@ export class AvatarRenderer {
     if (jacketType !== 'none') {
       ClothingRenderer.drawJacket(ctx, centerX, baseY, dir, jacketType, jacketColor)
     }
+    drawCustomComponent(avatar.customComponents?.jacket)
 
     // ==========================================
     // 7. FRONT ARM (With 4-Frame natural swing)
@@ -169,6 +189,8 @@ export class AvatarRenderer {
     // 8. HEAD, SKIN DETAILS, EYES & FACE
     // ==========================================
     FaceRenderer.drawHeadAndFace(ctx, centerX, baseY, dir, skinTone, skinDetail, eyeType, eyeColor)
+    drawCustomComponent(avatar.customComponents?.eyes)
+    drawCustomComponent(avatar.customComponents?.skin)
 
     // ==========================================
     // 8. FACIAL HAIR (Beard, Mustache, Goatee, Stubble)
@@ -176,11 +198,13 @@ export class AvatarRenderer {
     if (facialHair !== 'none') {
       FaceRenderer.drawFacialHair(ctx, centerX, baseY, dir, facialHair, facialHairColor)
     }
+    drawCustomComponent(avatar.customComponents?.facialHair)
 
     // ==========================================
     // 9. HAIRSTYLES (Messy, Anime, Long, Curls, Twin-Tails, etc.)
     // ==========================================
     HairRenderer.drawHair(ctx, centerX, baseY, dir, hairStyle, hairColor)
+    drawCustomComponent(avatar.customComponents?.hair)
 
     // ==========================================
     // 10. GLASSES (Round, Square, Sunglasses, Wireframe)
@@ -188,6 +212,7 @@ export class AvatarRenderer {
     if (glassesType !== 'none') {
       AccessoryRenderer.drawGlasses(ctx, centerX, baseY, dir, glassesType, glassesColor)
     }
+    drawCustomComponent(avatar.customComponents?.glasses)
 
     // ==========================================
     // 11. HATS & HAIR ACCESSORIES (Ribbon Bow, Cap, Beanie, Headband)
@@ -195,6 +220,7 @@ export class AvatarRenderer {
     if (hatType !== 'none') {
       AccessoryRenderer.drawHat(ctx, centerX, baseY, dir, hatType, hatColor)
     }
+    drawCustomComponent(avatar.customComponents?.hat)
 
     // ==========================================
     // 12. OTHER (Headphones, Mask, Star Badge)
@@ -202,6 +228,7 @@ export class AvatarRenderer {
     if (otherType !== 'none') {
       AccessoryRenderer.drawOther(ctx, centerX, baseY, dir, otherType, otherColor)
     }
+    drawCustomComponent(avatar.customComponents?.other)
 
     // ==========================================
     // 13. NAME TAG BADGE (Floating above head)

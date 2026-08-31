@@ -14,10 +14,24 @@ export type HatType = 'none' | 'ribbon_bow' | 'cap_forward' | 'cap_backward' | '
 export type GlassesType = 'none' | 'round' | 'square' | 'sunglasses' | 'wireframe' | 'glasses'
 export type OtherType = 'none' | 'headphones' | 'mask' | 'badge'
 
+export type AvatarComponentSlot =
+  | 'hair'
+  | 'top'
+  | 'jacket'
+  | 'bottom'
+  | 'shoes'
+  | 'hat'
+  | 'glasses'
+  | 'other'
+  | 'facialHair'
+  | 'eyes'
+  | 'skin'
+
 export interface AvatarConfig {
-  // Custom Hand-Drawn Avatar Skin / Component
+  // Custom Hand-Drawn Avatar Full Skin or Specific Component Layers
   customSkinUrl?: string
   customAvatarId?: string
+  customComponents?: Partial<Record<AvatarComponentSlot, string>>
 
   // 1. Skin & Face Details
   skinTone: string

@@ -1,13 +1,23 @@
 import { create } from 'zustand'
 import { CustomAsset } from '../types/customAsset'
 import { FurnitureDefinition } from '../types/map'
+import { AvatarComponentSlot } from '../types/game'
 import { PeerManager } from '../p2p/PeerManager'
 import nativeAssetsData from '../data/nativeAssets.json'
 
 const ASSETS_STORAGE_KEY = 'gather_v2_custom_user_assets'
 const CATEGORIES_STORAGE_KEY = 'gather_v2_custom_categories'
 
-const DEFAULT_CATEGORIES = ['Geral', 'Forja Antiga', 'Escritório', 'Medieval', 'Decoração']
+const DEFAULT_CATEGORIES = ['Geral', 'Forja Antiga', 'Escritório', 'Medieval', 'Decoração', 'Avatares']
+
+export interface InitialDrawArtworkOptions {
+  dataUrl?: string
+  name?: string
+  width?: number
+  height?: number
+  avatarComponentSlot?: AvatarComponentSlot
+  showGhostAvatar?: boolean
+}
 
 // In-memory HTMLImageElement cache for fast canvas rendering
 const imageCache: Map<string, HTMLImageElement> = new Map()
@@ -109,12 +119,12 @@ interface CustomAssetsState {
   isCustomModalOpen: boolean
   editingAssetId: string | null
   initialStudioMode: 'crop' | 'draw' | 'compose'
-  initialDrawArtwork: { dataUrl?: string; name?: string; width?: number; height?: number } | null
+  initialDrawArtwork: InitialDrawArtworkOptions | null
   setCustomModalOpen: (open: boolean) => void
   setEditingAssetId: (id: string | null) => void
   openCreateModal: (mode?: 'crop' | 'draw' | 'compose') => void
   openEditModal: (id: string, mode?: 'crop' | 'draw' | 'compose') => void
-  openDrawModal: (artwork?: { dataUrl?: string; name?: string; width?: number; height?: number }) => void
+  openDrawModal: (artwork?: InitialDrawArtworkOptions) => void
   addCustomAsset: (asset: CustomAsset) => void
   updateCustomAsset: (id: string, asset: Partial<CustomAsset>) => void
   deleteCustomAsset: (id: string) => void
