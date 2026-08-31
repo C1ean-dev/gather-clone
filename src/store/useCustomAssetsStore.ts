@@ -109,12 +109,12 @@ interface CustomAssetsState {
   isCustomModalOpen: boolean
   editingAssetId: string | null
   initialStudioMode: 'crop' | 'draw' | 'compose'
-  initialDrawArtwork: { dataUrl: string; name?: string; width?: number; height?: number } | null
+  initialDrawArtwork: { dataUrl?: string; name?: string; width?: number; height?: number } | null
   setCustomModalOpen: (open: boolean) => void
   setEditingAssetId: (id: string | null) => void
   openCreateModal: (mode?: 'crop' | 'draw' | 'compose') => void
   openEditModal: (id: string, mode?: 'crop' | 'draw' | 'compose') => void
-  openDrawModal: (artwork?: { dataUrl: string; name?: string; width?: number; height?: number }) => void
+  openDrawModal: (artwork?: { dataUrl?: string; name?: string; width?: number; height?: number }) => void
   addCustomAsset: (asset: CustomAsset) => void
   updateCustomAsset: (id: string, asset: Partial<CustomAsset>) => void
   deleteCustomAsset: (id: string) => void
@@ -124,6 +124,8 @@ interface CustomAssetsState {
   addCategory: (categoryName: string) => void
   deleteCategory: (categoryName: string) => void
   getAssetById: (id: string) => CustomAsset | undefined
+  getAvatarAssets: () => CustomAsset[]
+  saveAvatarSkin: (name: string, dataUrl: string) => CustomAsset
   getAllCategories: () => string[]
   getFurnitureCatalog: (baseCatalog: FurnitureDefinition[]) => FurnitureDefinition[]
 }
@@ -291,6 +293,29 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
 
   getAssetById: (id) => {
     return get().customAssets.find((a) => a.id === id)
+  },
+
+  getAvatarAssets: () => {
+    return get().customAssets.filter((a) => a.type === 'avatar')
+  },
+
+  saveAvatarSkin: (name, dataUrl) => {
+    const id = `avatar_skin_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
+    const asset: CustomAsset = {
+      id,
+      name: name || 'Skin Personalizada',
+      type: 'avatar',
+      category: 'Avatares',
+      width: 1,
+      height: 1,
+      isObstacle: false,
+      frames: [dataUrl],
+      frameRateMs: 160,
+      iconColor: '#8b5cf6',
+      createdAt: Date.now(),
+    }
+    get().addCustomAsset(asset)
+    return asset
   },
 
   getFurnitureCatalog: (baseCatalog) => {

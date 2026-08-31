@@ -15,6 +15,10 @@ export type GlassesType = 'none' | 'round' | 'square' | 'sunglasses' | 'wirefram
 export type OtherType = 'none' | 'headphones' | 'mask' | 'badge'
 
 export interface AvatarConfig {
+  // Custom Hand-Drawn Avatar Skin / Component
+  customSkinUrl?: string
+  customAvatarId?: string
+
   // 1. Skin & Face Details
   skinTone: string
   skinColor?: string // backward compatibility

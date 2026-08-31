@@ -18,11 +18,17 @@ import {
   Search,
   X,
   Check,
+  User,
+  CheckCircle2,
 } from 'lucide-react'
 import { CroppedClip } from './CropStudio'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
+import { useGameStore } from '../../store/useGameStore'
+import { PeerManager } from '../../p2p/PeerManager'
 import { PixelArtRenderer } from '../../engine/PixelArtRenderer'
+import { AvatarRenderer } from '../../engine/AvatarRenderer'
 import { FloorType, WallType, PlacedFurniture } from '../../types/map'
+import { DEFAULT_AVATAR } from '../../engine/Constants'
 
 export type DrawTool = 'pencil' | 'eraser' | 'bucket' | 'picker'
 
@@ -48,7 +54,7 @@ const PRESET_PALETTE = [
 interface PresetItem {
   id: string
   name: string
-  category: 'furniture' | 'floor' | 'wall' | 'clip' | 'custom'
+  category: 'furniture' | 'floor' | 'wall' | 'clip' | 'custom' | 'avatar'
   width: number
   height: number
   dataUrl?: string
@@ -77,7 +83,8 @@ export const DrawStudio: React.FC<Props> = ({
   const pixelWidth = tileWidth * 32
   const pixelHeight = tileHeight * 32
 
-  const { customAssets } = useCustomAssetsStore()
+  const { customAssets, saveAvatarSkin, setCustomModalOpen } = useCustomAssetsStore()
+  const { localPlayer, setLocalPlayer } = useGameStore()
 
   // Active tools
   const [tool, setTool] = useState<DrawTool>('pencil')
@@ -86,6 +93,7 @@ export const DrawStudio: React.FC<Props> = ({
 
   // Current Artwork Name
   const [artworkName, setArtworkName] = useState<string>(initialArtworkName || 'Meu Desenho Pixel Art')
+  const [avatarSaveToast, setAvatarSaveToast] = useState<boolean>(false)
 
   // Calculate initial optimal zoom so canvas fits within ~480px (range: 1x to 20x)
   const [zoom, setZoom] = useState<number>(() => {
@@ -104,7 +112,7 @@ export const DrawStudio: React.FC<Props> = ({
   // Preset Selector Modal State
   const [isPresetModalOpen, setIsPresetModalOpen] = useState<boolean>(false)
   const [presetSearch, setPresetSearch] = useState<string>('')
-  const [presetCategoryTab, setPresetCategoryTab] = useState<'all' | 'custom' | 'furniture' | 'floor' | 'wall' | 'clips'>('all')
+  const [presetCategoryTab, setPresetCategoryTab] = useState<'all' | 'avatar' | 'custom' | 'furniture' | 'floor' | 'wall' | 'clips'>('all')
 
   // Drawing state
   const [isDrawing, setIsDrawing] = useState<boolean>(false)
@@ -519,6 +527,36 @@ export const DrawStudio: React.FC<Props> = ({
     }
   }
 
+  // Save directly to the player's avatar
+  const handleSaveToAvatar = () => {
+    const canvas = drawCanvasRef.current
+    if (!canvas) return
+    const dataUrl = canvas.toDataURL('image/png')
+    const name = artworkName.trim() || 'Meu Avatar Desenhado'
+
+    // 1. Save into customAssets store under 'avatar' type
+    const asset = saveAvatarSkin(name, dataUrl)
+
+    // 2. Set as player active custom skin
+    const curAvatar = localPlayer.avatar || DEFAULT_AVATAR
+    const newAvatar = {
+      ...curAvatar,
+      customSkinUrl: dataUrl,
+      customAvatarId: asset.id,
+    }
+    setLocalPlayer({ avatar: newAvatar })
+
+    // 3. Broadcast to all peers
+    PeerManager.getInstance().sendPlayerUpdate({ avatar: newAvatar })
+
+    // 4. Show success toast and close
+    setAvatarSaveToast(true)
+    setTimeout(() => {
+      setAvatarSaveToast(false)
+      setCustomModalOpen(false)
+    }, 1000)
+  }
+
   // Load a preset into the drawing canvas
   const handleSelectPreset = (preset: PresetItem) => {
     let finalDataUrl = preset.dataUrl
@@ -538,6 +576,15 @@ export const DrawStudio: React.FC<Props> = ({
         } else if (preset.category === 'furniture') {
           const mockFurn: PlacedFurniture = { id: 'thumb', defId: preset.id, x: 0, y: 0 }
           PixelArtRenderer.drawFurniture(ctx, mockFurn)
+        } else if (preset.category === 'avatar') {
+          const tempPlayer = {
+            ...localPlayer,
+            direction: 'down' as const,
+            isMoving: false,
+            x: 0,
+            y: 0,
+          }
+          AvatarRenderer.drawPlayer(ctx, tempPlayer, true, 0, 32, false)
         }
         finalDataUrl = offscreen.toDataURL('image/png')
       }
@@ -566,12 +613,20 @@ export const DrawStudio: React.FC<Props> = ({
     reader.readAsDataURL(file)
   }
 
-  // Aggregate all available presets (native, custom, and cropped clips)
+  // Aggregate all available presets (native, custom, avatars, and cropped clips)
   const allPresets: PresetItem[] = [
+    // Avatars
+    {
+      id: 'current_avatar',
+      name: `${localPlayer.name || 'Avatar'} (Atual)`,
+      category: 'avatar' as const,
+      width: 1,
+      height: 1,
+    },
     ...customAssets.map((a) => ({
       id: a.id,
       name: a.name,
-      category: 'custom' as const,
+      category: a.type === 'avatar' ? ('avatar' as const) : ('custom' as const),
       width: a.width,
       height: a.height,
       dataUrl: a.frames && a.frames.length > 0 ? a.frames[0] : undefined,
@@ -591,6 +646,7 @@ export const DrawStudio: React.FC<Props> = ({
     const matchesSearch = p.name.toLowerCase().includes(presetSearch.toLowerCase())
     if (!matchesSearch) return false
     if (presetCategoryTab === 'all') return true
+    if (presetCategoryTab === 'avatar') return p.category === 'avatar'
     if (presetCategoryTab === 'custom') return p.category === 'custom'
     if (presetCategoryTab === 'clips') return p.category === 'clip'
     if (presetCategoryTab === 'floor') return p.category === 'floor'
@@ -601,6 +657,14 @@ export const DrawStudio: React.FC<Props> = ({
 
   return (
     <div className="flex flex-col h-full bg-[#12151d] rounded-2xl border border-[#2b2d31] overflow-hidden select-none relative">
+      {/* Save to Avatar Toast Notification */}
+      {avatarSaveToast && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-top-3 duration-200">
+          <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+          <span>Avatar salvo e aplicado com sucesso!</span>
+        </div>
+      )}
+
       {/* Top Toolbar: Name, Presets Button, Tile Dimensions & Drawing Tools */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#2b2d31] bg-[#18191c]/80 shrink-0 gap-3 flex-wrap">
         {/* Left Side: Preset Loader & Name */}
@@ -609,7 +673,7 @@ export const DrawStudio: React.FC<Props> = ({
             type="button"
             onClick={() => setIsPresetModalOpen(true)}
             className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition-all active:scale-95"
-            title="Carregar qualquer móvel, piso, parede, recorte ou imagem do PC para editar à mão"
+            title="Carregar qualquer avatar, móvel, piso, parede, recorte ou imagem do PC para editar à mão"
           >
             <FolderOpen className="w-3.5 h-3.5" />
             <span>Carregar Preset / Imagem</span>
@@ -965,10 +1029,21 @@ export const DrawStudio: React.FC<Props> = ({
 
           {/* Bottom Actions */}
           <div className="mt-auto pt-3 border-t border-[#2b2d31] space-y-2">
+            {/* Direct Avatar Save Button */}
+            <button
+              type="button"
+              onClick={handleSaveToAvatar}
+              className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/30 transition-all active:scale-95"
+              title="Salvar este desenho como skin do seu avatar e aplicar imediatamente"
+            >
+              <User className="w-3.5 h-3.5 text-amber-300" />
+              <span>Salvar no Meu Avatar</span>
+            </button>
+
             <button
               type="button"
               onClick={handleSendToComposition}
-              className="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/30 transition-all active:scale-95"
+              className="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/20 transition-all active:scale-95"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
               <span>Enviar para Montagem</span>
@@ -1000,7 +1075,7 @@ export const DrawStudio: React.FC<Props> = ({
                 <div>
                   <h3 className="text-sm font-bold text-white">Carregar Preset no Editor de Pixels</h3>
                   <p className="text-[11px] text-slate-400">
-                    Selecione qualquer elemento do jogo para modificar e desenhar à mão
+                    Selecione qualquer elemento do jogo ou avatar para desenhar à mão
                   </p>
                 </div>
               </div>
@@ -1023,7 +1098,7 @@ export const DrawStudio: React.FC<Props> = ({
                     type="text"
                     value={presetSearch}
                     onChange={(e) => setPresetSearch(e.target.value)}
-                    placeholder="Buscar presets, móveis, pisos, paredes..."
+                    placeholder="Buscar presets, avatares, móveis, pisos, paredes..."
                     className="w-full pl-9 pr-3 py-1.5 bg-[#18191c] border border-[#2b2d31] rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -1050,6 +1125,7 @@ export const DrawStudio: React.FC<Props> = ({
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
                 {[
                   { id: 'all', label: 'Todos' },
+                  { id: 'avatar', label: '👤 Avatares' },
                   { id: 'custom', label: 'Customizados' },
                   { id: 'clips', label: 'Recortes' },
                   { id: 'floor', label: 'Pisos' },
@@ -1088,7 +1164,9 @@ export const DrawStudio: React.FC<Props> = ({
                         className="max-w-full max-h-full object-contain pixelated"
                       />
                     ) : (
-                      <span className="text-xl">🎨</span>
+                      <span className="text-xl">
+                        {preset.category === 'avatar' ? '👤' : '🎨'}
+                      </span>
                     )}
                   </div>
 

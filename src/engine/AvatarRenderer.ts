@@ -1,5 +1,6 @@
 import { Player, Direction } from '../types/game'
 import { TILE_SIZE } from './Constants'
+import { getCustomAssetImage } from '../store/useCustomAssetsStore'
 import { ClothingRenderer } from './avatar/clothingRenderer'
 import { HairRenderer } from './avatar/hairRenderer'
 import { FaceRenderer } from './avatar/faceRenderer'
@@ -53,6 +54,27 @@ export class AvatarRenderer {
 
     const centerX = px + size / 2
     const baseY = py + size - 7 + bodyBob
+
+    // Custom Hand-Drawn Avatar Skin Override
+    if (avatar.customSkinUrl) {
+      const img = getCustomAssetImage(avatar.customSkinUrl)
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.save()
+        if (dir === 'left') {
+          ctx.translate(px + size / 2, 0)
+          ctx.scale(-1, 1)
+          ctx.translate(-(px + size / 2), 0)
+        }
+        ctx.drawImage(img, px, py + bodyBob, size, size)
+        ctx.restore()
+
+        if (showNameTag) {
+          NameTagRenderer.drawNameTag(ctx, player, isLocal, centerX, py - 13)
+        }
+        ctx.restore()
+        return
+      }
+    }
 
     // Normalize Colors and Types with Backward Compatibility (Default to clean, neutral avatar)
     const skinTone = avatar.skinTone || avatar.skinColor || '#ffd1a4'

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Check } from 'lucide-react'
+import { Check, Plus, Pencil, Trash2, RotateCcw } from 'lucide-react'
 import {
   AvatarConfig,
   SkinDetailType,
@@ -15,6 +15,7 @@ import {
   OtherType,
 } from '../../types/game'
 import { CategoryKey } from './CategoryTabs'
+import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 
 interface Props {
   activeCategory: CategoryKey
@@ -23,8 +24,133 @@ interface Props {
 }
 
 export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, onChangeAvatar }) => {
+  const { customAssets, deleteCustomAsset } = useCustomAssetsStore()
+  const avatarAssets = customAssets.filter((a) => a.type === 'avatar')
+
   return (
     <div className="flex-1 overflow-y-auto pr-1">
+      {/* CATEGORY: FEITOS À MÃO / SKINS CUSTOMIZADAS */}
+      {activeCategory === 'handDrawn' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-300">
+              Skins & Componentes Desenhados à Mão
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                useCustomAssetsStore.getState().openDrawModal({
+                  name: 'Meu Avatar Pixel Art',
+                  width: 1,
+                  height: 1,
+                })
+              }}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-500/20 transition-all active:scale-95"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Desenhar Novo Avatar</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {/* Option to clear custom hand-drawn skin and revert to standard avatar */}
+            <button
+              onClick={() => onChangeAvatar({ ...avatar, customSkinUrl: undefined, customAvatarId: undefined })}
+              className={`group relative flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square ${
+                !avatar.customSkinUrl
+                  ? 'border-[#3b82f6] bg-[#3b82f6]/20 shadow-md ring-2 ring-[#3b82f6]/30'
+                  : 'border-[#383a40] bg-[#1e1f22] hover:border-slate-500'
+              }`}
+            >
+              <div className="w-12 h-12 rounded-xl bg-[#26282e] border border-white/10 flex items-center justify-center mb-1.5">
+                <RotateCcw className="w-5 h-5 text-slate-300 group-hover:rotate-45 transition-transform" />
+              </div>
+              <span className="text-[11px] font-semibold text-slate-200 text-center">
+                Avatar Padrão
+              </span>
+              {!avatar.customSkinUrl && (
+                <div className="absolute top-1.5 right-1.5 w-4 h-4 bg-[#3b82f6] text-white rounded-full flex items-center justify-center">
+                  <Check className="w-2.5 h-2.5" />
+                </div>
+              )}
+            </button>
+
+            {/* List of all custom drawn avatar skins */}
+            {avatarAssets.map((asset) => {
+              const isSelected = avatar.customSkinUrl === asset.frames[0] || avatar.customAvatarId === asset.id
+              return (
+                <div
+                  key={asset.id}
+                  className={`group relative flex flex-col items-center justify-between p-2.5 rounded-2xl border-2 transition-all aspect-square ${
+                    isSelected
+                      ? 'border-[#3b82f6] bg-[#3b82f6]/20 shadow-md ring-2 ring-[#3b82f6]/30'
+                      : 'border-[#383a40] bg-[#1e1f22] hover:border-slate-500'
+                  }`}
+                >
+                  {/* Top Left Edit in Draw Studio Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      useCustomAssetsStore.getState().openDrawModal({
+                        dataUrl: asset.frames[0],
+                        name: asset.name,
+                        width: 1,
+                        height: 1,
+                      })
+                    }}
+                    className="absolute top-1.5 left-1.5 p-1 rounded-md bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-400 hover:text-indigo-200 z-10 transition-colors"
+                    title="Editar pixels no Desenhar à Mão"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+
+                  {/* Top Right Delete Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (confirm(`Excluir o avatar "${asset.name}"?`)) {
+                        deleteCustomAsset(asset.id)
+                        if (isSelected) {
+                          onChangeAvatar({ ...avatar, customSkinUrl: undefined, customAvatarId: undefined })
+                        }
+                      }
+                    }}
+                    className="absolute top-1.5 right-1.5 p-1 rounded-md bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 hover:text-rose-200 z-10 transition-colors"
+                    title="Excluir skin de avatar"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => onChangeAvatar({ ...avatar, customSkinUrl: asset.frames[0], customAvatarId: asset.id })}
+                    className="w-full h-full flex flex-col items-center justify-center"
+                  >
+                    <div className="w-14 h-14 rounded-xl bg-[#12151d] border border-white/10 flex items-center justify-center p-1 overflow-hidden mb-1">
+                      <img
+                        src={asset.frames[0]}
+                        alt={asset.name}
+                        className="max-w-full max-h-full object-contain pixelated"
+                      />
+                    </div>
+                    <span className="text-[11px] font-semibold text-slate-200 truncate max-w-[90px]">
+                      {asset.name}
+                    </span>
+                  </button>
+
+                  {isSelected && (
+                    <div className="absolute bottom-1.5 right-1.5 w-4 h-4 bg-[#3b82f6] text-white rounded-full flex items-center justify-center">
+                      <Check className="w-2.5 h-2.5" />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
       {/* CATEGORY: TOM DA PELE */}
       {activeCategory === 'skin' && (
         <div className="grid grid-cols-3 gap-3">

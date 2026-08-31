@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { useMapStore } from '../store/useMapStore'
+import { useGameStore } from '../store/useGameStore'
+import { PeerManager } from '../p2p/PeerManager'
 import { CustomAsset, CustomAssetType } from '../types/customAsset'
 import {
   cropImage,
@@ -45,7 +47,7 @@ export const CustomElementModal: React.FC = () => {
 
   // Draw Studio Initial Artwork Data
   const [drawStudioArtwork, setDrawStudioArtwork] = useState<{
-    dataUrl: string
+    dataUrl?: string
     name?: string
     width?: number
     height?: number
@@ -173,16 +175,22 @@ export const CustomElementModal: React.FC = () => {
 
   const handleSelectElementType = (newType: CustomAssetType) => {
     setElementType(newType)
-    if (newType === 'floor') {
-      if (category === 'Forja Antiga' || category === 'Geral') {
+    if (newType === 'avatar') {
+      setCategory('Avatares')
+      setTileWidth(1)
+      setTileHeight(1)
+      setCompositeBoardWidth(32)
+      setCompositeBoardHeight(32)
+    } else if (newType === 'floor') {
+      if (category === 'Forja Antiga' || category === 'Geral' || category === 'Avatares') {
         setCategory('Pisos Personalizados')
       }
     } else if (newType === 'wall') {
-      if (category === 'Forja Antiga' || category === 'Geral') {
+      if (category === 'Forja Antiga' || category === 'Geral' || category === 'Avatares') {
         setCategory('Paredes das Zonas')
       }
     } else {
-      if (category === 'Pisos Personalizados' || category === 'Paredes das Zonas') {
+      if (category === 'Pisos Personalizados' || category === 'Paredes das Zonas' || category === 'Avatares') {
         setCategory('Forja Antiga')
       }
     }
@@ -1086,6 +1094,11 @@ export const CustomElementModal: React.FC = () => {
       } else if (elementType === 'wall') {
         setSelectedWall(editingAssetId as any)
         setActiveTool('paint_wall')
+      } else if (elementType === 'avatar') {
+        const curAvatar = useGameStore.getState().localPlayer.avatar
+        const updatedAvatar = { ...curAvatar, customSkinUrl: finalFrames[0], customAvatarId: editingAssetId }
+        useGameStore.getState().setLocalPlayer({ avatar: updatedAvatar })
+        PeerManager.getInstance().sendPlayerUpdate({ avatar: updatedAvatar })
       }
 
       setCustomModalOpen(false)
@@ -1096,7 +1109,7 @@ export const CustomElementModal: React.FC = () => {
 
     const newAsset: CustomAsset = {
       id,
-      name: elementName.trim() || 'Elemento Customizado',
+      name: elementName.trim() || (elementType === 'avatar' ? 'Skin de Avatar' : 'Elemento Customizado'),
       type: elementType,
       category: finalCategory,
       width: tileWidth,
@@ -1106,7 +1119,7 @@ export const CustomElementModal: React.FC = () => {
       frames: finalFrames,
       frameLayers: finalFrameLayers,
       frameRateMs,
-      iconColor: isFloor ? '#20c997' : isWall ? '#f59f00' : '#e03131',
+      iconColor: elementType === 'avatar' ? '#8b5cf6' : isFloor ? '#20c997' : isWall ? '#f59f00' : '#e03131',
       createdAt: Date.now(),
     }
 
@@ -1121,6 +1134,11 @@ export const CustomElementModal: React.FC = () => {
     } else if (elementType === 'wall') {
       setSelectedWall(id as any)
       setActiveTool('paint_wall')
+    } else if (elementType === 'avatar') {
+      const curAvatar = useGameStore.getState().localPlayer.avatar
+      const updatedAvatar = { ...curAvatar, customSkinUrl: finalFrames[0], customAvatarId: id }
+      useGameStore.getState().setLocalPlayer({ avatar: updatedAvatar })
+      PeerManager.getInstance().sendPlayerUpdate({ avatar: updatedAvatar })
     }
 
     setCustomModalOpen(false)
