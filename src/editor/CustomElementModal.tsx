@@ -302,6 +302,18 @@ export const CustomElementModal: React.FC = () => {
     const sw = selection.w * zoom
     const sh = selection.h * zoom
 
+    // Live preview: inside the selection, show the piece with the automatic
+    // transparency filter applied (background keyed out), so the user sees
+    // the result before cropping. Without this the filter only took effect
+    // after "Recortar & Salvar".
+    if (enableBgRemoval) {
+      const processed = getProcessedSelectionCanvas()
+      if (processed) {
+        ctx.clearRect(sx, sy, sw, sh)
+        ctx.drawImage(processed, sx, sy, sw, sh)
+      }
+    }
+
     ctx.fillStyle = 'rgba(59, 130, 246, 0.25)'
     ctx.fillRect(sx, sy, sw, sh)
 
@@ -315,7 +327,7 @@ export const CustomElementModal: React.FC = () => {
     ctx.fillRect(sx + sw - handleSize / 2, sy - handleSize / 2, handleSize, handleSize)
     ctx.fillRect(sx - handleSize / 2, sy + sh - handleSize / 2, handleSize, handleSize)
     ctx.fillRect(sx + sw - handleSize / 2, sy + sh - handleSize / 2, handleSize, handleSize)
-  }, [sourceImage, zoom, selection, snapToGrid, studioMode, isCustomModalOpen])
+  }, [sourceImage, zoom, selection, snapToGrid, studioMode, isCustomModalOpen, enableBgRemoval, targetColor, tolerance, removeWhiteFringe])
 
   const getProcessedSelectionCanvas = (): HTMLCanvasElement | null => {
     if (!sourceImage || selection.w <= 0 || selection.h <= 0) return null
