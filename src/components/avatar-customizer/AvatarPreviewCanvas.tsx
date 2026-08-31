@@ -10,6 +10,7 @@ interface Props {
   name: string
   localPlayer: Player
   onRandomize: () => void
+  onCloseModal?: () => void
 }
 
 export const AvatarPreviewCanvas: React.FC<Props> = ({
@@ -18,6 +19,7 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
   name,
   localPlayer,
   onRandomize,
+  onCloseModal,
 }) => {
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -148,6 +150,10 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
       width: 1,
       height: 1,
     })
+
+    if (onCloseModal) {
+      onCloseModal()
+    }
   }
 
   return (
@@ -160,7 +166,7 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
         <div className="absolute top-3 right-3 flex items-center gap-1.5">
           <button
             onClick={handleOpenInDrawStudio}
-            className="p-2 rounded-xl bg-[#18191c]/80 hover:bg-indigo-600 text-slate-300 hover:text-white border border-[#2b2d31] backdrop-blur-md shadow-lg transition-all active:scale-95 flex items-center gap-1 text-[11px] font-bold"
+            className="p-2 rounded-xl bg-[#18191c]/90 hover:bg-indigo-600 text-slate-300 hover:text-white border border-[#2b2d31] backdrop-blur-md shadow-lg transition-all active:scale-95 flex items-center gap-1 text-[11px] font-bold"
             title="Editar pixels deste avatar no Desenhar à Mão"
           >
             <Pencil className="w-3.5 h-3.5 text-amber-300" />
@@ -169,7 +175,7 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
 
           <button
             onClick={handleDownloadPNG}
-            className="p-2 rounded-xl bg-[#18191c]/80 hover:bg-[#18191c] text-slate-300 hover:text-white border border-[#2b2d31] backdrop-blur-md shadow-lg transition-all active:scale-95"
+            className="p-2 rounded-xl bg-[#18191c]/90 hover:bg-[#18191c] text-slate-300 hover:text-white border border-[#2b2d31] backdrop-blur-md shadow-lg transition-all active:scale-95"
             title="Baixar Avatar em PNG"
           >
             <Download className="w-4 h-4" />
