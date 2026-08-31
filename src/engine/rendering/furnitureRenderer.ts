@@ -20,13 +20,6 @@ export class FurnitureRenderer {
       ctx.save()
       ctx.imageSmoothingEnabled = false
 
-      if (customAsset.category !== 'walls_windows') {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
-        ctx.beginPath()
-        ctx.ellipse(px + w / 2, py + h - 2, w / 2 - 2, 5, 0, 0, Math.PI * 2)
-        ctx.fill()
-      }
-
       const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
       const img = getCustomAssetImage(customAsset.frames[frameIdx])
       if (img && img.complete && img.naturalWidth > 0) {
@@ -72,14 +65,6 @@ export class FurnitureRenderer {
     const h = def.height * TILE_SIZE
 
     ctx.save()
-
-    // Furniture drop shadow (except for wall-mounted items)
-    if (def.category !== 'walls_windows') {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
-      ctx.beginPath()
-      ctx.ellipse(px + w / 2, py + h - 2, w / 2 - 2, 5, 0, 0, Math.PI * 2)
-      ctx.fill()
-    }
 
     switch (def.spriteKey) {
       // ==========================================
