@@ -7,7 +7,6 @@ import {
   Grid,
   Scissors,
   CheckSquare,
-  Pencil,
 } from 'lucide-react'
 
 export interface CroppedClip {
@@ -36,7 +35,6 @@ interface Props {
   onCanvasMouseMove: (e: React.MouseEvent<HTMLCanvasElement>) => void
   onCanvasMouseUp: () => void
   onCropAndSaveClip: () => void
-  onCropAndDrawSelection?: () => void
 }
 
 export const CropStudio: React.FC<Props> = ({
@@ -57,7 +55,6 @@ export const CropStudio: React.FC<Props> = ({
   onCanvasMouseMove,
   onCanvasMouseUp,
   onCropAndSaveClip,
-  onCropAndDrawSelection,
 }) => {
   // Track drag-and-drop hover state so the placeholder gives visual feedback
   // and the canvas wrapper can highlight when the user drags a file over it.
@@ -255,18 +252,6 @@ export const CropStudio: React.FC<Props> = ({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
-            {onCropAndDrawSelection && (
-              <button
-                type="button"
-                onClick={onCropAndDrawSelection}
-                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/20 flex items-center gap-1.5 transition-all active:scale-95"
-                title="Abrir e editar os pixels desta seleção no estúdio Desenhar à Mão"
-              >
-                <Pencil className="w-3.5 h-3.5 text-amber-300" />
-                <span>Editar no Desenho</span>
-              </button>
-            )}
-
             <button
               type="button"
               onClick={onCropAndSaveClip}

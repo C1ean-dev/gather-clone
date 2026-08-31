@@ -8,7 +8,7 @@ export interface Point {
 
 /**
  * Checks if a straight ray between point (x1, y1) and (x2, y2) is clear of collisions.
- * Uses fractional step sampling (0.2 tiles) to check character footprint clearance.
+ * Uses fractional step sampling (0.1 tiles) to check character footprint clearance.
  */
 export function hasLineOfSight(
   x1: number,
@@ -20,8 +20,10 @@ export function hasLineOfSight(
   const dist = Math.hypot(x2 - x1, y2 - y1)
   if (dist === 0) return !checkCollision(x1, y1, map)
 
-  // Step every ~0.2 tiles (approx 6.4 pixels)
-  const stepCount = Math.max(1, Math.ceil(dist / 0.2))
+  // Step every ~0.1 tiles (approx 3.2 pixels). This is deliberately smaller
+  // than the thinnest zone wall so a segment cannot jump over a corner or a
+  // wall band between two otherwise walkable nodes.
+  const stepCount = Math.max(1, Math.ceil(dist / 0.1))
   for (let i = 0; i <= stepCount; i++) {
     const t = i / stepCount
     const sampleX = x1 + (x2 - x1) * t
@@ -237,6 +239,13 @@ export function findPath(
       if (closedSet.has(nKey)) continue
       if (nx < 0 || nx >= map.width || ny < 0 || ny >= map.height) continue
 
+      // A walkable destination is not enough for thin zone walls: two
+      // neighbouring grid points can be free while the segment between them
+      // crosses a wall (this is especially common at zone corners). Validate
+      // the complete edge with the same footprint-aware raycast used by the
+      // path smoother so A* never emits a waypoint jump through geometry.
+      if (!hasLineOfSight(current.x, current.y, nx, ny, map)) continue
+
       // For diagonal movement, prevent cutting through wall corners:
       // Both adjacent orthogonal neighbors must be walkable
       if (offset.dx !== 0 && offset.dy !== 0) {
@@ -279,13 +288,13 @@ export function findPath(
   // Eliminates zig-zag steps and produces smooth, natural trajectories around corners
   const smoothedPath: Point[] = []
   let currentIdx = 0
+  let fromPoint: Point = { x: startX, y: startY }
 
-  while (currentIdx < rawPath.length) {
-    let furthestIdx = currentIdx + 1
+  while (currentIdx < rawPath.length - 1) {
+    let furthestIdx = -1
 
     // Look as far ahead as possible with clear line of sight
     for (let checkIdx = rawPath.length - 1; checkIdx > currentIdx; checkIdx--) {
-      const fromPoint = currentIdx === 0 ? { x: startX, y: startY } : rawPath[currentIdx]
       const toPoint = rawPath[checkIdx]
 
       if (hasLineOfSight(fromPoint.x, fromPoint.y, toPoint.x, toPoint.y, map)) {
@@ -294,15 +303,16 @@ export function findPath(
       }
     }
 
-    if (furthestIdx < rawPath.length) {
-      smoothedPath.push(rawPath[furthestIdx])
-      currentIdx = furthestIdx
-    } else {
-      if (currentIdx < rawPath.length - 1) {
-        smoothedPath.push(rawPath[rawPath.length - 1])
-      }
-      break
+    // A* edges are validated, so this should only fail when the actual
+    // fractional player position differs from its rounded start cell. Return
+    // no route instead of emitting a blocked first waypoint in that case.
+    if (furthestIdx === -1) {
+      return []
     }
+
+    smoothedPath.push(rawPath[furthestIdx])
+    currentIdx = furthestIdx
+    fromPoint = rawPath[furthestIdx]
   }
 
   return smoothedPath.length > 0 ? smoothedPath : [{ x: walkableTarget.x, y: walkableTarget.y }]

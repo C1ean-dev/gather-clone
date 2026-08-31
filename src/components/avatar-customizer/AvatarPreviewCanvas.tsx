@@ -1,8 +1,7 @@
 import React, { useEffect, useRef } from 'react'
-import { Download, Dices, Pencil } from 'lucide-react'
+import { Download, Dices } from 'lucide-react'
 import { AvatarConfig, Player } from '../../types/game'
 import { AvatarRenderer } from '../../engine/AvatarRenderer'
-import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 
 interface Props {
   isOpen: boolean
@@ -10,7 +9,6 @@ interface Props {
   name: string
   localPlayer: Player
   onRandomize: () => void
-  onCloseModal?: () => void
 }
 
 export const AvatarPreviewCanvas: React.FC<Props> = ({
@@ -19,7 +17,6 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
   name,
   localPlayer,
   onRandomize,
-  onCloseModal,
 }) => {
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -123,39 +120,6 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
     link.click()
   }
 
-  // Open Avatar Sprite in Hand-Draw Studio
-  const handleOpenInDrawStudio = () => {
-    const canvas = document.createElement('canvas')
-    canvas.width = 32
-    canvas.height = 32
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.imageSmoothingEnabled = false
-
-    const tempPlayer = {
-      ...localPlayer,
-      avatar,
-      direction: 'down' as const,
-      isMoving: false,
-      x: 0,
-      y: 0,
-    }
-
-    AvatarRenderer.drawPlayer(ctx, tempPlayer, true, 0, 32, false)
-    const dataUrl = canvas.toDataURL('image/png')
-
-    useCustomAssetsStore.getState().openDrawModal({
-      dataUrl,
-      name: `${name.trim() || 'Avatar'} (Pixel Art)`,
-      width: 1,
-      height: 1,
-    })
-
-    if (onCloseModal) {
-      onCloseModal()
-    }
-  }
-
   return (
     <div className="w-80 bg-[#1e1f22] border-l border-[#2b2d31] relative flex items-center justify-center p-4 shrink-0 overflow-hidden">
       {/* Live 2D Canvas Stage */}
@@ -164,15 +128,6 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
 
         {/* Floating Top-Right Action Buttons */}
         <div className="absolute top-3 right-3 flex items-center gap-1.5">
-          <button
-            onClick={handleOpenInDrawStudio}
-            className="p-2 rounded-xl bg-[#18191c]/90 hover:bg-indigo-600 text-slate-300 hover:text-white border border-[#2b2d31] backdrop-blur-md shadow-lg transition-all active:scale-95 flex items-center gap-1 text-[11px] font-bold"
-            title="Editar pixels deste avatar no Desenhar à Mão"
-          >
-            <Pencil className="w-3.5 h-3.5 text-amber-300" />
-            <span>Editar à Mão</span>
-          </button>
-
           <button
             onClick={handleDownloadPNG}
             className="p-2 rounded-xl bg-[#18191c]/90 hover:bg-[#18191c] text-slate-300 hover:text-white border border-[#2b2d31] backdrop-blur-md shadow-lg transition-all active:scale-95"

@@ -224,7 +224,6 @@ export const AssetPalette: React.FC = () => {
               setSelectedFurnitureDefId={setSelectedFurnitureDefId}
               activeTool={activeTool}
               setActiveTool={setActiveTool}
-              openEditModal={openEditModal}
               deleteCustomAsset={deleteCustomAsset}
             />
           )}
@@ -236,7 +235,6 @@ export const AssetPalette: React.FC = () => {
               setSelectedFloor={setSelectedFloor}
               activeTool={activeTool}
               setActiveTool={setActiveTool}
-              openEditModal={openEditModal}
               deleteCustomAsset={deleteCustomAsset}
             />
           )}

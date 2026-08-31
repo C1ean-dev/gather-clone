@@ -11,9 +11,19 @@ import { PeerManager } from '../../p2p/PeerManager'
  * Precise Thin-Wall & Furniture Collision Checking
  * Only collides with the exact physical 6px partition beams and obstacle items,
  * completely eliminating invisible block boundaries.
+ *
+ * Zone side-wall collision band: visually 0.15 tiles thick, but the player's
+ * footprint extends 0.22 tiles around its center. The band therefore remains
+ * active until the complete footprint is outside the wall. This pairs with
+ * the engine's MAX_SUBSTEP=0.05 sub-stepping to prevent tunneling.
  */
 export function checkCollision(x: number, y: number, map: MapData): boolean {
   const playerRadius = 0.22
+  // Inner side-wall thickness — at least the visual 0.15, but grown so a sample
+  // taken at any sub-step boundary is still inside the wall whenever the player
+  // is touching it.
+  const sideWallThickness = Math.max(0.15, playerRadius + 0.05)
+
   const pcx = x + 0.5
   const pcy = y + 0.5
 
@@ -78,22 +88,41 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
       const doorEndY = doorStartY + doorH
 
       if (doorStartY > minY + backWallH) {
-        if (pMaxX > minX && pMinX < minX + 0.15 && pMaxY > minY + backWallH && pMinY < doorStartY) {
+        if (
+          pMaxX > minX &&
+          pMinX < minX + sideWallThickness &&
+          pMaxY > minY + backWallH &&
+          pMinY < doorStartY
+        ) {
           return true
         }
       }
       if (frontWallY > doorEndY) {
-        if (pMaxX > minX && pMinX < minX + 0.15 && pMaxY > doorEndY && pMinY < frontWallY) {
+        if (
+          pMaxX > minX &&
+          pMinX < minX + sideWallThickness &&
+          pMaxY > doorEndY &&
+          pMinY < frontWallY
+        ) {
           return true
         }
       }
     } else {
-      if (pMaxX > minX && pMinX < minX + 0.15 && pMaxY > minY + backWallH && pMinY < frontWallY) {
+      if (
+        pMaxX > minX &&
+        pMinX < minX + sideWallThickness &&
+        pMaxY > minY + backWallH &&
+        pMinY < frontWallY
+      ) {
         return true
       }
     }
 
-    // C. Right Thin Side Wall Collision (Respects Doorway Opening to Right Room)
+    // C. Right Thin Side Wall Collision. The collision band is extended outside
+    // the zone by playerRadius so the wall remains active while the player's
+    // left edge is still inside the zone (pMinX < maxX). The inner edge uses
+    // sideWallThickness so the player cannot overlap the wall from inside.
+    // Combined with sub-stepping, this closes the tunnel gap at the boundary.
     if (rightNeighbor) {
       const overlapMinY = Math.max(minY, rightNeighbor.y)
       const overlapMaxY = Math.min(maxY, rightNeighbor.y + rightNeighbor.height)
@@ -103,17 +132,32 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
       const doorEndY = doorStartY + doorH
 
       if (doorStartY > minY + backWallH) {
-        if (pMaxX > maxX - 0.15 && pMinX < maxX && pMaxY > minY + backWallH && pMinY < doorStartY) {
+        if (
+          pMaxX > maxX - sideWallThickness &&
+          pMinX < maxX &&
+          pMaxY > minY + backWallH &&
+          pMinY < doorStartY
+        ) {
           return true
         }
       }
       if (frontWallY > doorEndY) {
-        if (pMaxX > maxX - 0.15 && pMinX < maxX && pMaxY > doorEndY && pMinY < frontWallY) {
+        if (
+          pMaxX > maxX - sideWallThickness &&
+          pMinX < maxX &&
+          pMaxY > doorEndY &&
+          pMinY < frontWallY
+        ) {
           return true
         }
       }
     } else {
-      if (pMaxX > maxX - 0.15 && pMinX < maxX && pMaxY > minY + backWallH && pMinY < frontWallY) {
+      if (
+        pMaxX > maxX - sideWallThickness &&
+        pMinX < maxX &&
+        pMaxY > minY + backWallH &&
+        pMinY < frontWallY
+      ) {
         return true
       }
     }

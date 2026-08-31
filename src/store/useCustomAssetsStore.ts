@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { CustomAsset } from '../types/customAsset'
 import { FurnitureDefinition } from '../types/map'
-import { AvatarComponentSlot } from '../types/game'
 import { PeerManager } from '../p2p/PeerManager'
 import nativeAssetsData from '../data/nativeAssets.json'
 
@@ -9,15 +8,6 @@ const ASSETS_STORAGE_KEY = 'gather_v2_custom_user_assets'
 const CATEGORIES_STORAGE_KEY = 'gather_v2_custom_categories'
 
 const DEFAULT_CATEGORIES = ['Geral', 'Forja Antiga', 'Escritório', 'Medieval', 'Decoração', 'Avatares']
-
-export interface InitialDrawArtworkOptions {
-  dataUrl?: string
-  name?: string
-  width?: number
-  height?: number
-  avatarComponentSlot?: AvatarComponentSlot
-  showGhostAvatar?: boolean
-}
 
 // In-memory HTMLImageElement cache for fast canvas rendering
 const imageCache: Map<string, HTMLImageElement> = new Map()
@@ -118,13 +108,11 @@ interface CustomAssetsState {
   customCategories: string[]
   isCustomModalOpen: boolean
   editingAssetId: string | null
-  initialStudioMode: 'crop' | 'draw' | 'compose'
-  initialDrawArtwork: InitialDrawArtworkOptions | null
+  initialStudioMode: 'crop' | 'compose'
   setCustomModalOpen: (open: boolean) => void
   setEditingAssetId: (id: string | null) => void
-  openCreateModal: (mode?: 'crop' | 'draw' | 'compose') => void
-  openEditModal: (id: string, mode?: 'crop' | 'draw' | 'compose') => void
-  openDrawModal: (artwork?: InitialDrawArtworkOptions) => void
+  openCreateModal: (mode?: 'crop' | 'compose') => void
+  openEditModal: (id: string, mode?: 'crop' | 'compose') => void
   addCustomAsset: (asset: CustomAsset) => void
   updateCustomAsset: (id: string, asset: Partial<CustomAsset>) => void
   deleteCustomAsset: (id: string) => void
@@ -134,8 +122,6 @@ interface CustomAssetsState {
   addCategory: (categoryName: string) => void
   deleteCategory: (categoryName: string) => void
   getAssetById: (id: string) => CustomAsset | undefined
-  getAvatarAssets: () => CustomAsset[]
-  saveAvatarSkin: (name: string, dataUrl: string) => CustomAsset
   getAllCategories: () => string[]
   getFurnitureCatalog: (baseCatalog: FurnitureDefinition[]) => FurnitureDefinition[]
 }
@@ -146,25 +132,16 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
   isCustomModalOpen: false,
   editingAssetId: null,
   initialStudioMode: 'crop',
-  initialDrawArtwork: null,
   setCustomModalOpen: (open) =>
     set({
       isCustomModalOpen: open,
       editingAssetId: open ? get().editingAssetId : null,
-      initialDrawArtwork: open ? get().initialDrawArtwork : null,
     }),
   setEditingAssetId: (id) => set({ editingAssetId: id }),
   openCreateModal: (mode = 'crop') =>
-    set({ isCustomModalOpen: true, editingAssetId: null, initialStudioMode: mode, initialDrawArtwork: null }),
+    set({ isCustomModalOpen: true, editingAssetId: null, initialStudioMode: mode }),
   openEditModal: (id, mode = 'compose') =>
     set({ isCustomModalOpen: true, editingAssetId: id, initialStudioMode: mode }),
-  openDrawModal: (artwork) =>
-    set({
-      isCustomModalOpen: true,
-      editingAssetId: null,
-      initialStudioMode: 'draw',
-      initialDrawArtwork: artwork || null,
-    }),
 
   addCustomAsset: (asset) => {
     // Cache frames
@@ -303,29 +280,6 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
 
   getAssetById: (id) => {
     return get().customAssets.find((a) => a.id === id)
-  },
-
-  getAvatarAssets: () => {
-    return get().customAssets.filter((a) => a.type === 'avatar')
-  },
-
-  saveAvatarSkin: (name, dataUrl) => {
-    const id = `avatar_skin_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
-    const asset: CustomAsset = {
-      id,
-      name: name || 'Skin Personalizada',
-      type: 'avatar',
-      category: 'Avatares',
-      width: 1,
-      height: 1,
-      isObstacle: false,
-      frames: [dataUrl],
-      frameRateMs: 160,
-      iconColor: '#8b5cf6',
-      createdAt: Date.now(),
-    }
-    get().addCustomAsset(asset)
-    return asset
   },
 
   getFurnitureCatalog: (baseCatalog) => {

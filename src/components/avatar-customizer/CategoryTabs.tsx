@@ -1,6 +1,5 @@
 import React from 'react'
 import {
-  Palette,
   Smile,
   Eye,
   Sparkles,
@@ -14,7 +13,6 @@ import {
 } from 'lucide-react'
 
 export type CategoryKey =
-  | 'handDrawn'
   | 'skin'
   | 'eyes'
   | 'hair'
@@ -33,7 +31,6 @@ interface Props {
 }
 
 export const CATEGORIES = [
-  { id: 'handDrawn', label: 'Feitos à Mão', icon: Palette },
   { id: 'skin', label: 'Tom da pele', icon: Smile },
   { id: 'eyes', label: 'Olhos', icon: Eye },
   { id: 'hair', label: 'Cabelo', icon: Sparkles },

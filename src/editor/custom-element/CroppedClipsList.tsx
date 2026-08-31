@@ -1,19 +1,17 @@
 import React from 'react'
-import { Scissors, Plus, Trash2, Pencil } from 'lucide-react'
+import { Scissors, Plus, Trash2 } from 'lucide-react'
 import { CroppedClip } from './CropStudio'
 
 interface Props {
   croppedClips: CroppedClip[]
   onAddClipToComposition: (clip: CroppedClip) => void
   onDeleteClip: (clipId: string) => void
-  onEditClipInDrawStudio?: (clip: CroppedClip) => void
 }
 
 export const CroppedClipsList: React.FC<Props> = ({
   croppedClips,
   onAddClipToComposition,
   onDeleteClip,
-  onEditClipInDrawStudio,
 }) => {
   return (
     <div className="bg-[#18191c] rounded-2xl p-4 border border-[#2b2d31] space-y-3">
@@ -21,7 +19,7 @@ export const CroppedClipsList: React.FC<Props> = ({
         <div className="flex items-center gap-2">
           <Scissors className="w-4 h-4 text-emerald-400" />
           <span className="text-xs font-bold text-slate-200">
-            Biblioteca de Peças & Desenhos ({croppedClips.length})
+            Biblioteca de Peças ({croppedClips.length})
           </span>
         </div>
         <span className="text-[10px] text-slate-400">Clique para adicionar à mesa</span>
@@ -32,7 +30,7 @@ export const CroppedClipsList: React.FC<Props> = ({
           <Scissors className="w-5 h-5 text-slate-500 mx-auto" />
           <div className="text-xs text-slate-400 font-semibold">Nenhuma peça criada ainda</div>
           <div className="text-[10px] text-slate-500">
-            Recorte de uma imagem ou use a aba "2. Desenhar à Mão" para criar peças livres!
+            Recorte uma imagem para criar peças e clique nelas para adicioná-las à mesa.
           </div>
         </div>
       ) : (
@@ -63,21 +61,6 @@ export const CroppedClipsList: React.FC<Props> = ({
                 <Plus className="w-4 h-4" />
                 <span>Adicionar</span>
               </div>
-
-              {/* Top-Left Edit in Draw Studio Button */}
-              {onEditClipInDrawStudio && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onEditClipInDrawStudio(clip)
-                  }}
-                  className="absolute top-1 left-1 p-1 bg-black/60 hover:bg-indigo-600 rounded text-slate-300 hover:text-white opacity-0 group-hover:opacity-100 transition-all z-10"
-                  title="Editar pixels desta peça no Desenhar à Mão"
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-              )}
 
               {/* Top-Right Delete Clip Button */}
               <button

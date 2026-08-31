@@ -3,11 +3,10 @@ import {
   X,
   Sparkles,
   Scissors,
-  Pencil,
   Check,
   RotateCcw,
 } from 'lucide-react'
-import { useCustomAssetsStore, InitialDrawArtworkOptions } from '../store/useCustomAssetsStore'
+import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { useMapStore } from '../store/useMapStore'
 import { useGameStore } from '../store/useGameStore'
 import { PeerManager } from '../p2p/PeerManager'
@@ -19,7 +18,6 @@ import {
   PRESET_BG_COLORS,
 } from '../utils/imageTransparency'
 import { CropStudio, CroppedClip } from './custom-element/CropStudio'
-import { DrawStudio } from './custom-element/DrawStudio'
 import { CompositionStudio, CompositeLayer } from './custom-element/CompositionStudio'
 import { CroppedClipsList } from './custom-element/CroppedClipsList'
 import { LayerManager } from './custom-element/LayerManager'
@@ -33,7 +31,6 @@ export const CustomElementModal: React.FC = () => {
     setCustomModalOpen,
     editingAssetId,
     initialStudioMode,
-    initialDrawArtwork,
     updateCustomAsset,
     getAssetById,
     addCustomAsset,
@@ -42,11 +39,8 @@ export const CustomElementModal: React.FC = () => {
   } = useCustomAssetsStore()
   const { setSelectedFurnitureDefId, setSelectedFloor, setSelectedWall, setActiveTool } = useMapStore()
 
-  // Studio Mode: 'crop' (Recorte de Sprites) vs 'draw' (Desenhar à Mão) vs 'compose' (Mesa de Montagem)
-  const [studioMode, setStudioMode] = useState<'crop' | 'draw' | 'compose'>('crop')
-
-  // Draw Studio Initial Artwork Data
-  const [drawStudioArtwork, setDrawStudioArtwork] = useState<InitialDrawArtworkOptions | null>(null)
+  // Studio Mode: 'crop' (Recorte de Sprites) vs 'compose' (Mesa de Montagem)
+  const [studioMode, setStudioMode] = useState<'crop' | 'compose'>('crop')
 
   // Source Image State
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null)
@@ -191,23 +185,9 @@ export const CustomElementModal: React.FC = () => {
     }
   }
 
-  // Load asset data when editing an existing asset or opening in draw/crop mode
+  // Load asset data when editing an existing asset or opening in crop/compose mode
   useEffect(() => {
     if (!isCustomModalOpen) return
-
-    if (initialStudioMode === 'draw') {
-      setStudioMode('draw')
-      if (initialDrawArtwork) {
-        const wTiles = initialDrawArtwork.width || 2
-        const hTiles = initialDrawArtwork.height || 2
-        setTileWidth(wTiles)
-        setTileHeight(hTiles)
-        setCompositeBoardWidth(wTiles * 32)
-        setCompositeBoardHeight(hTiles * 32)
-        setDrawStudioArtwork(initialDrawArtwork)
-      }
-      return
-    }
 
     if (editingAssetId) {
       const asset = getAssetById(editingAssetId)
@@ -282,7 +262,7 @@ export const CustomElementModal: React.FC = () => {
     } else {
       setStudioMode(initialStudioMode || 'crop')
     }
-  }, [isCustomModalOpen, editingAssetId, initialStudioMode, initialDrawArtwork])
+  }, [isCustomModalOpen, editingAssetId, initialStudioMode])
 
   // Animation player ticker
   useEffect(() => {
@@ -825,73 +805,6 @@ export const CustomElementModal: React.FC = () => {
     setSelectedLayerId(newLayerId)
   }
 
-  // Handlers for Hand-Drawn Pixel Art Pieces
-  const handleAddDrawingToComposition = (clip: CroppedClip) => {
-    setCroppedClips((prev) => {
-      const exists = prev.some((c) => c.id === clip.id)
-      return exists ? prev : [...prev, clip]
-    })
-    handleAddClipToCompositionBoard(clip)
-    setStudioMode('compose')
-  }
-
-  const handleSaveDrawingAsClip = (clip: CroppedClip) => {
-    setCroppedClips((prev) => {
-      const exists = prev.some((c) => c.id === clip.id)
-      return exists ? prev : [...prev, clip]
-    })
-  }
-
-  const handleCropAndDrawSelection = () => {
-    const processed = getProcessedSelectionCanvas()
-    if (!processed) return
-    const wTiles = Math.max(1, Math.ceil(selection.w / 32))
-    const hTiles = Math.max(1, Math.ceil(selection.h / 32))
-    setTileWidth(wTiles)
-    setTileHeight(hTiles)
-    setCompositeBoardWidth(wTiles * 32)
-    setCompositeBoardHeight(hTiles * 32)
-    setDrawStudioArtwork({
-      dataUrl: processed.toDataURL('image/png'),
-      name: `Recorte (${selection.w}x${selection.h}px)`,
-      width: wTiles,
-      height: hTiles,
-    })
-    setStudioMode('draw')
-  }
-
-  const handleEditClipInDrawStudio = (clip: CroppedClip) => {
-    const wTiles = Math.max(1, Math.round(clip.width / 32))
-    const hTiles = Math.max(1, Math.round(clip.height / 32))
-    setTileWidth(wTiles)
-    setTileHeight(hTiles)
-    setCompositeBoardWidth(wTiles * 32)
-    setCompositeBoardHeight(hTiles * 32)
-    setDrawStudioArtwork({
-      dataUrl: clip.dataUrl,
-      name: clip.name,
-      width: wTiles,
-      height: hTiles,
-    })
-    setStudioMode('draw')
-  }
-
-  const handleEditLayerInDrawStudio = (layer: CompositeLayer) => {
-    const wTiles = Math.max(1, Math.round(layer.width / 32))
-    const hTiles = Math.max(1, Math.round(layer.height / 32))
-    setTileWidth(wTiles)
-    setTileHeight(hTiles)
-    setCompositeBoardWidth(wTiles * 32)
-    setCompositeBoardHeight(hTiles * 32)
-    setDrawStudioArtwork({
-      dataUrl: layer.dataUrl,
-      name: layer.name,
-      width: wTiles,
-      height: hTiles,
-    })
-    setStudioMode('draw')
-  }
-
   const handleBakeCompositionToFrame = () => {
     if (compositeLayers.length === 0) {
       alert('Adicione pelo menos uma camada na mesa de composição antes de mesclar.')
@@ -1177,19 +1090,6 @@ export const CustomElementModal: React.FC = () => {
 
             <button
               type="button"
-              onClick={() => setStudioMode('draw')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                studioMode === 'draw'
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Pencil className="w-3.5 h-3.5 text-amber-300" />
-              <span>2. Desenhar à Mão</span>
-            </button>
-
-            <button
-              type="button"
               onClick={() => setStudioMode('compose')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                 studioMode === 'compose'
@@ -1233,20 +1133,6 @@ export const CustomElementModal: React.FC = () => {
                 onCanvasMouseMove={handleCanvasMouseMove}
                 onCanvasMouseUp={handleCanvasMouseUp}
                 onCropAndSaveClip={handleSaveCurrentCropToLibrary}
-                onCropAndDrawSelection={handleCropAndDrawSelection}
-              />
-            ) : studioMode === 'draw' ? (
-              <DrawStudio
-                tileWidth={tileWidth}
-                tileHeight={tileHeight}
-                setBoardSizeInTiles={setBoardSizeInTiles}
-                onAddDrawingToComposition={handleAddDrawingToComposition}
-                onSaveDrawingAsClip={handleSaveDrawingAsClip}
-                initialArtworkDataUrl={drawStudioArtwork?.dataUrl}
-                initialArtworkName={drawStudioArtwork?.name}
-                avatarComponentSlot={drawStudioArtwork?.avatarComponentSlot}
-                showGhostAvatarInitial={drawStudioArtwork?.showGhostAvatar}
-                croppedClips={croppedClips}
               />
             ) : (
               <CompositionStudio
@@ -1313,7 +1199,6 @@ export const CustomElementModal: React.FC = () => {
               croppedClips={croppedClips}
               onAddClipToComposition={handleAddClipToCompositionBoard}
               onDeleteClip={handleDeleteClip}
-              onEditClipInDrawStudio={handleEditClipInDrawStudio}
             />
 
             {/* Composite Layers Manager (in Compose Mode) */}
@@ -1327,7 +1212,6 @@ export const CustomElementModal: React.FC = () => {
                 onDeleteLayer={handleDeleteLayer}
                 onMoveLayerOrder={handleMoveLayerOrder}
                 onChangeLayerOpacity={handleChangeLayerOpacity}
-                onEditLayerInDrawStudio={handleEditLayerInDrawStudio}
               />
             )}
 

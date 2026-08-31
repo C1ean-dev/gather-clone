@@ -183,7 +183,6 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
             name={name}
             localPlayer={localPlayer}
             onRandomize={handleRandomize}
-            onCloseModal={onClose}
           />
         </div>
 

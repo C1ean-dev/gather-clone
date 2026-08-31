@@ -5,6 +5,7 @@
     "Escritório",
     "Medieval",
     "Decoração",
+    "Avatares",
     "Pisos Personalizados"
   ],
   "assets": [
@@ -193,6 +194,42 @@
       "frameRateMs": 160,
       "iconColor": "#20c997",
       "createdAt": 1788055301508
+    },
+    {
+      "id": "custom_1788185873480_ixb5n",
+      "name": "Meu Elemento Composto",
+      "type": "furniture",
+      "category": "Forja Antiga",
+      "width": 1,
+      "height": 1,
+      "isObstacle": false,
+      "collisionGrid": [
+        [
+          false
+        ]
+      ],
+      "frames": [
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAmFJREFUWEftVs1LVFEU/93BobSmdqn0gUEtmgeJS92koaH+CzngokWBgRHhooUzQYtHiC6CJF0IM/4LKhZ9gNWyXvCmRUEShdmqmpRCnBP3dl++mfsxyps+hLnLe879nd89557fuQyW5TjOOIBhk4vv+8xxHLJhAJjwff+KyYfZDieTyTRjbDQKASLK5PP5dGQCk2M38OTFa7iui5HBPowM9oO1DjDyciIDSyv1JfbsoidiRiIgAGQAd2YO7sy8ANUR0Nm5Lydpy7LVWEpgHjyImYBqryoB3S3CJTDWuAoZeAug5b8j8Oz+Y3RcnWJjfSepvfsM2rs7dRyXWevA8YhvIJsG1FZc/bCCpv5r7OPcLdEFjYeb1ThF6mJtqUeRCPDD7+/dHt/c3BgisLowWEvvMFtemFCEiIjW4nXxqSM9Q0YBCnC0XUDPs2nEtm79pbAu/AvrP0ouc/TcZfZ56S6V7yca9gi/g4mGLf8iZVhbShGkbREIUApr338DHui4IM5ynQjv873Evr26ckQnEEYNBCYQKludha0aGagR+HsZ8GZHATKO0LDG197A16fTpG278rbYXV0g3oBcxSJDTFRd+ZrZxzFlgNgvmeYYHGG7SqgTFd1jk2LUSV7uYfmZSj8h6yzYAYEuKcc1Av8sA+dlCWb/5Bs4xD885OVeaoL0SgILGttpAKsAPtkmpe1b3gjgBID9liA2AsIG4BuAN5KMwsVE4BiAUxVn/M4cXgF4p2TKgHEWQDywkZdTUiwHkjEDYbvE2QDwYNcQKClB9uali7pMpa7fmeT7lezyrLYEPwEOZX8wybRZ0QAAAABJRU5ErkJggg=="
+      ],
+      "frameLayers": [
+        [
+          {
+            "id": "layer_1788185871409_i1rf",
+            "clipId": "draw_1788185863117_48v3",
+            "name": "Player (Pixel Art)",
+            "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAmFJREFUWEftVs1LVFEU/93BobSmdqn0gUEtmgeJS92koaH+CzngokWBgRHhooUzQYtHiC6CJF0IM/4LKhZ9gNWyXvCmRUEShdmqmpRCnBP3dl++mfsxyps+hLnLe879nd89557fuQyW5TjOOIBhk4vv+8xxHLJhAJjwff+KyYfZDieTyTRjbDQKASLK5PP5dGQCk2M38OTFa7iui5HBPowM9oO1DjDyciIDSyv1JfbsoidiRiIgAGQAd2YO7sy8ANUR0Nm5Lydpy7LVWEpgHjyImYBqryoB3S3CJTDWuAoZeAug5b8j8Oz+Y3RcnWJjfSepvfsM2rs7dRyXWevA8YhvIJsG1FZc/bCCpv5r7OPcLdEFjYeb1ThF6mJtqUeRCPDD7+/dHt/c3BgisLowWEvvMFtemFCEiIjW4nXxqSM9Q0YBCnC0XUDPs2nEtm79pbAu/AvrP0ouc/TcZfZ56S6V7yca9gi/g4mGLf8iZVhbShGkbREIUApr338DHui4IM5ynQjv873Evr26ckQnEEYNBCYQKludha0aGagR+HsZ8GZHATKO0LDG197A16fTpG278rbYXV0g3oBcxSJDTFRd+ZrZxzFlgNgvmeYYHGG7SqgTFd1jk2LUSV7uYfmZSj8h6yzYAYEuKcc1Av8sA+dlCWb/5Bs4xD885OVeaoL0SgILGttpAKsAPtkmpe1b3gjgBID9liA2AsIG4BuAN5KMwsVE4BiAUxVn/M4cXgF4p2TKgHEWQDywkZdTUiwHkjEDYbvE2QDwYNcQKClB9uali7pMpa7fmeT7lezyrLYEPwEOZX8wybRZ0QAAAABJRU5ErkJggg==",
+            "x": 0,
+            "y": 0,
+            "width": 32,
+            "height": 32,
+            "flipH": false,
+            "opacity": 1
+          }
+        ]
+      ],
+      "frameRateMs": 160,
+      "iconColor": "#e03131",
+      "createdAt": 1788185873480
     }
   ]
 }

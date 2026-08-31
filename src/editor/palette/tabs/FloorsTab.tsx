@@ -1,9 +1,7 @@
 import React, { useState } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { PixelArtThumbnail } from '../../PixelArtThumbnail'
-import { PixelArtRenderer } from '../../../engine/PixelArtRenderer'
 import { FloorType } from '../../../types/map'
-import { useCustomAssetsStore } from '../../../store/useCustomAssetsStore'
 import { ConfirmModal } from '../../../components/ConfirmModal'
 
 interface Props {
@@ -12,7 +10,6 @@ interface Props {
   setSelectedFloor: (floor: FloorType) => void
   activeTool: string
   setActiveTool: (tool: any) => void
-  openEditModal: (id: string, mode?: any) => void
   deleteCustomAsset: (id: string) => void
 }
 
@@ -22,7 +19,6 @@ export const FloorsTab: React.FC<Props> = ({
   setSelectedFloor,
   activeTool,
   setActiveTool,
-  openEditModal,
   deleteCustomAsset,
 }) => {
   const [assetToDelete, setAssetToDelete] = useState<{ id: string; name: string } | null>(null)
@@ -42,36 +38,6 @@ export const FloorsTab: React.FC<Props> = ({
                   : 'border-[#2a3142] bg-[#12151d]/50 hover:border-slate-500'
               }`}
             >
-              {/* Left Edit Button (Custom or Native Preset) */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (isCustom) {
-                    openEditModal(floor.id, 'draw')
-                  } else {
-                    const offscreen = document.createElement('canvas')
-                    offscreen.width = 32
-                    offscreen.height = 32
-                    const ctx = offscreen.getContext('2d')
-                    if (ctx) {
-                      ctx.imageSmoothingEnabled = false
-                      PixelArtRenderer.drawFloor(ctx, floor.id as FloorType, 0, 0, 32)
-                      const dataUrl = offscreen.toDataURL('image/png')
-                      useCustomAssetsStore.getState().openDrawModal({
-                        dataUrl,
-                        name: `${floor.name} (Editado)`,
-                        width: 1,
-                        height: 1,
-                      })
-                    }
-                  }
-                }}
-                className="absolute top-1.5 left-1.5 p-1 rounded-md bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-400 hover:text-indigo-200 opacity-80 hover:opacity-100 transition-all z-10"
-                title="Editar pixels deste piso no Desenhar à Mão"
-              >
-                <Pencil className="w-3 h-3" />
-              </button>
-
               {/* Right Delete Button */}
               {isCustom && (
                 <button

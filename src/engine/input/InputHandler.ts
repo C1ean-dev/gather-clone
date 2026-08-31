@@ -43,6 +43,28 @@ export class InputHandler {
     this.finalDestination = null
   }
 
+  /**
+   * Consumes the active waypoint when it becomes unreachable due to wall corners.
+   * Called by the engine when sliding axis-by-axis results in zero movement but the
+   * current waypoint is adjacent (the typical "stuck against a thin wall corner" case).
+   * Returns true if a waypoint was actually consumed.
+   */
+  public advanceWaypoint(): boolean {
+    if (this.path.length === 0) return false
+    this.path.shift()
+    if (this.path.length === 0) {
+      this.finalDestination = null
+    }
+    return true
+  }
+
+  /** Distance to the active (next) waypoint, or Infinity if path is empty. */
+  public distanceToActiveWaypoint(localX: number, localY: number): number {
+    if (this.path.length === 0) return Infinity
+    const wp = this.path[0]
+    return Math.hypot(wp.x - localX, wp.y - localY)
+  }
+
   public computeMovement(localX: number, localY: number, currentDirection: Direction): {
     dx: number
     dy: number
