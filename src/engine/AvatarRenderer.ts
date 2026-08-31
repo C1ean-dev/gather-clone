@@ -54,20 +54,22 @@ export class AvatarRenderer {
     const centerX = px + size / 2
     const baseY = py + size - 7 + bodyBob
 
-    // Normalize Colors and Types with Backward Compatibility
+    // Normalize Colors and Types with Backward Compatibility (Default to clean, neutral avatar)
     const skinTone = avatar.skinTone || avatar.skinColor || '#ffd1a4'
     const skinDetail = avatar.skinDetail || 'smooth'
-    const hairStyle = avatar.hairStyle || 'messy'
+    const eyeType = avatar.eyeType || 'normal'
+    const eyeColor = avatar.eyeColor || '#111111'
+    const hairStyle = avatar.hairStyle || 'none'
     const hairColor = avatar.hairColor || '#212529'
     const facialHair = avatar.facialHair || 'none'
     const facialHairColor = avatar.facialHairColor || hairColor
-    const topType = avatar.topType || avatar.shirtType || 'kimono'
+    const topType = avatar.topType || avatar.shirtType || 'none'
     const topColor = avatar.topColor || avatar.shirtColor || '#212529'
     const jacketType = avatar.jacketType || 'none'
     const jacketColor = avatar.jacketColor || '#4c6ef5'
-    const bottomType = avatar.bottomType || (topType === 'kimono' || topType === 'yukata' ? 'kimono_skirt' : 'jeans')
+    const bottomType = avatar.bottomType || 'none'
     const bottomColor = avatar.bottomColor || avatar.pantsColor || '#212529'
-    const shoesType = avatar.shoesType || 'sneakers'
+    const shoesType = avatar.shoesType || 'none'
     const shoesColor = avatar.shoesColor || '#e03131'
     const hatType = avatar.hatType || 'none'
     const hatColor = avatar.hatColor || '#fa5252'
@@ -108,11 +110,12 @@ export class AvatarRenderer {
       shoesType,
       shoesColor,
       walkFrame,
-      isMoving
+      isMoving,
+      skinTone
     )
 
     // ==========================================
-    // 5. TORSO & TOPS (Kimono, Yukata, T-Shirt, Sweater, etc.)
+    // 5. TORSO & TOPS (Kimono, Yukata, T-Shirt, Sweater, or None)
     // ==========================================
     ClothingRenderer.drawTorsoAndTop(ctx, centerX, baseY, dir, topType, topColor, skinTone)
 
@@ -141,9 +144,9 @@ export class AvatarRenderer {
     )
 
     // ==========================================
-    // 7. HEAD, SKIN DETAILS & FACE (Vitiligo, Freckles, Eyes)
+    // 8. HEAD, SKIN DETAILS, EYES & FACE
     // ==========================================
-    FaceRenderer.drawHeadAndFace(ctx, centerX, baseY, dir, skinTone, skinDetail)
+    FaceRenderer.drawHeadAndFace(ctx, centerX, baseY, dir, skinTone, skinDetail, eyeType, eyeColor)
 
     // ==========================================
     // 8. FACIAL HAIR (Beard, Mustache, Goatee, Stubble)

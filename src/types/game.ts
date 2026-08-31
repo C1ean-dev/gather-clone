@@ -3,12 +3,13 @@ export type Direction = 'up' | 'down' | 'left' | 'right'
 export type PresenceStatus = 'available' | 'busy' | 'focusing' | 'away'
 
 export type SkinDetailType = 'smooth' | 'vitiligo1' | 'vitiligo2' | 'freckles' | 'blush'
-export type HairStyleType = 'messy' | 'anime' | 'long_bangs' | 'short_wavy' | 'curly_afro' | 'twin_tails' | 'ponytail' | 'bob' | 'buzz' | 'bald' | 'short' | 'spiky' | 'long' | 'curly'
+export type EyeType = 'normal' | 'anime' | 'focused' | 'happy' | 'wink' | 'closed'
+export type HairStyleType = 'none' | 'bald' | 'messy' | 'anime' | 'long_bangs' | 'short_wavy' | 'curly_afro' | 'twin_tails' | 'ponytail' | 'bob' | 'buzz' | 'short' | 'spiky' | 'long' | 'curly'
 export type FacialHairType = 'none' | 'full_beard' | 'mustache' | 'goatee' | 'stubble'
-export type TopType = 'kimono' | 'yukata' | 'tshirt' | 'sweater' | 'dress_shirt' | 'hoodie' | 'suit' | 'tank'
+export type TopType = 'none' | 'kimono' | 'yukata' | 'tshirt' | 'sweater' | 'dress_shirt' | 'hoodie' | 'suit' | 'tank'
 export type JacketType = 'none' | 'hoodie_open' | 'cardigan' | 'blazer' | 'denim'
-export type BottomType = 'kimono_skirt' | 'jeans' | 'sweatpants' | 'skirt' | 'shorts'
-export type ShoesType = 'sneakers' | 'boots' | 'loafers' | 'sandals'
+export type BottomType = 'none' | 'kimono_skirt' | 'jeans' | 'sweatpants' | 'skirt' | 'shorts'
+export type ShoesType = 'none' | 'sneakers' | 'boots' | 'loafers' | 'sandals'
 export type HatType = 'none' | 'ribbon_bow' | 'cap_forward' | 'cap_backward' | 'beanie' | 'headband'
 export type GlassesType = 'none' | 'round' | 'square' | 'sunglasses' | 'wireframe' | 'glasses'
 export type OtherType = 'none' | 'headphones' | 'mask' | 'badge'
@@ -18,6 +19,8 @@ export interface AvatarConfig {
   skinTone: string
   skinColor?: string // backward compatibility
   skinDetail: SkinDetailType
+  eyeType?: EyeType
+  eyeColor?: string
 
   // 2. Hair
   hairStyle: HairStyleType

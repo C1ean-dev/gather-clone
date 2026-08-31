@@ -3,6 +3,7 @@ import { Check } from 'lucide-react'
 import {
   AvatarConfig,
   SkinDetailType,
+  EyeType,
   HairStyleType,
   FacialHairType,
   TopType,
@@ -28,9 +29,9 @@ export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, on
       {activeCategory === 'skin' && (
         <div className="grid grid-cols-3 gap-3">
           {[
+            { id: 'smooth', label: 'Lisa / Suave' },
             { id: 'vitiligo1', label: 'Vitiligo 1' },
             { id: 'vitiligo2', label: 'Vitiligo 2' },
-            { id: 'smooth', label: 'Lisa / Suave' },
             { id: 'freckles', label: 'Sardas' },
             { id: 'blush', label: 'Blush Rosado' },
           ].map((item) => {
@@ -88,10 +89,83 @@ export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, on
         </div>
       )}
 
+      {/* CATEGORY: OLHOS */}
+      {activeCategory === 'eyes' && (
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { id: 'normal', label: 'Padrão / Normal' },
+            { id: 'anime', label: 'Brilho Anime' },
+            { id: 'focused', label: 'Focado / Calmo' },
+            { id: 'happy', label: 'Alegre (^.^)' },
+            { id: 'wink', label: 'Piscadela (;.)' },
+            { id: 'closed', label: 'Fechados / Zen' },
+          ].map((item) => {
+            const isSelected = (avatar.eyeType || 'normal') === item.id
+            return (
+              <button
+                key={item.id}
+                onClick={() => onChangeAvatar({ ...avatar, eyeType: item.id as EyeType })}
+                className={`group relative flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square ${
+                  isSelected
+                    ? 'border-[#3b82f6] bg-[#3b82f6]/20 shadow-md ring-2 ring-[#3b82f6]/30'
+                    : 'border-[#383a40] bg-[#1e1f22] hover:border-slate-500'
+                }`}
+              >
+                {/* Mini Face Eye Graphic */}
+                <div
+                  className="w-12 h-12 rounded-xl flex items-center justify-center relative mb-1.5 shadow-sm"
+                  style={{ backgroundColor: avatar.skinTone }}
+                >
+                  {item.id === 'happy' ? (
+                    <span className="text-sm font-bold text-slate-900">^ . ^</span>
+                  ) : item.id === 'closed' ? (
+                    <span className="text-sm font-bold text-slate-900">- . -</span>
+                  ) : item.id === 'wink' ? (
+                    <span className="text-sm font-bold text-slate-900">• . ~</span>
+                  ) : item.id === 'focused' ? (
+                    <div className="flex gap-2">
+                      <span className="w-2.5 h-1.5 rounded-xs" style={{ backgroundColor: avatar.eyeColor || '#111' }} />
+                      <span className="w-2.5 h-1.5 rounded-xs" style={{ backgroundColor: avatar.eyeColor || '#111' }} />
+                    </div>
+                  ) : item.id === 'anime' ? (
+                    <div className="flex gap-2">
+                      <div className="w-3 h-3.5 rounded-xs relative" style={{ backgroundColor: avatar.eyeColor || '#111' }}>
+                        <span className="w-1 h-1 bg-white absolute top-0 left-0" />
+                      </div>
+                      <div className="w-3 h-3.5 rounded-xs relative" style={{ backgroundColor: avatar.eyeColor || '#111' }}>
+                        <span className="w-1 h-1 bg-white absolute top-0 left-0" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2.5">
+                      <div className="w-2.5 h-3 rounded-xs relative" style={{ backgroundColor: avatar.eyeColor || '#111' }}>
+                        <span className="w-1 h-1 bg-white absolute top-0 left-0" />
+                      </div>
+                      <div className="w-2.5 h-3 rounded-xs relative" style={{ backgroundColor: avatar.eyeColor || '#111' }}>
+                        <span className="w-1 h-1 bg-white absolute top-0 left-0" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <span className="text-[11px] font-semibold text-slate-200 truncate max-w-[80px]">
+                  {item.label}
+                </span>
+                {isSelected && (
+                  <div className="absolute top-1.5 right-1.5 w-4 h-4 bg-[#3b82f6] text-white rounded-full flex items-center justify-center">
+                    <Check className="w-2.5 h-2.5" />
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* CATEGORY: CABELO */}
       {activeCategory === 'hair' && (
         <div className="grid grid-cols-3 gap-3">
           {[
+            { id: 'none', label: 'Careca / Nenhum' },
             { id: 'messy', label: 'Messy Anime' },
             { id: 'long_bangs', label: 'Longo c/ Franja' },
             { id: 'twin_tails', label: 'Maria Chiquinha' },
@@ -101,9 +175,8 @@ export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, on
             { id: 'ponytail', label: 'Rabo de Cavalo' },
             { id: 'bob', label: 'Chanel / Bob' },
             { id: 'buzz', label: 'Raspado' },
-            { id: 'bald', label: 'Careca' },
           ].map((item) => {
-            const isSelected = avatar.hairStyle === item.id
+            const isSelected = avatar.hairStyle === item.id || (item.id === 'none' && (!avatar.hairStyle || avatar.hairStyle === 'bald'))
             return (
               <button
                 key={item.id}
@@ -116,9 +189,9 @@ export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, on
               >
                 <div
                   className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow-md"
-                  style={{ backgroundColor: avatar.hairColor }}
+                  style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.hairColor }}
                 >
-                  💇
+                  {item.id === 'none' ? '🚫' : '💇'}
                 </div>
                 <span className="text-[11px] font-semibold text-slate-200 truncate max-w-[80px]">
                   {item.label}
@@ -176,6 +249,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, on
       {activeCategory === 'top' && (
         <div className="grid grid-cols-3 gap-3">
           {[
+            { id: 'none', label: 'Nenhum' },
             { id: 'kimono', label: 'Quimono / Yukata' },
             { id: 'tshirt', label: 'Camiseta Básica' },
             { id: 'sweater', label: 'Suéter de Lã' },
@@ -183,7 +257,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, on
             { id: 'hoodie', label: 'Moletom Canguru' },
             { id: 'tank', label: 'Regata' },
           ].map((item) => {
-            const isSelected = avatar.topType === item.id
+            const isSelected = avatar.topType === item.id || (!avatar.topType && item.id === 'none')
             return (
               <button
                 key={item.id}
@@ -196,9 +270,9 @@ export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, on
               >
                 <div
                   className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow"
-                  style={{ backgroundColor: avatar.topColor }}
+                  style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.topColor }}
                 >
-                  👘
+                  {item.id === 'none' ? '🚫' : '👘'}
                 </div>
                 <span className="text-[11px] font-semibold text-slate-200 truncate max-w-[80px]">
                   {item.label}
@@ -259,13 +333,14 @@ export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, on
       {activeCategory === 'bottom' && (
         <div className="grid grid-cols-3 gap-3">
           {[
+            { id: 'none', label: 'Nenhum' },
             { id: 'kimono_skirt', label: 'Saia Quimono Hakama' },
             { id: 'jeans', label: 'Calça Jeans' },
             { id: 'sweatpants', label: 'Moletom Jogger' },
             { id: 'skirt', label: 'Saia Plissada' },
             { id: 'shorts', label: 'Bermuda / Shorts' },
           ].map((item) => {
-            const isSelected = avatar.bottomType === item.id
+            const isSelected = avatar.bottomType === item.id || (!avatar.bottomType && item.id === 'none')
             return (
               <button
                 key={item.id}
@@ -278,9 +353,9 @@ export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, on
               >
                 <div
                   className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow"
-                  style={{ backgroundColor: avatar.bottomColor }}
+                  style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.bottomColor }}
                 >
-                  👖
+                  {item.id === 'none' ? '🚫' : '👖'}
                 </div>
                 <span className="text-[11px] font-semibold text-slate-200 truncate max-w-[80px]">
                   {item.label}
@@ -300,12 +375,13 @@ export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, on
       {activeCategory === 'shoes' && (
         <div className="grid grid-cols-3 gap-3">
           {[
+            { id: 'none', label: 'Nenhum / Descalço' },
             { id: 'sandals', label: 'Sandálias Geta' },
             { id: 'sneakers', label: 'Tênis Sneaker' },
             { id: 'boots', label: 'Botas' },
             { id: 'loafers', label: 'Sapato Social' },
           ].map((item) => {
-            const isSelected = avatar.shoesType === item.id
+            const isSelected = avatar.shoesType === item.id || (!avatar.shoesType && item.id === 'none')
             return (
               <button
                 key={item.id}
@@ -318,9 +394,9 @@ export const OptionSelectorGrid: React.FC<Props> = ({ activeCategory, avatar, on
               >
                 <div
                   className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow"
-                  style={{ backgroundColor: avatar.shoesColor }}
+                  style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.shoesColor }}
                 >
-                  👟
+                  {item.id === 'none' ? '🚫' : '👟'}
                 </div>
                 <span className="text-[11px] font-semibold text-slate-200 truncate max-w-[80px]">
                   {item.label}

@@ -12,7 +12,8 @@ const DEFAULT_CATEGORIES = ['Geral', 'Forja Antiga', 'Escritório', 'Medieval', 
 // In-memory HTMLImageElement cache for fast canvas rendering
 const imageCache: Map<string, HTMLImageElement> = new Map()
 
-export function getCustomAssetImage(dataUrl: string): HTMLImageElement {
+export function getCustomAssetImage(dataUrl: string): HTMLImageElement | null {
+  if (typeof Image === 'undefined') return null
   if (imageCache.has(dataUrl)) {
     return imageCache.get(dataUrl)!
   }

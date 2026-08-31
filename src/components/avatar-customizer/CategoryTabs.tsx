@@ -1,6 +1,7 @@
 import React from 'react'
 import {
   Smile,
+  Eye,
   Sparkles,
   User,
   Shirt,
@@ -13,6 +14,7 @@ import {
 
 export type CategoryKey =
   | 'skin'
+  | 'eyes'
   | 'hair'
   | 'facialHair'
   | 'top'
@@ -30,6 +32,7 @@ interface Props {
 
 export const CATEGORIES = [
   { id: 'skin', label: 'Tom da pele', icon: Smile },
+  { id: 'eyes', label: 'Olhos', icon: Eye },
   { id: 'hair', label: 'Cabelo', icon: Sparkles },
   { id: 'facialHair', label: 'Pelos faciais', icon: User },
   { id: 'top', label: 'Parte de cima', icon: Shirt },

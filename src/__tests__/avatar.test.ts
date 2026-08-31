@@ -4,14 +4,14 @@ import { AvatarRenderer } from '../engine/AvatarRenderer'
 import { Player } from '../types/game'
 
 describe('Avatar Customizer & Pixel Art Renderer - Expected Behaviors', () => {
-  it('should have complete DEFAULT_AVATAR with all 10 Gather layers', () => {
+  it('should have complete DEFAULT_AVATAR with all neutral Gather layers', () => {
     expect(DEFAULT_AVATAR.skinTone).toBe('#ffd1a4')
-    expect(DEFAULT_AVATAR.skinDetail).toBe('vitiligo1')
-    expect(DEFAULT_AVATAR.hairStyle).toBe('messy')
-    expect(DEFAULT_AVATAR.hairColor).toBe('#2b2b2b')
-    expect(DEFAULT_AVATAR.topType).toBe('kimono')
-    expect(DEFAULT_AVATAR.bottomType).toBe('kimono_skirt')
-    expect(DEFAULT_AVATAR.shoesType).toBe('sandals')
+    expect(DEFAULT_AVATAR.skinDetail).toBe('smooth')
+    expect(DEFAULT_AVATAR.eyeType).toBe('normal')
+    expect(DEFAULT_AVATAR.hairStyle).toBe('none')
+    expect(DEFAULT_AVATAR.topType).toBe('none')
+    expect(DEFAULT_AVATAR.bottomType).toBe('none')
+    expect(DEFAULT_AVATAR.shoesType).toBe('none')
     expect(DEFAULT_AVATAR.hatType).toBe('none')
     expect(DEFAULT_AVATAR.glassesType).toBe('none')
     expect(DEFAULT_AVATAR.otherType).toBe('none')
