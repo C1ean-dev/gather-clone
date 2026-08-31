@@ -84,6 +84,7 @@ export const CustomElementModal: React.FC = () => {
 
   // Composition Tools
   const [composeTool, setComposeTool] = useState<'move' | 'collision'>('move')
+  const [composeZoom, setComposeZoom] = useState<number>(2)
   const [showCollisionOverlay, setShowCollisionOverlay] = useState<boolean>(true)
   const [isPaintingCollision, setIsPaintingCollision] = useState<boolean>(false)
   const [collisionPaintValue, setCollisionPaintValue] = useState<boolean>(true)
@@ -358,7 +359,7 @@ export const CustomElementModal: React.FC = () => {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const renderZoom = 2
+    const renderZoom = composeZoom
     canvas.width = compositeBoardWidth * renderZoom
     canvas.height = compositeBoardHeight * renderZoom
 
@@ -450,6 +451,7 @@ export const CustomElementModal: React.FC = () => {
     showCollisionOverlay,
     collisionGrid,
     composeTool,
+    composeZoom,
     tileWidth,
     tileHeight,
   ])
@@ -667,8 +669,8 @@ export const CustomElementModal: React.FC = () => {
   const handleComposeCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!composeCanvasRef.current) return
     const rect = composeCanvasRef.current.getBoundingClientRect()
-    const clickX = Math.floor((e.clientX - rect.left) / 2)
-    const clickY = Math.floor((e.clientY - rect.top) / 2)
+    const clickX = Math.floor((e.clientX - rect.left) / composeZoom)
+    const clickY = Math.floor((e.clientY - rect.top) / composeZoom)
 
     if (composeTool === 'collision') {
       const tileCol = Math.floor(clickX / 32)
@@ -714,8 +716,8 @@ export const CustomElementModal: React.FC = () => {
   const handleComposeCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!composeCanvasRef.current) return
     const rect = composeCanvasRef.current.getBoundingClientRect()
-    const currentX = Math.floor((e.clientX - rect.left) / 2)
-    const currentY = Math.floor((e.clientY - rect.top) / 2)
+    const currentX = Math.floor((e.clientX - rect.left) / composeZoom)
+    const currentY = Math.floor((e.clientY - rect.top) / composeZoom)
 
     if (composeTool === 'collision') {
       if (!isPaintingCollision) return
@@ -1181,6 +1183,8 @@ export const CustomElementModal: React.FC = () => {
                 composeCanvasRef={composeCanvasRef}
                 composeTool={composeTool}
                 setComposeTool={setComposeTool}
+                composeZoom={composeZoom}
+                setComposeZoom={setComposeZoom}
                 showCollisionOverlay={showCollisionOverlay}
                 setShowCollisionOverlay={setShowCollisionOverlay}
                 collisionGrid={collisionGrid}

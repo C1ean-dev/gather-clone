@@ -6,6 +6,9 @@ import {
   CheckSquare,
   Move,
   Eye,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
 } from 'lucide-react'
 import { CustomAssetType } from '../../types/customAsset'
 
@@ -30,6 +33,8 @@ interface Props {
   composeCanvasRef: React.RefObject<HTMLCanvasElement>
   composeTool: 'move' | 'collision'
   setComposeTool: (tool: 'move' | 'collision') => void
+  composeZoom: number
+  setComposeZoom: (z: number) => void
   showCollisionOverlay: boolean
   setShowCollisionOverlay: (show: boolean) => void
   collisionGrid: boolean[][]
@@ -48,6 +53,8 @@ export const CompositionStudio: React.FC<Props> = ({
   composeCanvasRef,
   composeTool,
   setComposeTool,
+  composeZoom,
+  setComposeZoom,
   showCollisionOverlay,
   setShowCollisionOverlay,
   collisionGrid,
@@ -135,6 +142,37 @@ export const CompositionStudio: React.FC<Props> = ({
             >
               <Brush className="w-3.5 h-3.5" />
               <span>Pintar Colisão (Tiles)</span>
+            </button>
+          </div>
+
+          {/* Zoom Controls — same pattern as the Crop tab toolbar */}
+          <div className="flex items-center gap-1.5 bg-[#12151d] p-1 rounded-xl border border-[#2b2d31]">
+            <button
+              type="button"
+              onClick={() => setComposeZoom(Math.max(1, composeZoom - 1))}
+              className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
+              title="Reduzir Zoom"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-[10px] font-mono font-bold text-slate-300 px-1">
+              {composeZoom}x
+            </span>
+            <button
+              type="button"
+              onClick={() => setComposeZoom(Math.min(6, composeZoom + 1))}
+              className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
+              title="Aumentar Zoom"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setComposeZoom(2)}
+              className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
+              title="Restaurar 2x (padrão)"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
             </button>
           </div>
 
