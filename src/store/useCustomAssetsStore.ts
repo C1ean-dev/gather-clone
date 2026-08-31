@@ -108,10 +108,13 @@ interface CustomAssetsState {
   customCategories: string[]
   isCustomModalOpen: boolean
   editingAssetId: string | null
+  initialStudioMode: 'crop' | 'draw' | 'compose'
+  initialDrawArtwork: { dataUrl: string; name?: string; width?: number; height?: number } | null
   setCustomModalOpen: (open: boolean) => void
   setEditingAssetId: (id: string | null) => void
-  openCreateModal: () => void
-  openEditModal: (id: string) => void
+  openCreateModal: (mode?: 'crop' | 'draw' | 'compose') => void
+  openEditModal: (id: string, mode?: 'crop' | 'draw' | 'compose') => void
+  openDrawModal: (artwork?: { dataUrl: string; name?: string; width?: number; height?: number }) => void
   addCustomAsset: (asset: CustomAsset) => void
   updateCustomAsset: (id: string, asset: Partial<CustomAsset>) => void
   deleteCustomAsset: (id: string) => void
@@ -130,10 +133,26 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
   customCategories: loadSavedCategories(),
   isCustomModalOpen: false,
   editingAssetId: null,
-  setCustomModalOpen: (open) => set({ isCustomModalOpen: open, editingAssetId: open ? get().editingAssetId : null }),
+  initialStudioMode: 'crop',
+  initialDrawArtwork: null,
+  setCustomModalOpen: (open) =>
+    set({
+      isCustomModalOpen: open,
+      editingAssetId: open ? get().editingAssetId : null,
+      initialDrawArtwork: open ? get().initialDrawArtwork : null,
+    }),
   setEditingAssetId: (id) => set({ editingAssetId: id }),
-  openCreateModal: () => set({ isCustomModalOpen: true, editingAssetId: null }),
-  openEditModal: (id) => set({ isCustomModalOpen: true, editingAssetId: id }),
+  openCreateModal: (mode = 'crop') =>
+    set({ isCustomModalOpen: true, editingAssetId: null, initialStudioMode: mode, initialDrawArtwork: null }),
+  openEditModal: (id, mode = 'compose') =>
+    set({ isCustomModalOpen: true, editingAssetId: id, initialStudioMode: mode }),
+  openDrawModal: (artwork) =>
+    set({
+      isCustomModalOpen: true,
+      editingAssetId: null,
+      initialStudioMode: 'draw',
+      initialDrawArtwork: artwork || null,
+    }),
 
   addCustomAsset: (asset) => {
     // Cache frames

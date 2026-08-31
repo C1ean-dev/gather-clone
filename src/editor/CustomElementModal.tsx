@@ -30,6 +30,8 @@ export const CustomElementModal: React.FC = () => {
     isCustomModalOpen,
     setCustomModalOpen,
     editingAssetId,
+    initialStudioMode,
+    initialDrawArtwork,
     updateCustomAsset,
     getAssetById,
     addCustomAsset,
@@ -40,6 +42,14 @@ export const CustomElementModal: React.FC = () => {
 
   // Studio Mode: 'crop' (Recorte de Sprites) vs 'draw' (Desenhar à Mão) vs 'compose' (Mesa de Montagem)
   const [studioMode, setStudioMode] = useState<'crop' | 'draw' | 'compose'>('crop')
+
+  // Draw Studio Initial Artwork Data
+  const [drawStudioArtwork, setDrawStudioArtwork] = useState<{
+    dataUrl: string
+    name?: string
+    width?: number
+    height?: number
+  } | null>(null)
 
   // Source Image State
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null)
@@ -178,9 +188,23 @@ export const CustomElementModal: React.FC = () => {
     }
   }
 
-  // Load asset data when editing an existing asset
+  // Load asset data when editing an existing asset or opening in draw/crop mode
   useEffect(() => {
     if (!isCustomModalOpen) return
+
+    if (initialStudioMode === 'draw') {
+      setStudioMode('draw')
+      if (initialDrawArtwork) {
+        const wTiles = initialDrawArtwork.width || 2
+        const hTiles = initialDrawArtwork.height || 2
+        setTileWidth(wTiles)
+        setTileHeight(hTiles)
+        setCompositeBoardWidth(wTiles * 32)
+        setCompositeBoardHeight(hTiles * 32)
+        setDrawStudioArtwork(initialDrawArtwork)
+      }
+      return
+    }
 
     if (editingAssetId) {
       const asset = getAssetById(editingAssetId)
@@ -250,10 +274,12 @@ export const CustomElementModal: React.FC = () => {
         }
 
         setSelectedFrameIdx(0)
-        setStudioMode('compose')
+        setStudioMode(initialStudioMode || 'compose')
       }
+    } else {
+      setStudioMode(initialStudioMode || 'crop')
     }
-  }, [isCustomModalOpen, editingAssetId])
+  }, [isCustomModalOpen, editingAssetId, initialStudioMode, initialDrawArtwork])
 
   // Animation player ticker
   useEffect(() => {
@@ -813,6 +839,56 @@ export const CustomElementModal: React.FC = () => {
     })
   }
 
+  const handleCropAndDrawSelection = () => {
+    const processed = getProcessedSelectionCanvas()
+    if (!processed) return
+    const wTiles = Math.max(1, Math.ceil(selection.w / 32))
+    const hTiles = Math.max(1, Math.ceil(selection.h / 32))
+    setTileWidth(wTiles)
+    setTileHeight(hTiles)
+    setCompositeBoardWidth(wTiles * 32)
+    setCompositeBoardHeight(hTiles * 32)
+    setDrawStudioArtwork({
+      dataUrl: processed.toDataURL('image/png'),
+      name: `Recorte (${selection.w}x${selection.h}px)`,
+      width: wTiles,
+      height: hTiles,
+    })
+    setStudioMode('draw')
+  }
+
+  const handleEditClipInDrawStudio = (clip: CroppedClip) => {
+    const wTiles = Math.max(1, Math.round(clip.width / 32))
+    const hTiles = Math.max(1, Math.round(clip.height / 32))
+    setTileWidth(wTiles)
+    setTileHeight(hTiles)
+    setCompositeBoardWidth(wTiles * 32)
+    setCompositeBoardHeight(hTiles * 32)
+    setDrawStudioArtwork({
+      dataUrl: clip.dataUrl,
+      name: clip.name,
+      width: wTiles,
+      height: hTiles,
+    })
+    setStudioMode('draw')
+  }
+
+  const handleEditLayerInDrawStudio = (layer: CompositeLayer) => {
+    const wTiles = Math.max(1, Math.round(layer.width / 32))
+    const hTiles = Math.max(1, Math.round(layer.height / 32))
+    setTileWidth(wTiles)
+    setTileHeight(hTiles)
+    setCompositeBoardWidth(wTiles * 32)
+    setCompositeBoardHeight(hTiles * 32)
+    setDrawStudioArtwork({
+      dataUrl: layer.dataUrl,
+      name: layer.name,
+      width: wTiles,
+      height: hTiles,
+    })
+    setStudioMode('draw')
+  }
+
   const handleBakeCompositionToFrame = () => {
     if (compositeLayers.length === 0) {
       alert('Adicione pelo menos uma camada na mesa de composição antes de mesclar.')
@@ -1144,6 +1220,7 @@ export const CustomElementModal: React.FC = () => {
                 onCanvasMouseMove={handleCanvasMouseMove}
                 onCanvasMouseUp={handleCanvasMouseUp}
                 onCropAndSaveClip={handleSaveCurrentCropToLibrary}
+                onCropAndDrawSelection={handleCropAndDrawSelection}
               />
             ) : studioMode === 'draw' ? (
               <DrawStudio
@@ -1152,6 +1229,9 @@ export const CustomElementModal: React.FC = () => {
                 setBoardSizeInTiles={setBoardSizeInTiles}
                 onAddDrawingToComposition={handleAddDrawingToComposition}
                 onSaveDrawingAsClip={handleSaveDrawingAsClip}
+                initialArtworkDataUrl={drawStudioArtwork?.dataUrl}
+                initialArtworkName={drawStudioArtwork?.name}
+                croppedClips={croppedClips}
               />
             ) : (
               <CompositionStudio
@@ -1218,6 +1298,7 @@ export const CustomElementModal: React.FC = () => {
               croppedClips={croppedClips}
               onAddClipToComposition={handleAddClipToCompositionBoard}
               onDeleteClip={handleDeleteClip}
+              onEditClipInDrawStudio={handleEditClipInDrawStudio}
             />
 
             {/* Composite Layers Manager (in Compose Mode) */}
@@ -1231,6 +1312,7 @@ export const CustomElementModal: React.FC = () => {
                 onDeleteLayer={handleDeleteLayer}
                 onMoveLayerOrder={handleMoveLayerOrder}
                 onChangeLayerOpacity={handleChangeLayerOpacity}
+                onEditLayerInDrawStudio={handleEditLayerInDrawStudio}
               />
             )}
 

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react'
-import { Download, Dices } from 'lucide-react'
+import { Download, Dices, Pencil } from 'lucide-react'
 import { AvatarConfig, Player } from '../../types/game'
 import { AvatarRenderer } from '../../engine/AvatarRenderer'
+import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 
 interface Props {
   isOpen: boolean
@@ -58,23 +59,18 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
       ctx.fillRect(0, h * 0.45, w, h * 0.55)
 
       // Subtle Floor Grid Lines
-      ctx.strokeStyle = 'rgba(178, 242, 187, 0.6)'
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.05)'
       ctx.lineWidth = 1
-      for (let y = h * 0.45; y < h; y += 24) {
-        ctx.beginPath()
-        ctx.moveTo(0, y)
-        ctx.lineTo(w, y)
-        ctx.stroke()
-      }
-      for (let x = 0; x < w; x += 24) {
+      for (let x = 0; x < w; x += 28) {
         ctx.beginPath()
         ctx.moveTo(x, h * 0.45)
         ctx.lineTo(x, h)
         ctx.stroke()
       }
 
-      // 2. Render Gather Avatar in Center Stage with 3.5x scale
+      // 2. Render Scaled Character in Room Center with smooth Idle / Walk loop
       ctx.save()
+      ctx.translate(w / 2 - 16, h * 0.48)
       ctx.scale(3.5, 3.5)
 
       const tempPlayer = {
@@ -83,8 +79,8 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
         avatar,
         direction: 'down' as const,
         isMoving: true,
-        x: w / (2 * 3.5 * 32) - 0.5,
-        y: (h * 0.65) / (3.5 * 32) - 0.65,
+        x: 0,
+        y: 0,
       }
 
       AvatarRenderer.drawPlayer(ctx, tempPlayer, true, tick, 32, true)
@@ -125,20 +121,60 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
     link.click()
   }
 
+  // Open Avatar Sprite in Hand-Draw Studio
+  const handleOpenInDrawStudio = () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 32
+    canvas.height = 32
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.imageSmoothingEnabled = false
+
+    const tempPlayer = {
+      ...localPlayer,
+      avatar,
+      direction: 'down' as const,
+      isMoving: false,
+      x: 0,
+      y: 0,
+    }
+
+    AvatarRenderer.drawPlayer(ctx, tempPlayer, true, 0, 32, false)
+    const dataUrl = canvas.toDataURL('image/png')
+
+    useCustomAssetsStore.getState().openDrawModal({
+      dataUrl,
+      name: `${name.trim() || 'Avatar'} (Pixel Art)`,
+      width: 1,
+      height: 1,
+    })
+  }
+
   return (
     <div className="w-80 bg-[#1e1f22] border-l border-[#2b2d31] relative flex items-center justify-center p-4 shrink-0 overflow-hidden">
       {/* Live 2D Canvas Stage */}
       <div className="w-full h-full rounded-2xl overflow-hidden shadow-2xl relative border border-[#2b2d31]">
         <canvas ref={previewCanvasRef} width={280} height={460} className="w-full h-full pixelated" />
 
-        {/* Floating Top-Right Download Button */}
-        <button
-          onClick={handleDownloadPNG}
-          className="absolute top-3 right-3 p-2.5 rounded-xl bg-[#18191c]/80 hover:bg-[#18191c] text-slate-300 hover:text-white border border-[#2b2d31] backdrop-blur-md shadow-lg transition-all active:scale-95"
-          title="Baixar Avatar em PNG"
-        >
-          <Download className="w-4 h-4" />
-        </button>
+        {/* Floating Top-Right Action Buttons */}
+        <div className="absolute top-3 right-3 flex items-center gap-1.5">
+          <button
+            onClick={handleOpenInDrawStudio}
+            className="p-2 rounded-xl bg-[#18191c]/80 hover:bg-indigo-600 text-slate-300 hover:text-white border border-[#2b2d31] backdrop-blur-md shadow-lg transition-all active:scale-95 flex items-center gap-1 text-[11px] font-bold"
+            title="Editar pixels deste avatar no Desenhar à Mão"
+          >
+            <Pencil className="w-3.5 h-3.5 text-amber-300" />
+            <span>Editar à Mão</span>
+          </button>
+
+          <button
+            onClick={handleDownloadPNG}
+            className="p-2 rounded-xl bg-[#18191c]/80 hover:bg-[#18191c] text-slate-300 hover:text-white border border-[#2b2d31] backdrop-blur-md shadow-lg transition-all active:scale-95"
+            title="Baixar Avatar em PNG"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+        </div>
 
         {/* Floating Bottom-Right Randomize (Dice) Button */}
         <button

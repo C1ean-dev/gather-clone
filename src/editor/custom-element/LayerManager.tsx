@@ -6,6 +6,7 @@ import {
   Trash2,
   ArrowUp,
   ArrowDown,
+  Pencil,
 } from 'lucide-react'
 import { CompositeLayer } from './CompositionStudio'
 
@@ -18,6 +19,7 @@ interface Props {
   onDeleteLayer: (id: string) => void
   onMoveLayerOrder: (idx: number, direction: 'up' | 'down') => void
   onChangeLayerOpacity: (id: string, opacity: number) => void
+  onEditLayerInDrawStudio?: (layer: CompositeLayer) => void
 }
 
 export const LayerManager: React.FC<Props> = ({
@@ -29,6 +31,7 @@ export const LayerManager: React.FC<Props> = ({
   onDeleteLayer,
   onMoveLayerOrder,
   onChangeLayerOpacity,
+  onEditLayerInDrawStudio,
 }) => {
   return (
     <div className="bg-[#18191c] rounded-2xl p-4 border border-[#2b2d31] space-y-3">
@@ -83,6 +86,17 @@ export const LayerManager: React.FC<Props> = ({
 
                 {/* Layer Quick Actions */}
                 <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  {onEditLayerInDrawStudio && (
+                    <button
+                      type="button"
+                      onClick={() => onEditLayerInDrawStudio(layer)}
+                      className="p-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/40 border border-indigo-500/40 text-indigo-300 hover:text-white"
+                      title="Editar pixels desta camada no Desenhar à Mão"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => onFlipLayer(layer.id)}

@@ -1,17 +1,19 @@
 import React from 'react'
-import { Scissors, Plus, Trash2 } from 'lucide-react'
+import { Scissors, Plus, Trash2, Pencil } from 'lucide-react'
 import { CroppedClip } from './CropStudio'
 
 interface Props {
   croppedClips: CroppedClip[]
   onAddClipToComposition: (clip: CroppedClip) => void
   onDeleteClip: (clipId: string) => void
+  onEditClipInDrawStudio?: (clip: CroppedClip) => void
 }
 
 export const CroppedClipsList: React.FC<Props> = ({
   croppedClips,
   onAddClipToComposition,
   onDeleteClip,
+  onEditClipInDrawStudio,
 }) => {
   return (
     <div className="bg-[#18191c] rounded-2xl p-4 border border-[#2b2d31] space-y-3">
@@ -61,6 +63,21 @@ export const CroppedClipsList: React.FC<Props> = ({
                 <Plus className="w-4 h-4" />
                 <span>Adicionar</span>
               </div>
+
+              {/* Top-Left Edit in Draw Studio Button */}
+              {onEditClipInDrawStudio && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEditClipInDrawStudio(clip)
+                  }}
+                  className="absolute top-1 left-1 p-1 bg-black/60 hover:bg-indigo-600 rounded text-slate-300 hover:text-white opacity-0 group-hover:opacity-100 transition-all z-10"
+                  title="Editar pixels desta peça no Desenhar à Mão"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              )}
 
               {/* Top-Right Delete Clip Button */}
               <button

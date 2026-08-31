@@ -1,7 +1,9 @@
 import React, { useState } from 'react'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { PixelArtThumbnail } from '../../PixelArtThumbnail'
-import { FurnitureDef } from '../../../engine/PixelArtRenderer'
+import { PixelArtRenderer, FurnitureDef } from '../../../engine/PixelArtRenderer'
+import { PlacedFurniture } from '../../../types/map'
+import { useCustomAssetsStore } from '../../../store/useCustomAssetsStore'
 import { ConfirmModal } from '../../../components/ConfirmModal'
 
 interface FurnitureTabItem {
@@ -26,7 +28,7 @@ interface Props {
   setSelectedFurnitureDefId: (id: string) => void
   activeTool: string
   setActiveTool: (tool: any) => void
-  openEditModal: (id: string) => void
+  openEditModal: (id: string, mode?: any) => void
   deleteCustomAsset: (id: string) => void
 }
 
@@ -137,19 +139,36 @@ export const FurnitureTab: React.FC<Props> = ({
                     : 'border-[#2a3142] bg-[#12151d]/50 hover:border-slate-500'
                 }`}
               >
-                {/* Left Edit Pencil Button */}
-                {isCustom && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      openEditModal(item.id)
-                    }}
-                    className="absolute top-1.5 left-1.5 p-1 rounded-md bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 hover:text-blue-200 opacity-80 hover:opacity-100 transition-all z-10"
-                    title="Editar este elemento"
-                  >
-                    <Pencil className="w-3 h-3" />
-                  </button>
-                )}
+                {/* Left Edit Pencil Button (Custom or Native Preset) */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (isCustom) {
+                      openEditModal(item.id, 'draw')
+                    } else {
+                      const offscreen = document.createElement('canvas')
+                      offscreen.width = item.width * 32
+                      offscreen.height = item.height * 32
+                      const ctx = offscreen.getContext('2d')
+                      if (ctx) {
+                        ctx.imageSmoothingEnabled = false
+                        const mockFurn: PlacedFurniture = { id: 'thumb', defId: item.id, x: 0, y: 0 }
+                        PixelArtRenderer.drawFurniture(ctx, mockFurn)
+                        const dataUrl = offscreen.toDataURL('image/png')
+                        useCustomAssetsStore.getState().openDrawModal({
+                          dataUrl,
+                          name: `${item.name} (Editado)`,
+                          width: item.width,
+                          height: item.height,
+                        })
+                      }
+                    }
+                  }}
+                  className="absolute top-1.5 left-1.5 p-1 rounded-md bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-400 hover:text-indigo-200 opacity-80 hover:opacity-100 transition-all z-10"
+                  title="Editar pixels deste elemento no Desenhar à Mão"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
 
                 {/* Right Delete Button for custom items */}
                 {isCustom && (

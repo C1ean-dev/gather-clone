@@ -13,8 +13,16 @@ import {
   Sparkles,
   ArrowRight,
   Plus,
+  FolderOpen,
+  Upload,
+  Search,
+  X,
+  Check,
 } from 'lucide-react'
 import { CroppedClip } from './CropStudio'
+import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
+import { PixelArtRenderer } from '../../engine/PixelArtRenderer'
+import { FloorType, WallType, PlacedFurniture } from '../../types/map'
 
 export type DrawTool = 'pencil' | 'eraser' | 'bucket' | 'picker'
 
@@ -24,6 +32,9 @@ interface Props {
   setBoardSizeInTiles: (w: number, h: number) => void
   onAddDrawingToComposition: (clip: CroppedClip) => void
   onSaveDrawingAsClip: (clip: CroppedClip) => void
+  initialArtworkDataUrl?: string | null
+  initialArtworkName?: string | null
+  croppedClips?: CroppedClip[]
 }
 
 const PRESET_PALETTE = [
@@ -33,20 +44,48 @@ const PRESET_PALETTE = [
   '#20c997', '#2f9e44', '#15aabf', '#339af0', '#4c6ef5', '#be4bdb',
 ]
 
+// Built-in Game Preset Definitions for instant pixel-level editing
+interface PresetItem {
+  id: string
+  name: string
+  category: 'furniture' | 'floor' | 'wall' | 'clip' | 'custom'
+  width: number
+  height: number
+  dataUrl?: string
+}
+
+const NATIVE_PRESETS: PresetItem[] = [
+  { id: 'habbo_parquet', name: 'Piso de Madeira Parquet', category: 'floor', width: 1, height: 1 },
+  { id: 'forge_soot_stone', name: 'Piso Pedra c/ Fuligem', category: 'floor', width: 1, height: 1 },
+  { id: 'forge_iron_plates', name: 'Placas de Ferro', category: 'floor', width: 1, height: 1 },
+  { id: 'forge_cobblestone', name: 'Pedras Cobblestone', category: 'floor', width: 1, height: 1 },
+  { id: 'drywall_white', name: 'Parede Drywall Branca', category: 'wall', width: 1, height: 1 },
+  { id: 'forge_stone_wall', name: 'Parede de Pedra', category: 'wall', width: 1, height: 1 },
+  { id: 'forge_dark_brick', name: 'Parede Tijolo Escuro', category: 'wall', width: 1, height: 1 },
+]
+
 export const DrawStudio: React.FC<Props> = ({
   tileWidth,
   tileHeight,
   setBoardSizeInTiles,
   onAddDrawingToComposition,
   onSaveDrawingAsClip,
+  initialArtworkDataUrl,
+  initialArtworkName,
+  croppedClips = [],
 }) => {
   const pixelWidth = tileWidth * 32
   const pixelHeight = tileHeight * 32
+
+  const { customAssets } = useCustomAssetsStore()
 
   // Active tools
   const [tool, setTool] = useState<DrawTool>('pencil')
   const [color, setColor] = useState<string>('#4c6ef5')
   const [brushSize, setBrushSize] = useState<number>(1)
+
+  // Current Artwork Name
+  const [artworkName, setArtworkName] = useState<string>(initialArtworkName || 'Meu Desenho Pixel Art')
 
   // Calculate initial optimal zoom so canvas fits within ~480px (range: 1x to 20x)
   const [zoom, setZoom] = useState<number>(() => {
@@ -62,6 +101,11 @@ export const DrawStudio: React.FC<Props> = ({
     '#fab005',
   ])
 
+  // Preset Selector Modal State
+  const [isPresetModalOpen, setIsPresetModalOpen] = useState<boolean>(false)
+  const [presetSearch, setPresetSearch] = useState<string>('')
+  const [presetCategoryTab, setPresetCategoryTab] = useState<'all' | 'custom' | 'furniture' | 'floor' | 'wall' | 'clips'>('all')
+
   // Drawing state
   const [isDrawing, setIsDrawing] = useState<boolean>(false)
   const [lastPixelPos, setLastPixelPos] = useState<{ x: number; y: number } | null>(null)
@@ -70,7 +114,8 @@ export const DrawStudio: React.FC<Props> = ({
   // Canvas Refs & Stored Artwork Buffer
   const drawCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const stageContainerRef = useRef<HTMLDivElement | null>(null)
-  const savedDataUrlRef = useRef<string | null>(null)
+  const fileUploadInputRef = useRef<HTMLInputElement | null>(null)
+  const savedDataUrlRef = useRef<string | null>(initialArtworkDataUrl || null)
   const prevDimensionsRef = useRef<{ w: number; h: number }>({ w: tileWidth, h: tileHeight })
 
   // Undo / Redo History
@@ -78,6 +123,71 @@ export const DrawStudio: React.FC<Props> = ({
   const historyStepRef = useRef<number>(-1)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
+
+  // Save current canvas state to history
+  const saveHistoryState = useCallback(() => {
+    const canvas = drawCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return
+
+    savedDataUrlRef.current = canvas.toDataURL('image/png')
+    const currentState = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const nextStep = historyStepRef.current + 1
+
+    historyRef.current = historyRef.current.slice(0, nextStep)
+    historyRef.current.push(currentState)
+
+    if (historyRef.current.length > 30) {
+      historyRef.current.shift()
+    } else {
+      historyStepRef.current = nextStep
+    }
+
+    setCanUndo(historyStepRef.current > 0)
+    setCanRedo(historyStepRef.current < historyRef.current.length - 1)
+  }, [])
+
+  // Load a DataURL cleanly onto the canvas
+  const loadArtworkToCanvas = useCallback(
+    (dataUrl: string, targetWidthTiles?: number, targetHeightTiles?: number) => {
+      const img = new Image()
+      img.src = dataUrl
+      img.onload = () => {
+        const wTiles = targetWidthTiles || Math.max(1, Math.ceil(img.naturalWidth / 32))
+        const hTiles = targetHeightTiles || Math.max(1, Math.ceil(img.naturalHeight / 32))
+
+        setBoardSizeInTiles(wTiles, hTiles)
+        savedDataUrlRef.current = dataUrl
+
+        const canvas = drawCanvasRef.current
+        if (!canvas) return
+        canvas.width = wTiles * 32
+        canvas.height = hTiles * 32
+        const ctx = canvas.getContext('2d', { willReadFrequently: true })
+        if (!ctx) return
+
+        ctx.imageSmoothingEnabled = false
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+        historyRef.current = []
+        historyStepRef.current = -1
+        saveHistoryState()
+      }
+    },
+    [setBoardSizeInTiles, saveHistoryState]
+  )
+
+  // Load initial artwork when supplied
+  useEffect(() => {
+    if (initialArtworkDataUrl) {
+      loadArtworkToCanvas(initialArtworkDataUrl, tileWidth, tileHeight)
+      if (initialArtworkName) {
+        setArtworkName(initialArtworkName)
+      }
+    }
+  }, [initialArtworkDataUrl])
 
   // Auto-fit zoom when tile dimensions change so the artwork is immediately visible (range: 1x to 20x)
   useEffect(() => {
@@ -110,29 +220,6 @@ export const DrawStudio: React.FC<Props> = ({
     return () => {
       el.removeEventListener('wheel', onWheel)
     }
-  }, [])
-
-  const saveHistoryState = useCallback(() => {
-    const canvas = drawCanvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    if (!ctx) return
-
-    savedDataUrlRef.current = canvas.toDataURL('image/png')
-    const currentState = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    const nextStep = historyStepRef.current + 1
-
-    historyRef.current = historyRef.current.slice(0, nextStep)
-    historyRef.current.push(currentState)
-
-    if (historyRef.current.length > 30) {
-      historyRef.current.shift()
-    } else {
-      historyStepRef.current = nextStep
-    }
-
-    setCanUndo(historyStepRef.current > 0)
-    setCanRedo(historyStepRef.current < historyRef.current.length - 1)
   }, [])
 
   // Handle canvas sizing and preserve existing content
@@ -411,7 +498,7 @@ export const DrawStudio: React.FC<Props> = ({
     const id = `draw_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
     return {
       id,
-      name: `Desenho (${tileWidth}x${tileHeight} tiles)`,
+      name: artworkName.trim() || `Desenho (${tileWidth}x${tileHeight} tiles)`,
       dataUrl,
       width: pixelWidth,
       height: pixelHeight,
@@ -432,16 +519,118 @@ export const DrawStudio: React.FC<Props> = ({
     }
   }
 
+  // Load a preset into the drawing canvas
+  const handleSelectPreset = (preset: PresetItem) => {
+    let finalDataUrl = preset.dataUrl
+
+    if (!finalDataUrl) {
+      // Render offscreen to get exact sprite pixels
+      const offscreen = document.createElement('canvas')
+      offscreen.width = preset.width * 32
+      offscreen.height = preset.height * 32
+      const ctx = offscreen.getContext('2d')
+      if (ctx) {
+        ctx.imageSmoothingEnabled = false
+        if (preset.category === 'floor') {
+          PixelArtRenderer.drawFloor(ctx, preset.id as FloorType, 0, 0, 32)
+        } else if (preset.category === 'wall') {
+          PixelArtRenderer.drawWall(ctx, preset.id as WallType, 0, 0, 32)
+        } else if (preset.category === 'furniture') {
+          const mockFurn: PlacedFurniture = { id: 'thumb', defId: preset.id, x: 0, y: 0 }
+          PixelArtRenderer.drawFurniture(ctx, mockFurn)
+        }
+        finalDataUrl = offscreen.toDataURL('image/png')
+      }
+    }
+
+    if (finalDataUrl) {
+      loadArtworkToCanvas(finalDataUrl, preset.width, preset.height)
+      setArtworkName(preset.name)
+      setIsPresetModalOpen(false)
+    }
+  }
+
+  // Handle local PNG file upload directly into DrawStudio
+  const handleDirectFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string
+      if (dataUrl) {
+        loadArtworkToCanvas(dataUrl)
+        setArtworkName(file.name.replace(/\.[^/.]+$/, ''))
+        setIsPresetModalOpen(false)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // Aggregate all available presets (native, custom, and cropped clips)
+  const allPresets: PresetItem[] = [
+    ...customAssets.map((a) => ({
+      id: a.id,
+      name: a.name,
+      category: 'custom' as const,
+      width: a.width,
+      height: a.height,
+      dataUrl: a.frames && a.frames.length > 0 ? a.frames[0] : undefined,
+    })),
+    ...croppedClips.map((c) => ({
+      id: c.id,
+      name: c.name,
+      category: 'clip' as const,
+      width: Math.max(1, Math.round(c.width / 32)),
+      height: Math.max(1, Math.round(c.height / 32)),
+      dataUrl: c.dataUrl,
+    })),
+    ...NATIVE_PRESETS,
+  ]
+
+  const filteredPresets = allPresets.filter((p) => {
+    const matchesSearch = p.name.toLowerCase().includes(presetSearch.toLowerCase())
+    if (!matchesSearch) return false
+    if (presetCategoryTab === 'all') return true
+    if (presetCategoryTab === 'custom') return p.category === 'custom'
+    if (presetCategoryTab === 'clips') return p.category === 'clip'
+    if (presetCategoryTab === 'floor') return p.category === 'floor'
+    if (presetCategoryTab === 'wall') return p.category === 'wall'
+    if (presetCategoryTab === 'furniture') return p.category === 'furniture'
+    return true
+  })
+
   return (
-    <div className="flex flex-col h-full bg-[#12151d] rounded-2xl border border-[#2b2d31] overflow-hidden select-none">
-      {/* Top Toolbar: Tile Dimensions & Drawing Tools */}
+    <div className="flex flex-col h-full bg-[#12151d] rounded-2xl border border-[#2b2d31] overflow-hidden select-none relative">
+      {/* Top Toolbar: Name, Presets Button, Tile Dimensions & Drawing Tools */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#2b2d31] bg-[#18191c]/80 shrink-0 gap-3 flex-wrap">
-        {/* Typeable Tile Dimensions */}
+        {/* Left Side: Preset Loader & Name */}
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-slate-300">Tamanho no Mapa:</span>
-          <div className="flex items-center gap-2 bg-[#12151d] px-2.5 py-1 rounded-xl border border-[#2b2d31]">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-slate-400 font-semibold">Largura:</span>
+          <button
+            type="button"
+            onClick={() => setIsPresetModalOpen(true)}
+            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition-all active:scale-95"
+            title="Carregar qualquer móvel, piso, parede, recorte ou imagem do PC para editar à mão"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+            <span>Carregar Preset / Imagem</span>
+          </button>
+
+          {/* Artwork Name Input */}
+          <input
+            type="text"
+            value={artworkName}
+            onChange={(e) => setArtworkName(e.target.value)}
+            placeholder="Nome do desenho..."
+            className="px-2.5 py-1 bg-[#12151d] border border-[#2b2d31] rounded-xl text-xs font-semibold text-white focus:outline-none focus:border-indigo-500 w-44"
+          />
+        </div>
+
+        {/* Center: Typeable Tile Dimensions */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-300">Tamanho:</span>
+          <div className="flex items-center gap-2 bg-[#12151d] px-2 py-1 rounded-xl border border-[#2b2d31]">
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-slate-400 font-semibold">L:</span>
               <input
                 type="number"
                 min={1}
@@ -453,15 +642,15 @@ export const DrawStudio: React.FC<Props> = ({
                     setBoardSizeInTiles(val, tileHeight)
                   }
                 }}
-                className="w-12 bg-[#18191c] border border-[#2b2d31] rounded-lg px-1.5 py-0.5 text-xs font-bold text-center text-white focus:outline-none focus:border-indigo-500"
+                className="w-10 bg-[#18191c] border border-[#2b2d31] rounded-lg px-1 py-0.5 text-xs font-bold text-center text-white focus:outline-none focus:border-indigo-500"
               />
               <span className="text-[10px] text-slate-400 font-mono">({tileWidth * 32}px)</span>
             </div>
 
             <span className="text-slate-600 font-bold">×</span>
 
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-slate-400 font-semibold">Altura:</span>
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-slate-400 font-semibold">A:</span>
               <input
                 type="number"
                 min={1}
@@ -473,14 +662,14 @@ export const DrawStudio: React.FC<Props> = ({
                     setBoardSizeInTiles(tileWidth, val)
                   }
                 }}
-                className="w-12 bg-[#18191c] border border-[#2b2d31] rounded-lg px-1.5 py-0.5 text-xs font-bold text-center text-white focus:outline-none focus:border-indigo-500"
+                className="w-10 bg-[#18191c] border border-[#2b2d31] rounded-lg px-1 py-0.5 text-xs font-bold text-center text-white focus:outline-none focus:border-indigo-500"
               />
               <span className="text-[10px] text-slate-400 font-mono">({tileHeight * 32}px)</span>
             </div>
           </div>
         </div>
 
-        {/* Drawing Tools */}
+        {/* Right Side: Tools & Navigation */}
         <div className="flex items-center gap-1.5">
           <div className="flex bg-[#12151d] p-1 rounded-xl border border-[#2b2d31]">
             <button
@@ -648,7 +837,7 @@ export const DrawStudio: React.FC<Props> = ({
                 'repeating-conic-gradient(#181d28 0% 25%, #12151d 0% 50%) 50% / 16px 16px',
             }}
           >
-            {/* Active Drawing Canvas */}
+            {/* Drawing Canvas */}
             <canvas
               ref={drawCanvasRef}
               width={pixelWidth}
@@ -656,47 +845,54 @@ export const DrawStudio: React.FC<Props> = ({
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-              className="cursor-crosshair block"
-              style={{
-                width: `${pixelWidth * zoom}px`,
-                height: `${pixelHeight * zoom}px`,
-                imageRendering: 'pixelated',
+              onMouseLeave={() => {
+                handleMouseUp()
+                setHoverPixel(null)
               }}
+              className={`pixelated w-full h-full block ${
+                tool === 'picker'
+                  ? 'cursor-crosshair'
+                  : tool === 'bucket'
+                  ? 'cursor-cell'
+                  : 'cursor-crosshair'
+              }`}
+              style={{ imageRendering: 'pixelated' }}
             />
 
-            {/* Pixel Grid Lines Overlay */}
-            {showGrid && zoom >= 6 && (
+            {/* Pixel Grid Overlay (Active at zoom >= 4x) */}
+            {showGrid && zoom >= 4 && (
               <div
-                className="absolute inset-0 pointer-events-none opacity-25"
+                className="absolute inset-0 pointer-events-none"
                 style={{
-                  backgroundImage: `linear-gradient(to right, rgba(255,255,255,0.4) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.4) 1px, transparent 1px)`,
+                  backgroundImage: `linear-gradient(to right, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+                                    linear-gradient(to bottom, rgba(255, 255, 255, 0.08) 1px, transparent 1px)`,
                   backgroundSize: `${zoom}px ${zoom}px`,
                 }}
               />
             )}
 
-            {/* Tile 32px Border Overlay */}
+            {/* 32px Tile Borders Overlay */}
             {showGrid && (
               <div
-                className="absolute inset-0 pointer-events-none opacity-70"
+                className="absolute inset-0 pointer-events-none"
                 style={{
-                  backgroundImage: `linear-gradient(to right, rgba(76,110,245,0.8) 1.5px, transparent 1.5px), linear-gradient(to bottom, rgba(76,110,245,0.8) 1.5px, transparent 1.5px)`,
+                  backgroundImage: `linear-gradient(to right, rgba(99, 102, 241, 0.25) 1px, transparent 1px),
+                                    linear-gradient(to bottom, rgba(99, 102, 241, 0.25) 1px, transparent 1px)`,
                   backgroundSize: `${32 * zoom}px ${32 * zoom}px`,
                 }}
               />
             )}
 
-            {/* Hover Cursor Pixel Marker */}
+            {/* Hover Cursor Box */}
             {hoverPixel && (
               <div
-                className="absolute pointer-events-none border border-amber-300 ring-1 ring-black/80"
+                className="absolute pointer-events-none border border-white/80 shadow-sm"
                 style={{
                   left: `${(hoverPixel.x - Math.floor(brushSize / 2)) * zoom}px`,
                   top: `${(hoverPixel.y - Math.floor(brushSize / 2)) * zoom}px`,
                   width: `${brushSize * zoom}px`,
                   height: `${brushSize * zoom}px`,
-                  backgroundColor: tool === 'eraser' ? 'rgba(239, 68, 68, 0.4)' : `${color}88`,
+                  backgroundColor: tool === 'eraser' ? 'rgba(255, 255, 255, 0.3)' : color,
                 }}
               />
             )}
@@ -790,6 +986,140 @@ export const DrawStudio: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+      {/* Preset Selector Modal / Popover */}
+      {isPresetModalOpen && (
+        <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-150">
+          <div className="bg-[#18191c] border border-[#2b2d31] rounded-3xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#2b2d31] bg-[#1e1f22]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+                  <FolderOpen className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Carregar Preset no Editor de Pixels</h3>
+                  <p className="text-[11px] text-slate-400">
+                    Selecione qualquer elemento do jogo para modificar e desenhar à mão
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsPresetModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-[#2b2d31]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Search & Category Pills */}
+            <div className="p-4 border-b border-[#2b2d31] space-y-3 bg-[#12151d]/60">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={presetSearch}
+                    onChange={(e) => setPresetSearch(e.target.value)}
+                    placeholder="Buscar presets, móveis, pisos, paredes..."
+                    className="w-full pl-9 pr-3 py-1.5 bg-[#18191c] border border-[#2b2d31] rounded-xl text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <input
+                  type="file"
+                  ref={fileUploadInputRef}
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleDirectFileUpload}
+                  className="hidden"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => fileUploadInputRef.current?.click()}
+                  className="px-3 py-1.5 bg-[#26282e] hover:bg-[#32353b] border border-[#383a40] text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shrink-0"
+                >
+                  <Upload className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Importar PNG</span>
+                </button>
+              </div>
+
+              {/* Category Filter Pills */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                {[
+                  { id: 'all', label: 'Todos' },
+                  { id: 'custom', label: 'Customizados' },
+                  { id: 'clips', label: 'Recortes' },
+                  { id: 'floor', label: 'Pisos' },
+                  { id: 'wall', label: 'Paredes' },
+                  { id: 'furniture', label: 'Móveis & Forja' },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setPresetCategoryTab(tab.id as any)}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                      presetCategoryTab === tab.id
+                        ? 'bg-amber-500 text-white shadow-md'
+                        : 'bg-[#18191c] text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Presets Grid */}
+            <div className="p-4 overflow-y-auto flex-1 grid grid-cols-3 gap-3">
+              {filteredPresets.map((preset) => (
+                <div
+                  key={`${preset.category}-${preset.id}`}
+                  onClick={() => handleSelectPreset(preset)}
+                  className="p-3 bg-[#12151d] hover:bg-[#26282e] border border-[#2b2d31] hover:border-amber-500/60 rounded-2xl cursor-pointer flex flex-col items-center gap-2 transition-all group shadow-sm"
+                >
+                  <div className="w-16 h-16 rounded-xl bg-[#18191c] border border-white/10 flex items-center justify-center overflow-hidden p-1">
+                    {preset.dataUrl ? (
+                      <img
+                        src={preset.dataUrl}
+                        alt={preset.name}
+                        className="max-w-full max-h-full object-contain pixelated"
+                      />
+                    ) : (
+                      <span className="text-xl">🎨</span>
+                    )}
+                  </div>
+
+                  <div className="text-center w-full">
+                    <div className="text-xs font-bold text-slate-200 truncate group-hover:text-amber-300">
+                      {preset.name}
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-mono">
+                      {preset.width}x{preset.height} tiles ({preset.width * 32}x{preset.height * 32}px)
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="w-full py-1 bg-amber-500/20 group-hover:bg-amber-500 text-amber-300 group-hover:text-white rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1"
+                  >
+                    <Check className="w-3 h-3" />
+                    <span>Editar no Canvas</span>
+                  </button>
+                </div>
+              ))}
+
+              {filteredPresets.length === 0 && (
+                <div className="col-span-3 text-center py-10 text-slate-500 text-xs">
+                  Nenhum preset encontrado com os filtros atuais.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
