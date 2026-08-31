@@ -37,21 +37,17 @@ export class AvatarRenderer {
     ctx.ellipse(px + size / 2, py + size - 2, 11, 4.5, 0, 0, Math.PI * 2)
     ctx.fill()
 
-    // 2. Walk Bobbing & Step Cycle (2-step smooth rhythm)
+    // 2. Walk Bobbing & 4-Frame Step Cycle
     let bodyBob = 0
-    let legOffset = 0
-    let armOffset = 0
+    let walkFrame = 0
+    const isMoving = !!player.isMoving
 
-    if (player.isMoving) {
-      const step = Math.floor((animationTick / 110) % 4)
-      if (step === 1) {
-        bodyBob = -1
-        legOffset = 3
-        armOffset = 3
-      } else if (step === 3) {
-        bodyBob = -1
-        legOffset = -3
-        armOffset = -3
+    if (isMoving) {
+      walkFrame = Math.floor((animationTick / 120) % 4)
+      if (walkFrame === 1 || walkFrame === 3) {
+        bodyBob = -1 // Passing position - body peaks 1px up
+      } else {
+        bodyBob = 0 // Stride contact positions
       }
     }
 
@@ -83,7 +79,24 @@ export class AvatarRenderer {
     const otherColor = avatar.otherColor || avatar.accessoryColor || '#20c997'
 
     // ==========================================
-    // 3. LEGS, BOTTOMS & SHOES
+    // 3. BACK ARM (Behind body in side view)
+    // ==========================================
+    ClothingRenderer.drawBackArm(
+      ctx,
+      centerX,
+      baseY,
+      dir,
+      topType,
+      topColor,
+      jacketType,
+      jacketColor,
+      skinTone,
+      walkFrame,
+      isMoving
+    )
+
+    // ==========================================
+    // 4. LEGS, BOTTOMS & SHOES (4-Frame Walk Cycle)
     // ==========================================
     ClothingRenderer.drawLegsAndShoes(
       ctx,
@@ -94,25 +107,26 @@ export class AvatarRenderer {
       bottomColor,
       shoesType,
       shoesColor,
-      legOffset
+      walkFrame,
+      isMoving
     )
 
     // ==========================================
-    // 4. TORSO & TOPS (Kimono, Yukata, T-Shirt, Sweater, etc.)
+    // 5. TORSO & TOPS (Kimono, Yukata, T-Shirt, Sweater, etc.)
     // ==========================================
     ClothingRenderer.drawTorsoAndTop(ctx, centerX, baseY, dir, topType, topColor, skinTone)
 
     // ==========================================
-    // 5. JACKET (Open Hoodie, Cardigan, Blazer, Denim)
+    // 6. JACKET (Open Hoodie, Cardigan, Blazer, Denim)
     // ==========================================
     if (jacketType !== 'none') {
       ClothingRenderer.drawJacket(ctx, centerX, baseY, dir, jacketType, jacketColor)
     }
 
     // ==========================================
-    // 6. ARMS & SLEEVES (With walk cycle)
+    // 7. FRONT ARM (With 4-Frame natural swing)
     // ==========================================
-    ClothingRenderer.drawArms(
+    ClothingRenderer.drawFrontArm(
       ctx,
       centerX,
       baseY,
@@ -122,7 +136,8 @@ export class AvatarRenderer {
       jacketType,
       jacketColor,
       skinTone,
-      armOffset
+      walkFrame,
+      isMoving
     )
 
     // ==========================================

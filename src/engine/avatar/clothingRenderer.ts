@@ -2,7 +2,66 @@ import { Direction } from '../../types/game'
 
 export class ClothingRenderer {
   /**
-   * Draw Legs, Bottoms & Shoes
+   * Draw Back Arm (Only for side profile: dir === 'left' || dir === 'right')
+   * Drawn behind the torso and legs for authentic 2D depth.
+   */
+  static drawBackArm(
+    ctx: CanvasRenderingContext2D,
+    centerX: number,
+    baseY: number,
+    dir: Direction,
+    topType: string,
+    topColor: string,
+    jacketType: string,
+    jacketColor: string,
+    skinTone: string,
+    walkFrame: number,
+    isMoving: boolean
+  ) {
+    if (dir === 'down' || dir === 'up') return
+
+    const sleeveColor = jacketType !== 'none' ? jacketColor : topColor
+    const facing = dir === 'right' ? 1 : -1
+
+    let armOffsetX = 0
+    let armOffsetY = 0
+
+    if (isMoving) {
+      if (walkFrame === 0) {
+        // Quadro 1: Início da movimentação - Braço de trás balança para FRENTE (+X)
+        armOffsetX = facing * 3
+        armOffsetY = 0.5
+      } else if (walkFrame === 1 || walkFrame === 3) {
+        // Quadros 2 e 4: Continuação / passagem pelo meio
+        armOffsetX = 0
+        armOffsetY = 0
+      } else if (walkFrame === 2) {
+        // Quadro 3: Repetição espelhada - Braço de trás balança para TRÁS (-X)
+        armOffsetX = -facing * 2.5
+        armOffsetY = 0.5
+      }
+    }
+
+    const armX = centerX + armOffsetX - 1.5
+    const armY = baseY - 15 + armOffsetY
+
+    // Shadowed back arm (darkened for depth)
+    ctx.save()
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'
+    ctx.fillRect(armX - 0.5, armY - 0.5, 4, 10)
+
+    // Sleeve
+    ctx.fillStyle = sleeveColor
+    ctx.fillRect(armX, armY, 3.5, 6.5)
+
+    // Hand
+    ctx.fillStyle = skinTone
+    ctx.fillRect(armX, armY + 6.5, 3.5, 3)
+    ctx.restore()
+  }
+
+  /**
+   * Draw Legs, Bottoms & Shoes with 4-Frame Walk Cycle
    */
   static drawLegsAndShoes(
     ctx: CanvasRenderingContext2D,
@@ -13,52 +72,158 @@ export class ClothingRenderer {
     bottomColor: string,
     shoesType: string,
     shoesColor: string,
-    legOffset: number
+    walkFrame: number,
+    isMoving: boolean
   ) {
+    const facing = dir === 'right' ? 1 : -1
+
     if (bottomType === 'kimono_skirt') {
-      // Long Hakama / Kimono Skirt with Floral Crosses (Like Gather reference image)
+      // Long Hakama / Kimono Skirt
+      let skirtW = 16
+      let skirtX = centerX - 8
+      if (dir === 'left' || dir === 'right') {
+        skirtW = 12
+        skirtX = centerX - 6
+      }
+
       ctx.fillStyle = bottomColor
       ctx.beginPath()
-      ctx.roundRect(centerX - 8, baseY - 6, 16, 9, 2)
+      ctx.roundRect(skirtX, baseY - 6, skirtW, 9, 2)
       ctx.fill()
 
-      // Floral Cross Pattern on Kimono bottom
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)'
-      ctx.fillRect(centerX - 5, baseY - 2, 3, 1)
-      ctx.fillRect(centerX - 4, baseY - 3, 1, 3)
+      if (dir === 'down') {
+        // Floral Cross Pattern on Kimono bottom
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.45)'
+        ctx.fillRect(centerX - 5, baseY - 2, 3, 1)
+        ctx.fillRect(centerX - 4, baseY - 3, 1, 3)
 
-      ctx.fillRect(centerX + 2, baseY - 2, 3, 1)
-      ctx.fillRect(centerX + 3, baseY - 3, 1, 3)
+        ctx.fillRect(centerX + 2, baseY - 2, 3, 1)
+        ctx.fillRect(centerX + 3, baseY - 3, 1, 3)
 
-      ctx.fillRect(centerX - 1, baseY + 1, 3, 1)
-      ctx.fillRect(centerX, baseY, 1, 3)
+        ctx.fillRect(centerX - 1, baseY + 1, 3, 1)
+        ctx.fillRect(centerX, baseY, 1, 3)
+      }
 
-      // Geta / Sandals poking from under the skirt
-      ctx.fillStyle = shoesColor || '#51cf66'
-      ctx.fillRect(centerX - 5, baseY + 3, 3.5, 2.5)
-      ctx.fillRect(centerX + 1.5, baseY + 3, 3.5, 2.5)
+      // Geta / Sandals under skirt
+      if (dir === 'down' || dir === 'up') {
+        const lShoeY = baseY + 3 + (isMoving && walkFrame === 0 ? 2 : isMoving && walkFrame === 2 ? -1 : 0)
+        const rShoeY = baseY + 3 + (isMoving && walkFrame === 2 ? 2 : isMoving && walkFrame === 0 ? -1 : 0)
+        ctx.fillStyle = shoesColor || '#51cf66'
+        ctx.fillRect(centerX - 5, lShoeY, 3.5, 2.5)
+        ctx.fillRect(centerX + 1.5, rShoeY, 3.5, 2.5)
+      } else {
+        // Side View Sandals with 4-frame animation
+        ctx.fillStyle = shoesColor || '#51cf66'
+        if (!isMoving) {
+          ctx.fillRect(centerX - 3.5, baseY + 3, 7, 2.5)
+        } else if (walkFrame === 0) {
+          // Quadro 1: Perna da frente para frente, perna de trás para trás
+          ctx.fillRect(centerX + (facing * 2.5) - 3, baseY + 3, 6, 2.5)
+          ctx.fillRect(centerX - (facing * 3) - 2.5, baseY + 3, 5, 2.5)
+        } else if (walkFrame === 1) {
+          // Quadro 2: Perna no meio, perna de trás subindo
+          ctx.fillRect(centerX - 3, baseY + 3, 6, 2.5)
+          ctx.fillRect(centerX - (facing * 1.5) - 2, baseY + 1, 4.5, 2)
+        } else if (walkFrame === 2) {
+          // Quadro 3: Perna da frente para trás, perna de trás para frente
+          ctx.fillRect(centerX - (facing * 3) - 3, baseY + 3, 6, 2.5)
+          ctx.fillRect(centerX + (facing * 2.5) - 2.5, baseY + 3, 5, 2.5)
+        } else {
+          // Quadro 4: Perna de trás no meio, perna da frente subindo
+          ctx.fillRect(centerX - 3, baseY + 3, 6, 2.5)
+          ctx.fillRect(centerX + (facing * 1.5) - 2, baseY + 1, 4.5, 2)
+        }
+      }
       return
     }
 
     ctx.fillStyle = bottomColor
 
     if (dir === 'down' || dir === 'up') {
+      let lLegOffset = 0
+      let rLegOffset = 0
+
+      if (isMoving) {
+        if (walkFrame === 0) {
+          lLegOffset = 2
+          rLegOffset = -2
+        } else if (walkFrame === 2) {
+          lLegOffset = -2
+          rLegOffset = 2
+        }
+      }
+
       // Left Leg
-      ctx.fillRect(centerX - 6, baseY - 5, 5, 8 + legOffset)
+      ctx.fillRect(centerX - 6, baseY - 5, 5, 8 + lLegOffset)
       // Right Leg
-      ctx.fillRect(centerX + 1, baseY - 5, 5, 8 - legOffset)
+      ctx.fillRect(centerX + 1, baseY - 5, 5, 8 + rLegOffset)
 
       // Inner leg crease line
       ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
       ctx.fillRect(centerX - 1, baseY - 5, 2, 6)
 
       // Shoes
-      this.drawSingleShoe(ctx, centerX - 7, baseY + 3 + legOffset, 6, shoesType, shoesColor, dir, 'left')
-      this.drawSingleShoe(ctx, centerX + 1, baseY + 3 - legOffset, 6, shoesType, shoesColor, dir, 'right')
+      this.drawSingleShoe(ctx, centerX - 7, baseY + 3 + lLegOffset, 6, shoesType, shoesColor, dir, 'left')
+      this.drawSingleShoe(ctx, centerX + 1, baseY + 3 + rLegOffset, 6, shoesType, shoesColor, dir, 'right')
     } else {
-      // Side Profile Legs
-      ctx.fillRect(centerX - 3, baseY - 5, 6, 8)
-      this.drawSingleShoe(ctx, centerX - 4, baseY + 3, 8, shoesType, shoesColor, dir, 'side')
+      // Side Profile Legs with 4-Frame Walk Cycle
+      if (!isMoving) {
+        // Idle
+        ctx.fillRect(centerX - 3, baseY - 5, 6, 8)
+        this.drawSingleShoe(ctx, centerX - 4, baseY + 3, 8, shoesType, shoesColor, dir, 'side')
+      } else if (walkFrame === 0) {
+        // Quadro 1: Início da movimentação
+        // Perna de trás (sombra) recuada
+        ctx.save()
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
+        ctx.fillRect(centerX - (facing * 3.5) - 2, baseY - 5, 4.5, 8)
+        this.drawSingleShoe(ctx, centerX - (facing * 4) - 2.5, baseY + 3, 6, shoesType, shoesColor, dir, 'side')
+        ctx.restore()
+
+        // Perna da frente avançada
+        ctx.fillStyle = bottomColor
+        ctx.fillRect(centerX + (facing * 2.5) - 2.5, baseY - 5, 5, 8)
+        this.drawSingleShoe(ctx, centerX + (facing * 3) - 3.5, baseY + 3, 7, shoesType, shoesColor, dir, 'side')
+      } else if (walkFrame === 1) {
+        // Quadro 2: Continuação do movimento inicial (Passing position)
+        // Perna de trás flexionando e passando pelo meio
+        ctx.save()
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
+        ctx.fillRect(centerX - 1.5, baseY - 5, 4.5, 6)
+        this.drawSingleShoe(ctx, centerX - 2.5, baseY + 1, 6, shoesType, shoesColor, dir, 'side')
+        ctx.restore()
+
+        // Perna de apoio firme no centro
+        ctx.fillStyle = bottomColor
+        ctx.fillRect(centerX - 2.5, baseY - 5, 5, 8)
+        this.drawSingleShoe(ctx, centerX - 3.5, baseY + 3, 7, shoesType, shoesColor, dir, 'side')
+      } else if (walkFrame === 2) {
+        // Quadro 3: Repetição espelhada do Quadro 1
+        // Perna de trás avançada
+        ctx.save()
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
+        ctx.fillRect(centerX + (facing * 3) - 2, baseY - 5, 4.5, 8)
+        this.drawSingleShoe(ctx, centerX + (facing * 3.5) - 2.5, baseY + 3, 6, shoesType, shoesColor, dir, 'side')
+        ctx.restore()
+
+        // Perna da frente recuada
+        ctx.fillStyle = bottomColor
+        ctx.fillRect(centerX - (facing * 3.5) - 2.5, baseY - 5, 5, 8)
+        this.drawSingleShoe(ctx, centerX - (facing * 4) - 3.5, baseY + 3, 7, shoesType, shoesColor, dir, 'side')
+      } else {
+        // Quadro 4: Repetição espelhada do Quadro 2 (Passing position oposta)
+        // Perna de apoio (trás) firme no centro
+        ctx.save()
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
+        ctx.fillRect(centerX - 2, baseY - 5, 4.5, 8)
+        this.drawSingleShoe(ctx, centerX - 3, baseY + 3, 6, shoesType, shoesColor, dir, 'side')
+        ctx.restore()
+
+        // Perna da frente flexionando e passando pelo meio
+        ctx.fillStyle = bottomColor
+        ctx.fillRect(centerX - 2, baseY - 5, 5, 6)
+        this.drawSingleShoe(ctx, centerX - 3, baseY + 1, 7, shoesType, shoesColor, dir, 'side')
+      }
     }
   }
 
@@ -187,8 +352,86 @@ export class ClothingRenderer {
   }
 
   /**
-   * Draw Arms & Hands
+   * Draw Front Arm (or both arms for down/up directions) with 4-Frame Walk Cycle
    */
+  static drawFrontArm(
+    ctx: CanvasRenderingContext2D,
+    centerX: number,
+    baseY: number,
+    dir: Direction,
+    topType: string,
+    topColor: string,
+    jacketType: string,
+    jacketColor: string,
+    skinTone: string,
+    walkFrame: number,
+    isMoving: boolean
+  ) {
+    const sleeveColor = jacketType !== 'none' ? jacketColor : topColor
+
+    if (dir === 'down' || dir === 'up') {
+      let lArmOffset = 0
+      let rArmOffset = 0
+
+      if (isMoving) {
+        if (walkFrame === 0) {
+          lArmOffset = 2
+          rArmOffset = -2
+        } else if (walkFrame === 2) {
+          lArmOffset = -2
+          rArmOffset = 2
+        }
+      }
+
+      // Left Arm
+      const lArmY = baseY - 15 + lArmOffset
+      ctx.fillStyle = sleeveColor
+      ctx.fillRect(centerX - 10.5, lArmY, 3.5, 7) // Sleeve
+      ctx.fillStyle = skinTone
+      ctx.fillRect(centerX - 10.5, lArmY + 7, 3.5, 3.5) // Hand
+
+      // Right Arm
+      const rArmY = baseY - 15 + rArmOffset
+      ctx.fillStyle = sleeveColor
+      ctx.fillRect(centerX + 7, rArmY, 3.5, 7)
+      ctx.fillStyle = skinTone
+      ctx.fillRect(centerX + 7, rArmY + 7, 3.5, 3.5)
+    } else {
+      // Side Profile Front Arm with 4-Frame Walk Cycle
+      const facing = dir === 'right' ? 1 : -1
+      let armOffsetX = 0
+      let armOffsetY = 0
+
+      if (isMoving) {
+        if (walkFrame === 0) {
+          // Quadro 1: Início da movimentação - Braço da frente balança para TRÁS (-X)
+          armOffsetX = -facing * 2.5
+          armOffsetY = 0.5
+        } else if (walkFrame === 1 || walkFrame === 3) {
+          // Quadros 2 e 4: Posição central neutra ao lado do corpo
+          armOffsetX = 0
+          armOffsetY = 0
+        } else if (walkFrame === 2) {
+          // Quadro 3: Repetição espelhada - Braço da frente balança para FRENTE (+X)
+          armOffsetX = facing * 3
+          armOffsetY = 0.5
+        }
+      }
+
+      const armX = centerX + armOffsetX - 2
+      const armY = baseY - 15 + armOffsetY
+
+      // Sleeve
+      ctx.fillStyle = sleeveColor
+      ctx.fillRect(armX, armY, 4, 7)
+
+      // Hand
+      ctx.fillStyle = skinTone
+      ctx.fillRect(armX, armY + 7, 3.5, 3.5)
+    }
+  }
+
+  // Keep drawArms for backward compatibility
   static drawArms(
     ctx: CanvasRenderingContext2D,
     centerX: number,
@@ -201,34 +444,6 @@ export class ClothingRenderer {
     skinTone: string,
     armOffset: number
   ) {
-    const sleeveColor = jacketType !== 'none' ? jacketColor : topColor
-
-    if (dir === 'down' || dir === 'up') {
-      // Left Arm
-      const lArmY = baseY - 15 + armOffset
-      ctx.fillStyle = sleeveColor
-      ctx.fillRect(centerX - 10.5, lArmY, 3.5, 7) // Sleeve
-      ctx.fillStyle = skinTone
-      ctx.fillRect(centerX - 10.5, lArmY + 7, 3.5, 3.5) // Hand
-
-      // Right Arm
-      const rArmY = baseY - 15 - armOffset
-      ctx.fillStyle = sleeveColor
-      ctx.fillRect(centerX + 7, rArmY, 3.5, 7)
-      ctx.fillStyle = skinTone
-      ctx.fillRect(centerX + 7, rArmY + 7, 3.5, 3.5)
-    } else if (dir === 'left') {
-      const armY = baseY - 15 + armOffset
-      ctx.fillStyle = sleeveColor
-      ctx.fillRect(centerX - 8.5, armY, 4.5, 7)
-      ctx.fillStyle = skinTone
-      ctx.fillRect(centerX - 9.5, armY + 7, 4.5, 3.5)
-    } else if (dir === 'right') {
-      const armY = baseY - 15 - armOffset
-      ctx.fillStyle = sleeveColor
-      ctx.fillRect(centerX + 4, armY, 4.5, 7)
-      ctx.fillStyle = skinTone
-      ctx.fillRect(centerX + 5, armY + 7, 4.5, 3.5)
-    }
+    this.drawFrontArm(ctx, centerX, baseY, dir, topType, topColor, jacketType, jacketColor, skinTone, 0, false)
   }
 }
