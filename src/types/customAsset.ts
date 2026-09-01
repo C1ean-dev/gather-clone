@@ -1,4 +1,4 @@
-import { AvatarComponentSlot } from './game'
+import { AvatarComponentSlot, Direction } from './game'
 
 export type CustomAssetType = 'furniture' | 'floor' | 'wall' | 'avatar'
 
@@ -27,6 +27,7 @@ export interface CustomAsset {
   isObstacle: boolean // general flag for backward compatibility
   collisionGrid?: boolean[][] // 2D matrix [row][col] of tile collisions
   frames: string[] // base64 PNG dataURLs with alpha channel
+  directionalFrames?: Partial<Record<Direction, string>>
   frameLayers?: CustomAssetLayer[][] // Separate layers preserved for each frame
   frameRateMs: number // default 160ms
   iconColor?: string

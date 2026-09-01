@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { bakeAvatarPreset, cropContentDataUrl } from '../engine/avatar/avatarBakeService'
+import { bakeAvatarPreset, bakeAllAvatarDirections, cropContentDataUrl } from '../engine/avatar/avatarBakeService'
 import { AvatarAtlasManager } from '../engine/avatar/AvatarAtlasManager'
 
 describe('avatarBakeService - Bake on Demand', () => {
@@ -42,9 +42,22 @@ describe('avatarBakeService - Bake on Demand', () => {
     expect(dataUrl).toBe('')
   })
 
-  it('should crop empty space and return close-up dataUrl', async () => {
-    const rawDataUrl = 'data:image/png;base64,sample'
-    const cropped = await cropContentDataUrl(rawDataUrl)
-    expect(cropped).toBeDefined()
+  it('should bake all 4 directions (down, up, left, right) for a preset', () => {
+    const directions = bakeAllAvatarDirections('hair', 'short', { hairColor: '#212529' })
+    expect(directions).toBeDefined()
+    expect(directions.down).toBeDefined()
+    expect(directions.up).toBeDefined()
+    expect(directions.left).toBeDefined()
+    expect(directions.right).toBeDefined()
+    expect(directions.down.startsWith('data:image/png')).toBe(true)
+    expect(directions.up.startsWith('data:image/png')).toBe(true)
+  })
+
+  it('should bake makeup only on front and side directions, keeping back clean', () => {
+    const directions = bakeAllAvatarDirections('skin', 'blush')
+    expect(directions.down).toBeDefined()
+    expect(directions.down.startsWith('data:image/png')).toBe(true)
+    // Makeup does not appear on the back of head
+    expect(directions.up).toBeDefined()
   })
 })

@@ -16,10 +16,11 @@ import {
   Sparkles,
   Move,
   Maximize2,
+  FlipHorizontal,
 } from 'lucide-react'
 import { AvatarRenderer } from '../../engine/AvatarRenderer'
 import { DEFAULT_AVATAR } from '../../engine/Constants'
-import { AvatarConfig, AvatarComponentSlot, Player } from '../../types/game'
+import { AvatarConfig, AvatarComponentSlot, Player, Direction } from '../../types/game'
 
 export type DrawTool = 'pencil' | 'eraser' | 'bucket' | 'picker'
 
@@ -29,8 +30,9 @@ interface Props {
   category: AvatarComponentSlot
   presetName: string
   initialDataUrl?: string
+  initialDirectionalFrames?: Partial<Record<Direction, string>>
   avatar: AvatarConfig
-  onSave: (savedDataUrl: string, name: string) => void
+  onSave: (directionalFrames: Record<Direction, string>, name: string) => void
 }
 
 const PRESET_PALETTE = [
@@ -54,12 +56,20 @@ const CATEGORY_LABELS: Record<AvatarComponentSlot, string> = {
   other: 'Acessório Extra',
 }
 
+const DIRECTIONS: { id: Direction; label: string; icon: string }[] = [
+  { id: 'down', label: 'Frente', icon: '⬇️' },
+  { id: 'up', label: 'Costas', icon: '⬆️' },
+  { id: 'left', label: 'Esquerda', icon: '⬅️' },
+  { id: 'right', label: 'Direita', icon: '➡️' },
+]
+
 export const AvatarPixelArtModal: React.FC<Props> = ({
   isOpen,
   onClose,
   category,
   presetName,
   initialDataUrl,
+  initialDirectionalFrames,
   avatar,
   onSave,
 }) => {
@@ -67,6 +77,15 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
 
   const canvasWidth = 32
   const canvasHeight = 32
+
+  // 4-Directional Frames State
+  const [activeDirection, setActiveDirection] = useState<Direction>('down')
+  const [directionalFrames, setDirectionalFrames] = useState<Record<Direction, string>>({
+    down: initialDirectionalFrames?.down || initialDataUrl || '',
+    up: initialDirectionalFrames?.up || '',
+    left: initialDirectionalFrames?.left || '',
+    right: initialDirectionalFrames?.right || '',
+  })
 
   // Tools & Styling
   const [tool, setTool] = useState<DrawTool>('pencil')
@@ -155,7 +174,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       name: '',
       x: 0,
       y: 0,
-      direction: 'down',
+      direction: activeDirection,
       isMoving: false,
       status: 'available',
       lastUpdated: 0,
@@ -169,7 +188,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     }
 
     AvatarRenderer.drawPlayer(gCtx, ghostPlayer, false, 0, 32, false)
-  }, [avatar])
+  }, [avatar, activeDirection])
 
   // Re-draw ghost guide whenever avatar or showGhost changes
   useEffect(() => {
@@ -226,7 +245,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     }
   }, [isPanning])
 
-  // Load initial artwork onto drawing canvas
+  // Load artwork for activeDirection onto drawing canvas
   useEffect(() => {
     const canvas = drawCanvasRef.current
     if (!canvas) return
@@ -236,22 +255,65 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     ctx.imageSmoothingEnabled = false
     ctx.clearRect(0, 0, 32, 32)
 
-    if (initialDataUrl) {
+    const currentImgUrl = directionalFrames[activeDirection]
+    if (currentImgUrl) {
       const img = new Image()
-      img.src = initialDataUrl
+      img.src = currentImgUrl
       img.onload = () => {
         ctx.clearRect(0, 0, 32, 32)
         ctx.drawImage(img, 0, 0, 32, 32)
+        setPreviewDataUrl(currentImgUrl)
         historyRef.current = []
         historyStepRef.current = -1
         pushHistoryState()
       }
     } else {
+      setPreviewDataUrl('')
       historyRef.current = []
       historyStepRef.current = -1
       pushHistoryState()
     }
-  }, [initialDataUrl, pushHistoryState])
+  }, [activeDirection, pushHistoryState])
+
+  // Direction Switcher
+  const switchDirection = (newDir: Direction) => {
+    if (newDir === activeDirection) return
+    const canvas = drawCanvasRef.current
+    if (canvas) {
+      const currentData = canvas.toDataURL('image/png')
+      setDirectionalFrames((prev) => ({
+        ...prev,
+        [activeDirection]: currentData,
+      }))
+    }
+    setActiveDirection(newDir)
+  }
+
+  // Mirror Left/Right Side
+  const handleMirrorOppositeSide = () => {
+    const canvas = drawCanvasRef.current
+    if (!canvas) return
+    const targetDir: Direction = activeDirection === 'left' ? 'right' : 'left'
+
+    const flipCanvas = document.createElement('canvas')
+    flipCanvas.width = 32
+    flipCanvas.height = 32
+    const flipCtx = flipCanvas.getContext('2d')
+    if (!flipCtx) return
+    flipCtx.imageSmoothingEnabled = false
+    flipCtx.translate(32, 0)
+    flipCtx.scale(-1, 1)
+    flipCtx.drawImage(canvas, 0, 0)
+
+    const currentData = canvas.toDataURL('image/png')
+    const flippedData = flipCanvas.toDataURL('image/png')
+
+    setDirectionalFrames((prev) => ({
+      ...prev,
+      [activeDirection]: currentData,
+      [targetDir]: flippedData,
+    }))
+  }
 
   // Pixel Coordinates calculation
   const getCanvasPixelCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -478,8 +540,35 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
   const handleFinalSave = () => {
     const canvas = drawCanvasRef.current
     if (!canvas) return
-    const dataUrl = canvas.toDataURL('image/png')
-    onSave(dataUrl, customName.trim() || `Preset ${CATEGORY_LABELS[category]}`)
+    const currentData = canvas.toDataURL('image/png')
+    const finalFrames: Record<Direction, string> = {
+      ...directionalFrames,
+      [activeDirection]: currentData,
+    }
+
+    // Auto-mirror: If left was drawn but right is empty, mirror left into right
+    if (finalFrames.left && !finalFrames.right) {
+      const flipCanvas = document.createElement('canvas')
+      flipCanvas.width = 32
+      flipCanvas.height = 32
+      const flipCtx = flipCanvas.getContext('2d')
+      if (flipCtx) {
+        const img = new Image()
+        img.src = finalFrames.left
+        img.onload = () => {
+          flipCtx.imageSmoothingEnabled = false
+          flipCtx.translate(32, 0)
+          flipCtx.scale(-1, 1)
+          flipCtx.drawImage(img, 0, 0)
+          finalFrames.right = flipCanvas.toDataURL('image/png')
+          onSave(finalFrames, customName.trim() || `Preset ${CATEGORY_LABELS[category]}`)
+          onClose()
+        }
+        return
+      }
+    }
+
+    onSave(finalFrames, customName.trim() || `Preset ${CATEGORY_LABELS[category]}`)
     onClose()
   }
 
@@ -777,6 +866,48 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
               )}
             </div>
 
+            {/* 4-Directional Frames Switcher Bar */}
+            <div className="absolute bottom-16 z-10 flex items-center gap-2 bg-[#18191c]/95 border border-[#383a40] backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-xl">
+              <span className="text-[11px] font-bold text-slate-300 ml-1 mr-0.5">Direção:</span>
+              {DIRECTIONS.map((dirItem) => {
+                const isCurrent = activeDirection === dirItem.id
+                const hasFrame = !!(activeDirection === dirItem.id ? previewDataUrl : directionalFrames[dirItem.id])
+                return (
+                  <button
+                    key={dirItem.id}
+                    onClick={() => switchDirection(dirItem.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                      isCurrent
+                        ? 'bg-[#3b82f6] text-white border-[#60a5fa] shadow-md shadow-blue-500/25 scale-105'
+                        : 'bg-[#2b2d31] text-slate-300 hover:text-white border-[#383a40] hover:border-slate-500'
+                    }`}
+                  >
+                    <span>{dirItem.icon}</span>
+                    <span>{dirItem.label}</span>
+                    {hasFrame && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                  </button>
+                )
+              })}
+
+              {(activeDirection === 'left' || activeDirection === 'right') && (
+                <>
+                  <div className="w-px h-5 bg-[#383a40] mx-1" />
+                  <button
+                    onClick={handleMirrorOppositeSide}
+                    title={
+                      activeDirection === 'left'
+                        ? 'Copiar e espelhar lado esquerdo para a direita'
+                        : 'Copiar e espelhar lado direito para a esquerda'
+                    }
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#2b2d31] hover:bg-[#383a40] border border-[#383a40] text-indigo-300 hover:text-white text-[11px] font-semibold transition-all cursor-pointer"
+                  >
+                    <FlipHorizontal className="w-3.5 h-3.5" />
+                    <span>Espelhar {activeDirection === 'left' ? 'p/ Direita ➡️' : 'p/ Esquerda ⬅️'}</span>
+                  </button>
+                </>
+              )}
+            </div>
+
             {/* Bottom Status Bar with Controls Tip */}
             <div className="absolute bottom-4 z-10 flex items-center gap-4 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-4 py-2 rounded-2xl text-xs text-slate-400 shadow-lg">
               <span>
@@ -829,6 +960,36 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                     )}
                   </div>
                   <span className="text-[10px] text-slate-400">2x (64px)</span>
+                </div>
+              </div>
+
+              {/* 4 Directions Mini Previews */}
+              <div className="flex flex-col gap-1.5 mt-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quadros das 4 Direções</span>
+                <div className="grid grid-cols-4 gap-1.5 bg-[#1e1f22] p-2 rounded-xl border border-[#383a40]/60">
+                  {DIRECTIONS.map((dirItem) => {
+                    const frameUrl = activeDirection === dirItem.id ? previewDataUrl : directionalFrames[dirItem.id]
+                    return (
+                      <div
+                        key={dirItem.id}
+                        onClick={() => switchDirection(dirItem.id)}
+                        className={`flex flex-col items-center gap-1 p-1 rounded-lg cursor-pointer border transition-all ${
+                          activeDirection === dirItem.id
+                            ? 'border-[#3b82f6] bg-[#3b82f6]/10 scale-105'
+                            : 'border-transparent hover:bg-[#2b2d31]'
+                        }`}
+                      >
+                        <div className="w-8 h-8 rounded bg-[#18191c] border border-slate-700/60 flex items-center justify-center overflow-hidden">
+                          {frameUrl ? (
+                            <img src={frameUrl} alt={dirItem.label} className="w-7 h-7 [image-rendering:pixelated]" />
+                          ) : (
+                            <span className="text-[11px] opacity-40">{dirItem.icon}</span>
+                          )}
+                        </div>
+                        <span className="text-[9px] font-semibold text-slate-400">{dirItem.label}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             </div>

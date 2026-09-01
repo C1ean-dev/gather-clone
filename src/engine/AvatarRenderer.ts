@@ -185,13 +185,38 @@ export class AvatarRenderer {
     const otherType = avatar.otherType || (avatar.accessory === 'headphones' ? 'headphones' : 'none')
     const otherColor = avatar.otherColor || avatar.accessoryColor || '#20c997'
 
-    // Helper to render hand-drawn custom component layers
-    const drawCustomComponent = (dataUrl?: string) => {
+    // Helper to render hand-drawn custom component layers with 4-directional support
+    const drawCustomComponent = (component?: string | Partial<Record<Direction, string>>) => {
+      if (!component) return
+      let dataUrl: string | undefined
+      let shouldFlip = false
+
+      if (typeof component === 'string') {
+        // Backward compatibility for single frame assets:
+        // Never render a front-only frame when player is facing away (up)
+        if (dir === 'up') return
+        dataUrl = component
+        if (dir === 'left') shouldFlip = true
+      } else {
+        // Multi-directional frames
+        dataUrl = component[dir]
+        // Automatic side-profile mirroring fallback if one side wasn't drawn
+        if (!dataUrl) {
+          if (dir === 'left' && component.right) {
+            dataUrl = component.right
+            shouldFlip = true
+          } else if (dir === 'right' && component.left) {
+            dataUrl = component.left
+            shouldFlip = true
+          }
+        }
+      }
+
       if (!dataUrl) return
       const img = getCustomAssetImage(dataUrl)
       if (img && img.complete && img.naturalWidth > 0) {
         ctx.save()
-        if (dir === 'left') {
+        if (shouldFlip) {
           ctx.translate(px + size / 2, 0)
           ctx.scale(-1, 1)
           ctx.translate(-(px + size / 2), 0)

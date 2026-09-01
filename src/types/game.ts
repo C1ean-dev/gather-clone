@@ -31,7 +31,7 @@ export interface AvatarConfig {
   // Custom Hand-Drawn Avatar Full Skin or Specific Component Layers
   customSkinUrl?: string
   customAvatarId?: string
-  customComponents?: Partial<Record<AvatarComponentSlot, string>>
+  customComponents?: Partial<Record<AvatarComponentSlot, string | Partial<Record<Direction, string>>>>
 
   // 1. Skin & Face Details
   skinTone: string

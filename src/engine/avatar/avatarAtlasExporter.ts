@@ -185,18 +185,27 @@ export async function exportCategoryAtlas(
   }
 
   for (const asset of categoryAssets) {
-    if (asset.frames && asset.frames[0]) {
-      try {
-        const cleanName = (asset.name || 'custom').toLowerCase().replace(/[^a-z0-9]/g, '_')
-        const img = await loadImage(asset.frames[0])
-        spritesToPack.push({
-          name: `${category}_${cleanName}_down_0`,
-          image: img,
-          width: 32,
-          height: 32,
-        })
-      } catch (e) {
-        console.warn('Failed to load image for export:', asset.name, e)
+    const cleanName = (asset.name || 'custom').toLowerCase().replace(/[^a-z0-9]/g, '_')
+    const dirMap: { dir: string; dataUrl?: string }[] = [
+      { dir: 'down', dataUrl: asset.directionalFrames?.down || asset.frames?.[0] },
+      { dir: 'up', dataUrl: asset.directionalFrames?.up || asset.frames?.[1] },
+      { dir: 'left', dataUrl: asset.directionalFrames?.left || asset.frames?.[2] },
+      { dir: 'right', dataUrl: asset.directionalFrames?.right || asset.frames?.[3] },
+    ]
+
+    for (const item of dirMap) {
+      if (item.dataUrl) {
+        try {
+          const img = await loadImage(item.dataUrl)
+          spritesToPack.push({
+            name: `${category}_${cleanName}_${item.dir}_0`,
+            image: img,
+            width: 32,
+            height: 32,
+          })
+        } catch (e) {
+          console.warn('Failed to load image for export:', asset.name, item.dir, e)
+        }
       }
     }
   }

@@ -229,6 +229,22 @@ export function bakeAvatarPreset(
 }
 
 /**
+ * Bakes all 4 standard directions (down, up, left, right) for a native avatar preset
+ */
+export function bakeAllAvatarDirections(
+  category: string,
+  presetId: string,
+  avatarConfig?: AvatarConfig
+): Record<Direction, string> {
+  return {
+    down: bakeAvatarPreset(category, presetId, avatarConfig, 'down'),
+    up: bakeAvatarPreset(category, presetId, avatarConfig, 'up'),
+    left: bakeAvatarPreset(category, presetId, avatarConfig, 'left'),
+    right: bakeAvatarPreset(category, presetId, avatarConfig, 'right'),
+  }
+}
+
+/**
  * Scans an image canvas and crops tightly to the bounding box of non-transparent pixels,
  * eliminating all empty margins so the item is brought close-up and centered.
  */

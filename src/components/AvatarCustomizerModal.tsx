@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { X, Check } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
-import { AvatarConfig, AvatarComponentSlot, PresenceStatus } from '../types/game'
+import { AvatarConfig, AvatarComponentSlot, PresenceStatus, Direction } from '../types/game'
 import { PeerManager } from '../p2p/PeerManager'
 import { CategoryKey, CategoryTabs } from './avatar-customizer/CategoryTabs'
 import {
@@ -15,8 +15,9 @@ import {
 import { OptionSelectorGrid } from './avatar-customizer/OptionSelectorGrid'
 import { AvatarPreviewCanvas } from './avatar-customizer/AvatarPreviewCanvas'
 import { AvatarPixelArtModal } from '../editor/avatar/AvatarPixelArtModal'
-import { bakeAvatarPreset, cropContentDataUrl } from '../engine/avatar/avatarBakeService'
+import { bakeAllAvatarDirections, cropContentDataUrl } from '../engine/avatar/avatarBakeService'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
+import { CustomAsset } from '../types/customAsset'
 
 interface Props {
   isOpen: boolean
@@ -59,7 +60,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
     category: AvatarComponentSlot
     presetId: string
     presetName: string
-    dataUrl?: string
+    directionalFrames?: Record<Direction, string>
   } | null>(null)
 
   // Sync state when opened
@@ -100,13 +101,33 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
   if (!isOpen) return null
 
   const handleOpenEditPreset = (category: AvatarComponentSlot, presetId: string, label: string) => {
-    const baked = bakeAvatarPreset(category, presetId, avatar)
+    const customAsset = useCustomAssetsStore.getState().customAssets.find((a) => a.id === presetId)
+    let directionalFrames: Record<Direction, string>
+
+    if (customAsset && customAsset.directionalFrames) {
+      directionalFrames = {
+        down: customAsset.directionalFrames.down || customAsset.frames[0] || '',
+        up: customAsset.directionalFrames.up || customAsset.frames[1] || '',
+        left: customAsset.directionalFrames.left || customAsset.frames[2] || '',
+        right: customAsset.directionalFrames.right || customAsset.frames[3] || '',
+      }
+    } else if (customAsset && customAsset.frames?.length) {
+      directionalFrames = {
+        down: customAsset.frames[0] || '',
+        up: customAsset.frames[1] || '',
+        left: customAsset.frames[2] || '',
+        right: customAsset.frames[3] || '',
+      }
+    } else {
+      directionalFrames = bakeAllAvatarDirections(category, presetId, avatar)
+    }
+
     setEditingPreset({
       isOpen: true,
       category,
       presetId,
       presetName: label,
-      dataUrl: baked,
+      directionalFrames,
     })
   }
 
@@ -116,19 +137,24 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
       category,
       presetId: '',
       presetName: '',
-      dataUrl: undefined,
+      directionalFrames: undefined,
     })
   }
 
-  const handleSavePresetFromStudio = async (savedDataUrl: string, name: string) => {
+  const handleSavePresetFromStudio = async (
+    directionalFrames: Record<Direction, string>,
+    name: string
+  ) => {
     if (!editingPreset) return
     const category = editingPreset.category
 
     // 1. Create and persist CustomAsset permanently into nativeAssets & mesh
     const customName = name || `Preset ${category}`
-    const thumbnail = await cropContentDataUrl(savedDataUrl)
+    const thumbnail = await cropContentDataUrl(
+      directionalFrames.down || Object.values(directionalFrames).find(Boolean) || ''
+    )
 
-    const newAsset = {
+    const newAsset: CustomAsset = {
       id: `avatar_${category}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       name: customName,
       type: 'avatar' as const,
@@ -138,7 +164,13 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
       width: 1,
       height: 1,
       isObstacle: false,
-      frames: [savedDataUrl],
+      frames: [
+        directionalFrames.down || '',
+        directionalFrames.up || '',
+        directionalFrames.left || '',
+        directionalFrames.right || '',
+      ],
+      directionalFrames,
       frameRateMs: 160,
       createdAt: Date.now(),
     }
@@ -149,7 +181,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
       ...avatar,
       customComponents: {
         ...avatar.customComponents,
-        [category]: savedDataUrl,
+        [category]: directionalFrames,
       },
     }
     setAvatar(updatedAvatar)
@@ -314,7 +346,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
           onClose={() => setEditingPreset(null)}
           category={editingPreset.category}
           presetName={editingPreset.presetName}
-          initialDataUrl={editingPreset.dataUrl}
+          initialDirectionalFrames={editingPreset.directionalFrames}
           avatar={avatar}
           onSave={handleSavePresetFromStudio}
         />
