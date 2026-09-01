@@ -104,12 +104,17 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
     const customAsset = useCustomAssetsStore.getState().customAssets.find((a) => a.id === presetId)
     let directionalFrames: Record<Direction, string>
 
+    const getFirstFrame = (val?: string | string[]): string => {
+      if (Array.isArray(val)) return val[0] || ''
+      return val || ''
+    }
+
     if (customAsset && customAsset.directionalFrames) {
       directionalFrames = {
-        down: customAsset.directionalFrames.down || customAsset.frames[0] || '',
-        up: customAsset.directionalFrames.up || customAsset.frames[1] || '',
-        left: customAsset.directionalFrames.left || customAsset.frames[2] || '',
-        right: customAsset.directionalFrames.right || customAsset.frames[3] || '',
+        down: getFirstFrame(customAsset.directionalFrames.down) || customAsset.frames[0] || '',
+        up: getFirstFrame(customAsset.directionalFrames.up) || customAsset.frames[1] || '',
+        left: getFirstFrame(customAsset.directionalFrames.left) || customAsset.frames[2] || '',
+        right: getFirstFrame(customAsset.directionalFrames.right) || customAsset.frames[3] || '',
       }
     } else if (customAsset && customAsset.frames?.length) {
       directionalFrames = {

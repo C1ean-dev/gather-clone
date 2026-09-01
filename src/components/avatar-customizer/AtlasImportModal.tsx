@@ -26,7 +26,7 @@ const CATEGORY_NAMES: Record<AvatarComponentSlot, string> = {
   facialHair: 'Pelos Faciais',
   eyes: 'Olhos',
   skin: 'Maquiagem',
-  other: 'Acessório Extra',
+  other: 'Personagem',
 }
 
 export const AtlasImportModal: React.FC<Props> = ({

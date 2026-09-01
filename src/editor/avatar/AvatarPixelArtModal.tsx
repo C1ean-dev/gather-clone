@@ -53,7 +53,7 @@ const CATEGORY_LABELS: Record<AvatarComponentSlot, string> = {
   facialHair: 'Pelos Faciais',
   eyes: 'Olhos',
   skin: 'Maquiagem',
-  other: 'Acessório Extra',
+  other: 'Personagem',
 }
 
 const DIRECTIONS: { id: Direction; label: string; icon: string }[] = [

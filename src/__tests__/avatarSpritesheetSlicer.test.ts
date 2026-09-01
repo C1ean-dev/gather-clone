@@ -72,4 +72,25 @@ describe('avatarSpritesheetSlicer - Interactive Slicer and XML Generator', () =>
     expect(stored[0].directionalFrames?.left).toBe('data:left')
     expect(stored[0].directionalFrames?.right).toBe('data:right')
   })
+
+  it('should support sub-32x32 dimensions (e.g. 16x16, 8x8, 24x24) in XML and asset definition', () => {
+    const subTextures: PackedSubTexture[] = [
+      { name: 'glasses_tiny_down_0', x: 0, y: 0, width: 16, height: 16 },
+      { name: 'skin_blush_down_0', x: 16, y: 0, width: 8, height: 8 },
+      { name: 'hat_cap_down_0', x: 24, y: 0, width: 24, height: 24 },
+    ]
+
+    const xml = generateSparrowXml('accessories.png', subTextures)
+    expect(xml).toContain('<SubTexture name="glasses_tiny_down_0" x="0" y="0" width="16" height="16"')
+    expect(xml).toContain('<SubTexture name="skin_blush_down_0" x="16" y="0" width="8" height="8"')
+    expect(xml).toContain('<SubTexture name="hat_cap_down_0" x="24" y="0" width="24" height="24"')
+
+    const parsed = AvatarAtlasManager.parseAtlasXml(xml)
+    expect(parsed.subTextures.get('glasses_tiny_down_0')?.width).toBe(16)
+    expect(parsed.subTextures.get('glasses_tiny_down_0')?.height).toBe(16)
+    expect(parsed.subTextures.get('skin_blush_down_0')?.width).toBe(8)
+    expect(parsed.subTextures.get('skin_blush_down_0')?.height).toBe(8)
+    expect(parsed.subTextures.get('hat_cap_down_0')?.width).toBe(24)
+    expect(parsed.subTextures.get('hat_cap_down_0')?.height).toBe(24)
+  })
 })

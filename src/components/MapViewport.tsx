@@ -15,7 +15,7 @@ export const MapViewport: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const engineRef = useRef<CanvasEngine | null>(null)
 
-  const { mapViewMode } = useGameStore()
+  const { mapViewMode, setMapViewMode, isManualSimplified } = useGameStore()
   const {
     isEditorOpen,
     activeTool,
@@ -350,12 +350,29 @@ export const MapViewport: React.FC = () => {
   }
 
   const handleZoom = (delta: number) => {
+    // Se estiver no modo simplificado:
+    if (mapViewMode === 'simplified') {
+      // Se adicionar zoom (delta > 0) e NÃO foi ativado manualmente pelo botão:
+      if (delta > 0 && !isManualSimplified) {
+        if (engineRef.current) {
+          engineRef.current.camera.zoom = 0.6
+        }
+        setMapViewMode('immersive', false)
+      }
+      return
+    }
+
     if (!engineRef.current) return
-    engineRef.current.camera.zoom = Math.max(0.4, Math.min(4.0, Number((engineRef.current.camera.zoom + delta).toFixed(2))))
+    const newZoom = Math.max(0.4, Math.min(4.0, Number((engineRef.current.camera.zoom + delta).toFixed(2))))
+    engineRef.current.camera.zoom = newZoom
+
+    // Quando o usuário der zoom no mínimo (<= 0.4), altera de imersivo para simplificado (automático via zoom)
+    if (newZoom <= 0.4 && mapViewMode === 'immersive') {
+      setMapViewMode('simplified', false)
+    }
   }
 
   const handleWheel = (e: React.WheelEvent) => {
-    if (!engineRef.current) return
     // Smooth zoom in / out with mouse scroll
     const delta = e.deltaY < 0 ? 0.15 : -0.15
     handleZoom(delta)

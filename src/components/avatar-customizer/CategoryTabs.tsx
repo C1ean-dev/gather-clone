@@ -9,7 +9,7 @@ import {
   Footprints,
   Crown,
   Glasses,
-  Sparkle,
+  UserCircle,
 } from 'lucide-react'
 
 export type CategoryKey =
@@ -41,7 +41,7 @@ export const CATEGORIES = [
   { id: 'shoes', label: 'Sapatos', icon: Footprints },
   { id: 'hat', label: 'Chapéu', icon: Crown },
   { id: 'glasses', label: 'Óculos', icon: Glasses },
-  { id: 'other', label: 'Outro', icon: Sparkle },
+  { id: 'other', label: 'Personagem', icon: UserCircle },
 ]
 
 export const CategoryTabs: React.FC<Props> = ({ activeCategory, onSelectCategory }) => {

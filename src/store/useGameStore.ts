@@ -147,7 +147,8 @@ interface GameStore {
 
   // View Mode (Immersive vs Simplified)
   mapViewMode: 'immersive' | 'simplified'
-  setMapViewMode: (mode: 'immersive' | 'simplified') => void
+  isManualSimplified: boolean
+  setMapViewMode: (mode: 'immersive' | 'simplified', isManual?: boolean) => void
 }
 
 const FRIENDS_STORAGE_KEY = 'gather_v2_friends_list'
@@ -177,12 +178,16 @@ const loadSavedFriends = (): string[] => {
 
 export const useGameStore = create<GameStore>((set, get) => ({
   mapViewMode: loadSavedMapViewMode(),
-  setMapViewMode: (mapViewMode) => {
+  isManualSimplified: false,
+  setMapViewMode: (mapViewMode, isManual = false) => {
     try {
       const storage = getStorage()
       if (storage) storage.setItem(MAP_VIEW_STORAGE_KEY, mapViewMode)
     } catch (e) {}
-    set({ mapViewMode })
+    set({
+      mapViewMode,
+      isManualSimplified: mapViewMode === 'simplified' ? (isManual ?? false) : false,
+    })
   },
   isOnlineUsersOpen: false,
   setOnlineUsersOpen: (isOnlineUsersOpen) => set({ isOnlineUsersOpen }),

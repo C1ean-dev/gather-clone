@@ -688,27 +688,25 @@ export const OptionSelectorGrid: React.FC<Props> = ({
         </div>
       )}
 
-      {/* CATEGORY: OUTRO / EXTRAS */}
+      {/* CATEGORY: PERSONAGEM */}
       {activeCategory === 'other' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
           {renderCustomPresetCards()}
           {[
-            { id: 'none', label: 'Nenhum' },
-            { id: 'headphones', label: 'Fones Gamer DJ' },
-            { id: 'mask', label: 'Máscara Facial' },
+            { id: 'none', label: 'Avatar Base (Padrão)' },
           ].map((item) => {
-            const isSelected = avatar.otherType === item.id
+            const isSelected = !avatar.customComponents?.other && avatar.otherType === 'none'
             return renderCard(
               item,
               isSelected,
               <div
                 className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow"
-                style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.otherColor }}
+                style={{ backgroundColor: '#18191c' }}
               >
-                {item.id === 'none' ? '🚫' : '🎧'}
+                🚫
               </div>,
-              () => selectNativePreset({ otherType: item.id as OtherType })
+              () => selectNativePreset({ otherType: 'none' })
             )
           })}
         </div>

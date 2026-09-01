@@ -16,7 +16,24 @@ export class CameraManager {
   public handleWheel = (e: WheelEvent) => {
     e.preventDefault()
     const zoomDelta = e.deltaY < 0 ? 0.15 : -0.15
+    const store = useGameStore.getState()
+
+    // Se já estiver no modo simplificado:
+    if (store.mapViewMode === 'simplified') {
+      // Se adicionar zoom (scroll para cima) e o usuário NÃO ativou pelo botão manual:
+      if (zoomDelta > 0 && !store.isManualSimplified) {
+        this.zoom = 0.6
+        store.setMapViewMode('immersive', false)
+      }
+      return
+    }
+
     this.zoom = Math.max(0.4, Math.min(4.0, Number((this.zoom + zoomDelta).toFixed(2))))
+
+    // Quando o usuário der zoom no mínimo (<= 0.4), altera de imersivo para simplificado (automático via zoom)
+    if (this.zoom <= 0.4 && store.mapViewMode === 'immersive') {
+      store.setMapViewMode('simplified', false)
+    }
   }
 
   /**

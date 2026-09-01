@@ -115,13 +115,7 @@ export class AvatarRenderer {
 
     ctx.save()
 
-    // 1. Gather Oval Drop Shadow under avatar feet
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)'
-    ctx.beginPath()
-    ctx.ellipse(px + size / 2, py + size - 2, 11, 4.5, 0, 0, Math.PI * 2)
-    ctx.fill()
-
-    // 2. Walk Bobbing & 4-Frame Step Cycle
+    // Walk Bobbing & 4-Frame Step Cycle
     let bodyBob = 0
     let walkFrame = 0
     const isMoving = !!player.isMoving
@@ -185,8 +179,8 @@ export class AvatarRenderer {
     const otherType = avatar.otherType || (avatar.accessory === 'headphones' ? 'headphones' : 'none')
     const otherColor = avatar.otherColor || avatar.accessoryColor || '#20c997'
 
-    // Helper to render hand-drawn custom component layers with 4-directional support
-    const drawCustomComponent = (component?: string | Partial<Record<Direction, string>>) => {
+    // Helper to render hand-drawn custom component layers with 4-directional support and walk cycle loop
+    const drawCustomComponent = (component?: string | Partial<Record<Direction, string | string[]>>) => {
       if (!component) return
       let resolvedComponent = component
 
@@ -198,7 +192,9 @@ export class AvatarRenderer {
             (a) =>
               a.id === component ||
               a.frames?.[0] === component ||
-              a.directionalFrames?.down === component
+              (typeof a.directionalFrames?.down === 'string'
+                ? a.directionalFrames.down === component
+                : a.directionalFrames?.down?.[0] === component)
           )
         if (matchingAsset?.directionalFrames) {
           resolvedComponent = matchingAsset.directionalFrames
@@ -215,15 +211,27 @@ export class AvatarRenderer {
         dataUrl = resolvedComponent
         if (dir === 'left') shouldFlip = true
       } else {
-        // Multi-directional frames
-        dataUrl = resolvedComponent[dir]
+        // Helper to pick the appropriate frame for a direction
+        const pickDirectionFrame = (rawFrames?: string | string[]): string | undefined => {
+          if (!rawFrames) return undefined
+          if (typeof rawFrames === 'string') return rawFrames
+          if (!Array.isArray(rawFrames) || rawFrames.length === 0) return undefined
+          // When not moving, always return frame 0 (idle/resting frame)
+          if (!isMoving) return rawFrames[0]
+          // When moving, loop through frames in walk cycle!
+          return rawFrames[walkFrame % rawFrames.length]
+        }
+
+        // Multi-directional frames (single frame or walk loop array)
+        dataUrl = pickDirectionFrame(resolvedComponent[dir])
+
         // Automatic side-profile mirroring fallback if one side wasn't drawn
         if (!dataUrl) {
           if (dir === 'left' && resolvedComponent.right) {
-            dataUrl = resolvedComponent.right
+            dataUrl = pickDirectionFrame(resolvedComponent.right)
             shouldFlip = true
           } else if (dir === 'right' && resolvedComponent.left) {
-            dataUrl = resolvedComponent.left
+            dataUrl = pickDirectionFrame(resolvedComponent.left)
             shouldFlip = true
           }
         }
@@ -238,8 +246,36 @@ export class AvatarRenderer {
           ctx.scale(-1, 1)
           ctx.translate(-(px + size / 2), 0)
         }
-        ctx.drawImage(img, px, py + bodyBob, size, size)
+        const imgAspect = img.naturalHeight / Math.max(1, img.naturalWidth)
+        const drawHeight = size * imgAspect
+        const drawY = py + size - drawHeight + bodyBob
+        ctx.drawImage(img, px, drawY, size, drawHeight)
         ctx.restore()
+      }
+    }
+
+    // ==========================================
+    // FULL CHARACTER OVERRIDE (Personagem / Slot: other)
+    // ==========================================
+    // When a custom character sprite is selected in "Personagem",
+    // clear/suppress the base modular avatar completely and ONLY draw the custom character sprite!
+    if (avatar.customComponents?.other) {
+      const otherComp = avatar.customComponents.other
+      const hasContent =
+        typeof otherComp === 'string'
+          ? otherComp.length > 0
+          : Object.values(otherComp).some(
+              (v) => (typeof v === 'string' && v.length > 0) || (Array.isArray(v) && v.length > 0)
+            )
+
+      if (hasContent) {
+        drawCustomComponent(otherComp)
+
+        if (showNameTag) {
+          NameTagRenderer.drawNameTag(ctx, player, isLocal, centerX, py - 13)
+        }
+        ctx.restore()
+        return
       }
     }
 

@@ -97,7 +97,7 @@ export const MapControlsWidget: React.FC<MapControlsWidgetProps> = ({
             {/* Option 2: Simplified Vector Map */}
             <button
               onClick={() => {
-                setMapViewMode('simplified')
+                setMapViewMode('simplified', true)
                 setIsMenuOpen(false)
               }}
               className={`w-full p-2.5 rounded-xl border text-left transition-all flex items-start justify-between gap-2.5 ${
