@@ -7,6 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
@@ -103,3 +104,7 @@ public/rnnoise.wasm-loader.js
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# AI Documentation
+docs/agents/*.md
+agents.md
