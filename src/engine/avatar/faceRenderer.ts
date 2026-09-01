@@ -80,7 +80,7 @@ export class FaceRenderer {
     eyeType: string = 'normal',
     eyeColor: string = '#111111'
   ) {
-    if (dir === 'up') return
+    if (dir === 'up' || eyeType === 'none') return
 
     const color = eyeColor || '#111111'
 

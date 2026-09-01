@@ -50,7 +50,7 @@ const CATEGORY_LABELS: Record<AvatarComponentSlot, string> = {
   glasses: 'Óculos',
   facialHair: 'Pelos Faciais',
   eyes: 'Olhos',
-  skin: 'Tom da Pele',
+  skin: 'Maquiagem',
   other: 'Acessório Extra',
 }
 

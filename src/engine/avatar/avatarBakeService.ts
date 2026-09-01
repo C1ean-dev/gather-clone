@@ -221,7 +221,7 @@ export function bakeAvatarPreset(
         direction,
         avatarConfig?.skinTone || '#ffd1a4',
         presetId as SkinDetailType,
-        'normal',
+        'none',
         '#111'
       )
       break

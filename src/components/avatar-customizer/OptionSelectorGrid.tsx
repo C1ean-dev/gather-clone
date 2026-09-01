@@ -268,7 +268,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
         </button>
       </div>
 
-      {/* CATEGORY: TOM DA PELE */}
+      {/* CATEGORY: MAQUIAGEM */}
       {activeCategory === 'skin' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
@@ -306,10 +306,6 @@ export const OptionSelectorGrid: React.FC<Props> = ({
                     <span className="w-2.5 h-1.5 bg-rose-400/60 rounded-full" />
                   </div>
                 )}
-                <div className="flex gap-3 mt-1">
-                  <span className="w-2 h-2 bg-black rounded-xs" />
-                  <span className="w-2 h-2 bg-black rounded-xs" />
-                </div>
               </div>,
               () => selectNativePreset({ skinDetail: item.id as SkinDetailType })
             )

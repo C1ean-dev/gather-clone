@@ -31,7 +31,7 @@ interface Props {
 }
 
 export const CATEGORIES = [
-  { id: 'skin', label: 'Tom da pele', icon: Smile },
+  { id: 'skin', label: 'Maquiagem', icon: Smile },
   { id: 'eyes', label: 'Olhos', icon: Eye },
   { id: 'hair', label: 'Cabelo', icon: Sparkles },
   { id: 'facialHair', label: 'Pelos faciais', icon: User },
