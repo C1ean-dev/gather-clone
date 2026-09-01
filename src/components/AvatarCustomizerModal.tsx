@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { X, Check } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
-import { AvatarConfig } from '../types/game'
+import { AvatarConfig, AvatarComponentSlot } from '../types/game'
 import { PeerManager } from '../p2p/PeerManager'
 import { CategoryKey, CategoryTabs } from './avatar-customizer/CategoryTabs'
 import {
@@ -14,6 +14,8 @@ import {
 } from './avatar-customizer/ColorPalettePicker'
 import { OptionSelectorGrid } from './avatar-customizer/OptionSelectorGrid'
 import { AvatarPreviewCanvas } from './avatar-customizer/AvatarPreviewCanvas'
+import { AvatarPixelArtModal } from '../editor/avatar/AvatarPixelArtModal'
+import { bakeAvatarPreset } from '../engine/avatar/avatarBakeService'
 
 interface Props {
   isOpen: boolean
@@ -50,6 +52,14 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
     otherColor: localPlayer.avatar?.otherColor || '#20c997',
   })
 
+  const [editingPreset, setEditingPreset] = useState<{
+    isOpen: boolean
+    category: AvatarComponentSlot
+    presetId: string
+    presetName: string
+    dataUrl?: string
+  } | null>(null)
+
   // Sync state when opened
   useEffect(() => {
     if (isOpen) {
@@ -85,6 +95,42 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
   }, [isOpen, localPlayer])
 
   if (!isOpen) return null
+
+  const handleOpenEditPreset = (category: AvatarComponentSlot, presetId: string, label: string) => {
+    const baked = bakeAvatarPreset(category, presetId, avatar)
+    setEditingPreset({
+      isOpen: true,
+      category,
+      presetId,
+      presetName: label,
+      dataUrl: baked,
+    })
+  }
+
+  const handleOpenCreatePreset = (category: AvatarComponentSlot) => {
+    setEditingPreset({
+      isOpen: true,
+      category,
+      presetId: '',
+      presetName: '',
+      dataUrl: undefined,
+    })
+  }
+
+  const handleSavePresetFromStudio = (savedDataUrl: string) => {
+    if (!editingPreset) return
+    const category = editingPreset.category
+
+    const updatedAvatar: AvatarConfig = {
+      ...avatar,
+      customComponents: {
+        ...avatar.customComponents,
+        [category]: savedDataUrl,
+      },
+    }
+    setAvatar(updatedAvatar)
+    setEditingPreset(null)
+  }
 
   const handleSave = () => {
     const finalName = name.trim() || localPlayer.name
@@ -167,6 +213,8 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
               activeCategory={activeCategory}
               avatar={avatar}
               onChangeAvatar={setAvatar}
+              onEditPreset={handleOpenEditPreset}
+              onCreatePreset={handleOpenCreatePreset}
             />
 
             <ColorPalettePicker
@@ -203,6 +251,19 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
           </button>
         </div>
       </div>
+
+      {/* Pixel Art Drawing & Editing Studio Modal */}
+      {editingPreset?.isOpen && (
+        <AvatarPixelArtModal
+          isOpen={editingPreset.isOpen}
+          onClose={() => setEditingPreset(null)}
+          category={editingPreset.category}
+          presetName={editingPreset.presetName}
+          initialDataUrl={editingPreset.dataUrl}
+          avatar={avatar}
+          onSave={handleSavePresetFromStudio}
+        />
+      )}
     </div>
   )
 }
