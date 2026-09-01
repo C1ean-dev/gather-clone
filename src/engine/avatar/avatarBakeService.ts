@@ -269,47 +269,26 @@ export function cropContentBoundingBox(
     return sourceCanvas.toDataURL()
   }
 
-  // Calculate bounding box with padding
-  const pMinX = Math.max(0, minX - padding)
-  const pMinY = Math.max(0, minY - padding)
-  const pMaxX = Math.min(w - 1, maxX + padding)
-  const pMaxY = Math.min(h - 1, maxY + padding)
-
-  const bw = pMaxX - pMinX + 1
-  const bh = pMaxY - pMinY + 1
-
-  // Make it square so it fits cleanly into cards without aspect ratio distortion
-  const dim = Math.max(bw, bh)
-  const cx = pMinX + bw / 2
-  const cy = pMinY + bh / 2
-
-  let sMinX = Math.round(cx - dim / 2)
-  let sMinY = Math.round(cy - dim / 2)
-
-  if (sMinX < 0) sMinX = 0
-  if (sMinY < 0) sMinY = 0
-  if (sMinX + dim > w) sMinX = Math.max(0, w - dim)
-  if (sMinY + dim > h) sMinY = Math.max(0, h - dim)
-
-  const finalDim = Math.min(dim, w - sMinX, h - sMinY)
+  const cropW = maxX - minX + 1
+  const cropH = maxY - minY + 1
 
   const cropCanvas = document.createElement('canvas')
-  cropCanvas.width = finalDim
-  cropCanvas.height = finalDim
+  cropCanvas.width = cropW
+  cropCanvas.height = cropH
   const cropCtx = cropCanvas.getContext('2d')
   if (!cropCtx) return sourceCanvas.toDataURL()
 
   cropCtx.imageSmoothingEnabled = false
   cropCtx.drawImage(
     sourceCanvas,
-    sMinX,
-    sMinY,
-    finalDim,
-    finalDim,
+    minX,
+    minY,
+    cropW,
+    cropH,
     0,
     0,
-    finalDim,
-    finalDim
+    cropW,
+    cropH
   )
 
   return cropCanvas.toDataURL('image/png')
