@@ -87,7 +87,14 @@ export const OptionSelectorGrid: React.FC<Props> = ({
 
     // 2. If current player is wearing this asset, safely reset to default
     const slot = activeCategory as AvatarComponentSlot
-    if (avatar.customComponents?.[slot] === asset.frames[0]) {
+    const currentComp = avatar.customComponents?.[slot]
+    const isEquipped =
+      currentComp === asset.directionalFrames ||
+      currentComp === asset.frames[0] ||
+      currentComp === asset.id ||
+      (typeof currentComp === 'object' && (currentComp as any)?.down === asset.frames[0])
+
+    if (isEquipped) {
       const updatedComponents = { ...avatar.customComponents }
       delete updatedComponents[slot]
 
@@ -194,7 +201,13 @@ export const OptionSelectorGrid: React.FC<Props> = ({
 
   const renderCustomPresetCards = () => {
     return categoryCustomAssets.map((asset) => {
-      const isSelected = avatar.customComponents?.[activeCategory as AvatarComponentSlot] === asset.frames[0]
+      const currentComp = avatar.customComponents?.[activeCategory as AvatarComponentSlot]
+      const isSelected =
+        currentComp === asset.directionalFrames ||
+        currentComp === asset.frames[0] ||
+        currentComp === asset.id ||
+        (typeof currentComp === 'object' && (currentComp as any)?.down === asset.frames[0])
+
       return (
         <button
           key={asset.id}
@@ -203,7 +216,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               ...avatar,
               customComponents: {
                 ...avatar.customComponents,
-                [activeCategory as AvatarComponentSlot]: asset.frames[0],
+                [activeCategory as AvatarComponentSlot]: asset.directionalFrames || asset.frames[0],
               },
             })
           }}

@@ -1,6 +1,6 @@
 import { Player, Direction } from '../types/game'
 import { TILE_SIZE } from './Constants'
-import { getCustomAssetImage } from '../store/useCustomAssetsStore'
+import { getCustomAssetImage, useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { ClothingRenderer } from './avatar/clothingRenderer'
 import { HairRenderer } from './avatar/hairRenderer'
 import { FaceRenderer } from './avatar/faceRenderer'
@@ -188,25 +188,42 @@ export class AvatarRenderer {
     // Helper to render hand-drawn custom component layers with 4-directional support
     const drawCustomComponent = (component?: string | Partial<Record<Direction, string>>) => {
       if (!component) return
+      let resolvedComponent = component
+
+      // If component is a string (id or dataUrl), attempt to resolve directionalFrames from store
+      if (typeof component === 'string') {
+        const matchingAsset = useCustomAssetsStore
+          .getState()
+          .customAssets.find(
+            (a) =>
+              a.id === component ||
+              a.frames?.[0] === component ||
+              a.directionalFrames?.down === component
+          )
+        if (matchingAsset?.directionalFrames) {
+          resolvedComponent = matchingAsset.directionalFrames
+        }
+      }
+
       let dataUrl: string | undefined
       let shouldFlip = false
 
-      if (typeof component === 'string') {
+      if (typeof resolvedComponent === 'string') {
         // Backward compatibility for single frame assets:
         // Never render a front-only frame when player is facing away (up)
         if (dir === 'up') return
-        dataUrl = component
+        dataUrl = resolvedComponent
         if (dir === 'left') shouldFlip = true
       } else {
         // Multi-directional frames
-        dataUrl = component[dir]
+        dataUrl = resolvedComponent[dir]
         // Automatic side-profile mirroring fallback if one side wasn't drawn
         if (!dataUrl) {
-          if (dir === 'left' && component.right) {
-            dataUrl = component.right
+          if (dir === 'left' && resolvedComponent.right) {
+            dataUrl = resolvedComponent.right
             shouldFlip = true
-          } else if (dir === 'right' && component.left) {
-            dataUrl = component.left
+          } else if (dir === 'right' && resolvedComponent.left) {
+            dataUrl = resolvedComponent.left
             shouldFlip = true
           }
         }
