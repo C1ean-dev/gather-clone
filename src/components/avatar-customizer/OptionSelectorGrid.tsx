@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Check, Pencil, Plus, Trash2, Download } from 'lucide-react'
+import { Check, Pencil, Plus, Trash2, Download, Upload } from 'lucide-react'
 import {
   AvatarConfig,
   AvatarComponentSlot,
@@ -20,6 +20,7 @@ import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 import { CustomAsset } from '../../types/customAsset'
 import { exportCategoryAtlas } from '../../engine/avatar/avatarAtlasExporter'
 import { cropContentDataUrl } from '../../engine/avatar/avatarBakeService'
+import { AtlasImportModal } from './AtlasImportModal'
 
 interface Props {
   activeCategory: CategoryKey
@@ -76,6 +77,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
 }) => {
   const { customAssets, deleteCustomAsset } = useCustomAssetsStore()
   const [deletingAsset, setDeletingAsset] = useState<CustomAsset | null>(null)
+  const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false)
 
   const categoryCustomAssets = customAssets.filter(
     (a) => a.type === 'avatar' && a.avatarSlot === activeCategory
@@ -274,18 +276,30 @@ export const OptionSelectorGrid: React.FC<Props> = ({
 
   return (
     <div className="flex-1 overflow-y-auto pr-1">
-      {/* Top action bar with Export Atlas Button */}
+      {/* Top action bar with Export and Import Atlas Buttons */}
       <div className="flex items-center justify-between mb-3 px-1">
         <span className="text-xs font-bold text-slate-300">Opções & Presets</span>
-        <button
-          type="button"
-          onClick={() => exportCategoryAtlas(activeCategory, customAssets, avatar)}
-          title={`Exportar Folha PNG e Arquivo Sparrow XML para a categoria ${activeCategory}`}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#383a40] border border-[#383a40] text-slate-300 hover:text-white text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
-        >
-          <Download className="w-3.5 h-3.5 text-[#3b82f6]" />
-          <span>Exportar Atlas (.xml + .png)</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsImportModalOpen(true)}
+            title={`Importar Folha PNG e Arquivo Sparrow XML para a categoria ${activeCategory}`}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#383a40] border border-[#383a40] text-emerald-400 hover:text-emerald-300 text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
+          >
+            <Upload className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Importar Atlas</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => exportCategoryAtlas(activeCategory, customAssets, avatar)}
+            title={`Exportar Folha PNG e Arquivo Sparrow XML para a categoria ${activeCategory}`}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#383a40] border border-[#383a40] text-slate-300 hover:text-white text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5 text-[#3b82f6]" />
+            <span>Exportar Atlas</span>
+          </button>
+        </div>
       </div>
 
       {/* CATEGORY: MAQUIAGEM */}
@@ -695,6 +709,15 @@ export const OptionSelectorGrid: React.FC<Props> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Atlas Import Modal */}
+      {isImportModalOpen && (
+        <AtlasImportModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          category={activeCategory as AvatarComponentSlot}
+        />
       )}
     </div>
   )
