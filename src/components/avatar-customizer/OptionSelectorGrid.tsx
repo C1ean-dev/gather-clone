@@ -16,6 +16,7 @@ import {
   OtherType,
 } from '../../types/game'
 import { CategoryKey } from './CategoryTabs'
+import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 
 interface Props {
   activeCategory: CategoryKey
@@ -32,18 +33,37 @@ export const OptionSelectorGrid: React.FC<Props> = ({
   onEditPreset,
   onCreatePreset,
 }) => {
+  const { customAssets } = useCustomAssetsStore()
+  const categoryCustomAssets = customAssets.filter(
+    (a) => a.type === 'avatar' && a.avatarSlot === activeCategory
+  )
+
+  const selectNativePreset = (update: Partial<AvatarConfig>) => {
+    const updatedComponents = { ...avatar.customComponents }
+    delete updatedComponents[activeCategory as AvatarComponentSlot]
+    onChangeAvatar({
+      ...avatar,
+      ...update,
+      customComponents: updatedComponents,
+    })
+  }
+
   const renderCard = (
     item: { id: string; label: string },
     isSelected: boolean,
     iconContent: React.ReactNode,
     onSelect: () => void
   ) => {
+    // If a customComponent for this activeCategory is equipped, no native preset is considered selected
+    const isCustomEquipped = !!avatar.customComponents?.[activeCategory as AvatarComponentSlot]
+    const effectiveSelected = !isCustomEquipped && isSelected
+
     return (
       <button
         key={item.id}
         onClick={onSelect}
         className={`group relative flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square ${
-          isSelected
+          effectiveSelected
             ? 'border-[#3b82f6] bg-[#3b82f6]/20 shadow-md ring-2 ring-[#3b82f6]/30'
             : 'border-[#383a40] bg-[#1e1f22] hover:border-slate-500'
         }`}
@@ -66,7 +86,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
         <span className="text-[11px] font-semibold text-slate-200 truncate max-w-[80px]">
           {item.label}
         </span>
-        {isSelected && (
+        {effectiveSelected && (
           <div className="absolute top-1.5 right-1.5 w-4 h-4 bg-[#3b82f6] text-white rounded-full flex items-center justify-center">
             <Check className="w-2.5 h-2.5" />
           </div>
@@ -92,12 +112,69 @@ export const OptionSelectorGrid: React.FC<Props> = ({
     )
   }
 
+  const renderCustomPresetCards = () => {
+    return categoryCustomAssets.map((asset) => {
+      const isSelected = avatar.customComponents?.[activeCategory as AvatarComponentSlot] === asset.frames[0]
+      return (
+        <button
+          key={asset.id}
+          onClick={() => {
+            onChangeAvatar({
+              ...avatar,
+              customComponents: {
+                ...avatar.customComponents,
+                [activeCategory as AvatarComponentSlot]: asset.frames[0],
+              },
+            })
+          }}
+          className={`group relative flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square ${
+            isSelected
+              ? 'border-[#3b82f6] bg-[#3b82f6]/20 shadow-md ring-2 ring-[#3b82f6]/30'
+              : 'border-[#383a40] bg-[#1e1f22] hover:border-slate-500'
+          }`}
+        >
+          {onEditPreset && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation()
+                onEditPreset(activeCategory as AvatarComponentSlot, asset.id, asset.name)
+              }}
+              title={`Editar ${asset.name} no Estúdio Pixel Art`}
+              className="absolute top-1.5 left-1.5 w-6 h-6 rounded-lg bg-[#2b2d31]/90 hover:bg-[#3b82f6] text-slate-300 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-10 shadow-md cursor-pointer"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </div>
+          )}
+
+          <div className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center bg-[#18191c] border border-slate-700/60 overflow-hidden shadow">
+            {asset.frames[0] ? (
+              <img src={asset.frames[0]} alt={asset.name} className="w-8 h-8 [image-rendering:pixelated]" />
+            ) : (
+              <span className="text-xs">🎨</span>
+            )}
+          </div>
+
+          <span className="text-[11px] font-bold text-[#60a5fa] truncate max-w-[80px]" title={asset.name}>
+            {asset.name}
+          </span>
+
+          {isSelected && (
+            <div className="absolute top-1.5 right-1.5 w-4 h-4 bg-[#3b82f6] text-white rounded-full flex items-center justify-center">
+              <Check className="w-2.5 h-2.5" />
+            </div>
+          )}
+        </button>
+      )
+    })
+  }
+
   return (
     <div className="flex-1 overflow-y-auto pr-1">
       {/* CATEGORY: TOM DA PELE */}
       {activeCategory === 'skin' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
+          {renderCustomPresetCards()}
           {[
             { id: 'smooth', label: 'Lisa / Suave' },
             { id: 'vitiligo1', label: 'Vitiligo 1' },
@@ -136,7 +213,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
                   <span className="w-2 h-2 bg-black rounded-xs" />
                 </div>
               </div>,
-              () => onChangeAvatar({ ...avatar, skinDetail: item.id as SkinDetailType })
+              () => selectNativePreset({ skinDetail: item.id as SkinDetailType })
             )
           })}
         </div>
@@ -146,6 +223,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
       {activeCategory === 'eyes' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
+          {renderCustomPresetCards()}
           {[
             { id: 'normal', label: 'Padrão / Normal' },
             { id: 'anime', label: 'Brilho Anime' },
@@ -205,7 +283,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
                   )}
                 </div>
               </div>,
-              () => onChangeAvatar({ ...avatar, eyeType: item.id as EyeType })
+              () => selectNativePreset({ eyeType: item.id as EyeType })
             )
           })}
         </div>
@@ -215,6 +293,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
       {activeCategory === 'hair' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
+          {renderCustomPresetCards()}
           {[
             { id: 'none', label: 'Careca / Nenhum' },
             { id: 'messy', label: 'Messy Anime' },
@@ -239,7 +318,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               >
                 {item.id === 'none' ? '🚫' : '💇'}
               </div>,
-              () => onChangeAvatar({ ...avatar, hairStyle: item.id as HairStyleType })
+              () => selectNativePreset({ hairStyle: item.id as HairStyleType })
             )
           })}
         </div>
@@ -249,6 +328,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
       {activeCategory === 'facialHair' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
+          {renderCustomPresetCards()}
           {[
             { id: 'none', label: 'Nenhum' },
             { id: 'full_beard', label: 'Barba Cheia' },
@@ -263,7 +343,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               <div className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-sm font-bold bg-[#18191c] text-slate-200">
                 {item.id === 'none' ? '🚫' : '🧔'}
               </div>,
-              () => onChangeAvatar({ ...avatar, facialHair: item.id as FacialHairType })
+              () => selectNativePreset({ facialHair: item.id as FacialHairType })
             )
           })}
         </div>
@@ -273,6 +353,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
       {activeCategory === 'top' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
+          {renderCustomPresetCards()}
           {[
             { id: 'none', label: 'Nenhum' },
             { id: 'kimono', label: 'Quimono / Yukata' },
@@ -292,7 +373,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               >
                 {item.id === 'none' ? '🚫' : '👘'}
               </div>,
-              () => onChangeAvatar({ ...avatar, topType: item.id as TopType })
+              () => selectNativePreset({ topType: item.id as TopType })
             )
           })}
         </div>
@@ -302,6 +383,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
       {activeCategory === 'jacket' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
+          {renderCustomPresetCards()}
           {[
             { id: 'none', label: 'Nenhuma' },
             { id: 'hoodie_open', label: 'Moletom Aberto' },
@@ -319,7 +401,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               >
                 {item.id === 'none' ? '🚫' : '🧥'}
               </div>,
-              () => onChangeAvatar({ ...avatar, jacketType: item.id as JacketType })
+              () => selectNativePreset({ jacketType: item.id as JacketType })
             )
           })}
         </div>
@@ -329,6 +411,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
       {activeCategory === 'bottom' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
+          {renderCustomPresetCards()}
           {[
             { id: 'none', label: 'Nenhum' },
             { id: 'kimono_skirt', label: 'Saia Quimono Hakama' },
@@ -347,7 +430,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               >
                 {item.id === 'none' ? '🚫' : '👖'}
               </div>,
-              () => onChangeAvatar({ ...avatar, bottomType: item.id as BottomType })
+              () => selectNativePreset({ bottomType: item.id as BottomType })
             )
           })}
         </div>
@@ -357,6 +440,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
       {activeCategory === 'shoes' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
+          {renderCustomPresetCards()}
           {[
             { id: 'none', label: 'Nenhum / Descalço' },
             { id: 'sandals', label: 'Sandálias Geta' },
@@ -374,7 +458,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               >
                 {item.id === 'none' ? '🚫' : '👟'}
               </div>,
-              () => onChangeAvatar({ ...avatar, shoesType: item.id as ShoesType })
+              () => selectNativePreset({ shoesType: item.id as ShoesType })
             )
           })}
         </div>
@@ -384,6 +468,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
       {activeCategory === 'hat' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
+          {renderCustomPresetCards()}
           {[
             { id: 'none', label: 'Nenhum' },
             { id: 'ribbon_bow', label: 'Laço / Fita' },
@@ -402,7 +487,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               >
                 {item.id === 'none' ? '🚫' : '🎀'}
               </div>,
-              () => onChangeAvatar({ ...avatar, hatType: item.id as HatType })
+              () => selectNativePreset({ hatType: item.id as HatType })
             )
           })}
         </div>
@@ -412,6 +497,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
       {activeCategory === 'glasses' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
+          {renderCustomPresetCards()}
           {[
             { id: 'none', label: 'Nenhum' },
             { id: 'round', label: 'Redondos' },
@@ -429,7 +515,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               >
                 {item.id === 'none' ? '🚫' : '👓'}
               </div>,
-              () => onChangeAvatar({ ...avatar, glassesType: item.id as GlassesType })
+              () => selectNativePreset({ glassesType: item.id as GlassesType })
             )
           })}
         </div>
@@ -439,6 +525,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
       {activeCategory === 'other' && (
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
+          {renderCustomPresetCards()}
           {[
             { id: 'none', label: 'Nenhum' },
             { id: 'headphones', label: 'Fones Gamer DJ' },
@@ -454,7 +541,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               >
                 {item.id === 'none' ? '🚫' : '🎧'}
               </div>,
-              () => onChangeAvatar({ ...avatar, otherType: item.id as OtherType })
+              () => selectNativePreset({ otherType: item.id as OtherType })
             )
           })}
         </div>

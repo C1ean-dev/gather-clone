@@ -1,3 +1,5 @@
+import { AvatarComponentSlot } from './game'
+
 export type CustomAssetType = 'furniture' | 'floor' | 'wall' | 'avatar'
 
 export interface CustomAssetLayer {
@@ -18,6 +20,7 @@ export interface CustomAsset {
   name: string
   type: CustomAssetType
   category: string
+  avatarSlot?: AvatarComponentSlot
   width: number // in tiles (1 to 10)
   height: number // in tiles (1 to 10)
   isObstacle: boolean // general flag for backward compatibility
