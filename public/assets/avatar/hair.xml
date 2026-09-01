@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="hair.png">
+  <!-- Hair: Messy style in 3 directions (left is auto-flipped from right) -->
+  <SubTexture name="hair_messy_down_0" x="0" y="0" width="32" height="32"/>
+  <SubTexture name="hair_messy_up_0" x="32" y="0" width="32" height="32"/>
+  <SubTexture name="hair_messy_right_0" x="64" y="0" width="32" height="32"/>
+  <!-- Hair: Anime style in 3 directions -->
+  <SubTexture name="hair_anime_down_0" x="0" y="32" width="32" height="32"/>
+  <SubTexture name="hair_anime_up_0" x="32" y="32" width="32" height="32"/>
+  <SubTexture name="hair_anime_right_0" x="64" y="32" width="32" height="32"/>
+</TextureAtlas>
