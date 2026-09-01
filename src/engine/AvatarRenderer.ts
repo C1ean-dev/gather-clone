@@ -6,16 +6,99 @@ import { HairRenderer } from './avatar/hairRenderer'
 import { FaceRenderer } from './avatar/faceRenderer'
 import { AccessoryRenderer } from './avatar/accessoryRenderer'
 import { NameTagRenderer } from './avatar/nameTagRenderer'
+import { AvatarAtlasManager, SubTexture } from './avatar/AvatarAtlasManager'
 
 export { ClothingRenderer } from './avatar/clothingRenderer'
 export { HairRenderer } from './avatar/hairRenderer'
 export { FaceRenderer } from './avatar/faceRenderer'
 export { AccessoryRenderer } from './avatar/accessoryRenderer'
 export { NameTagRenderer } from './avatar/nameTagRenderer'
+export { AvatarAtlasManager } from './avatar/AvatarAtlasManager'
 
 export class AvatarRenderer {
   /**
-   * Draw Authentic Gather.town Pixel Art 2D Avatar
+   * Draw a layer component from AvatarAtlasManager if present.
+   * Returns true if rendered, false if not present (triggering hybrid procedural fallback).
+   */
+  static drawAtlasPart(
+    ctx: CanvasRenderingContext2D,
+    px: number,
+    py: number,
+    bodyBob: number,
+    size: number,
+    dir: Direction,
+    category: string,
+    presetId: string,
+    walkFrame: number = 0
+  ): boolean {
+    if (!presetId || presetId === 'none') return false
+
+    // Resolve direction name and horizontal flip requirement
+    let searchDir = dir
+    let flipX = false
+    if (dir === 'left') {
+      searchDir = 'right'
+      flipX = true
+    }
+
+    // Lookup candidate names in priority order:
+    // 1. <category>_<presetId>_<dir>_<walkFrame> (frame-specific)
+    // 2. <category>_<presetId>_<dir>_0 (static dir)
+    // 3. <category>_<presetId>_<dir> (dir name only)
+    // 4. <category>_<presetId>_<walkFrame>
+    // 5. <category>_<presetId>_0
+    // 6. <category>_<presetId>
+    const candidateNames = [
+      `${category}_${presetId}_${searchDir}_${walkFrame}`,
+      `${category}_${presetId}_${searchDir}_0`,
+      `${category}_${presetId}_${searchDir}`,
+      `${category}_${presetId}_${walkFrame}`,
+      `${category}_${presetId}_0`,
+      `${category}_${presetId}`,
+    ]
+
+    let sub: SubTexture | undefined
+    for (const name of candidateNames) {
+      sub = AvatarAtlasManager.getSubTexture(category, name)
+      if (sub) break
+    }
+
+    if (!sub) return false
+
+    const img = AvatarAtlasManager.getImage(category)
+    if (!img) return false
+
+    // If img has complete property, verify it's loaded
+    if ('complete' in img && !img.complete) return false
+
+    ctx.save()
+    if (flipX) {
+      ctx.translate(px + size / 2, 0)
+      ctx.scale(-1, 1)
+      ctx.translate(-(px + size / 2), 0)
+    }
+
+    const destX = px + (sub.frameX ? -sub.frameX : 0)
+    const destY = py + bodyBob + (sub.frameY ? -sub.frameY : 0)
+
+    ctx.drawImage(
+      img,
+      sub.x,
+      sub.y,
+      sub.width,
+      sub.height,
+      destX,
+      destY,
+      size,
+      size
+    )
+    ctx.restore()
+
+    return true
+  }
+
+  /**
+   * Draw Authentic Gather.town Pixel Art 2D Avatar with Hybrid Fallback
    */
   static drawPlayer(
     ctx: CanvasRenderingContext2D,
@@ -76,7 +159,7 @@ export class AvatarRenderer {
       }
     }
 
-    // Normalize Colors and Types with Backward Compatibility (Default to clean, neutral avatar)
+    // Normalize Colors and Types with Backward Compatibility
     const skinTone = avatar.skinTone || avatar.skinColor || '#ffd1a4'
     const skinDetail = avatar.skinDetail || 'smooth'
     const eyeType = avatar.eyeType || 'normal'
@@ -138,33 +221,43 @@ export class AvatarRenderer {
     // ==========================================
     // 4. LEGS, BOTTOMS & SHOES (4-Frame Walk Cycle)
     // ==========================================
-    ClothingRenderer.drawLegsAndShoes(
-      ctx,
-      centerX,
-      baseY,
-      dir,
-      bottomType,
-      bottomColor,
-      shoesType,
-      shoesColor,
-      walkFrame,
-      isMoving,
-      skinTone
-    )
+    const renderedBottom = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'bottom', bottomType, walkFrame)
+    const renderedShoes = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'shoes', shoesType, walkFrame)
+    if (!renderedBottom && !renderedShoes) {
+      ClothingRenderer.drawLegsAndShoes(
+        ctx,
+        centerX,
+        baseY,
+        dir,
+        bottomType,
+        bottomColor,
+        shoesType,
+        shoesColor,
+        walkFrame,
+        isMoving,
+        skinTone
+      )
+    }
     drawCustomComponent(avatar.customComponents?.bottom)
     drawCustomComponent(avatar.customComponents?.shoes)
 
     // ==========================================
     // 5. TORSO & TOPS (Kimono, Yukata, T-Shirt, Sweater, or None)
     // ==========================================
-    ClothingRenderer.drawTorsoAndTop(ctx, centerX, baseY, dir, topType, topColor, skinTone)
+    const renderedTop = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'top', topType, walkFrame)
+    if (!renderedTop) {
+      ClothingRenderer.drawTorsoAndTop(ctx, centerX, baseY, dir, topType, topColor, skinTone)
+    }
     drawCustomComponent(avatar.customComponents?.top)
 
     // ==========================================
     // 6. JACKET (Open Hoodie, Cardigan, Blazer, Denim)
     // ==========================================
     if (jacketType !== 'none') {
-      ClothingRenderer.drawJacket(ctx, centerX, baseY, dir, jacketType, jacketColor)
+      const renderedJacket = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'jacket', jacketType, walkFrame)
+      if (!renderedJacket) {
+        ClothingRenderer.drawJacket(ctx, centerX, baseY, dir, jacketType, jacketColor)
+      }
     }
     drawCustomComponent(avatar.customComponents?.jacket)
 
@@ -188,7 +281,20 @@ export class AvatarRenderer {
     // ==========================================
     // 8. HEAD, SKIN DETAILS, EYES & FACE
     // ==========================================
-    FaceRenderer.drawHeadAndFace(ctx, centerX, baseY, dir, skinTone, skinDetail, eyeType, eyeColor)
+    const renderedSkin = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'skin', skinDetail, walkFrame)
+    const renderedEyes = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'eyes', eyeType, walkFrame)
+    if (!renderedSkin || !renderedEyes) {
+      FaceRenderer.drawHeadAndFace(
+        ctx,
+        centerX,
+        baseY,
+        dir,
+        skinTone,
+        renderedSkin ? 'smooth' : skinDetail,
+        renderedEyes ? 'normal' : eyeType,
+        eyeColor
+      )
+    }
     drawCustomComponent(avatar.customComponents?.eyes)
     drawCustomComponent(avatar.customComponents?.skin)
 
@@ -196,21 +302,32 @@ export class AvatarRenderer {
     // 8. FACIAL HAIR (Beard, Mustache, Goatee, Stubble)
     // ==========================================
     if (facialHair !== 'none') {
-      FaceRenderer.drawFacialHair(ctx, centerX, baseY, dir, facialHair, facialHairColor)
+      const renderedFacialHair = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'facialHair', facialHair, walkFrame)
+      if (!renderedFacialHair) {
+        FaceRenderer.drawFacialHair(ctx, centerX, baseY, dir, facialHair, facialHairColor)
+      }
     }
     drawCustomComponent(avatar.customComponents?.facialHair)
 
     // ==========================================
     // 9. HAIRSTYLES (Messy, Anime, Long, Curls, Twin-Tails, etc.)
     // ==========================================
-    HairRenderer.drawHair(ctx, centerX, baseY, dir, hairStyle, hairColor)
+    if (hairStyle !== 'none') {
+      const renderedHair = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'hair', hairStyle, walkFrame)
+      if (!renderedHair) {
+        HairRenderer.drawHair(ctx, centerX, baseY, dir, hairStyle, hairColor)
+      }
+    }
     drawCustomComponent(avatar.customComponents?.hair)
 
     // ==========================================
     // 10. GLASSES (Round, Square, Sunglasses, Wireframe)
     // ==========================================
     if (glassesType !== 'none') {
-      AccessoryRenderer.drawGlasses(ctx, centerX, baseY, dir, glassesType, glassesColor)
+      const renderedGlasses = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'glasses', glassesType, walkFrame)
+      if (!renderedGlasses) {
+        AccessoryRenderer.drawGlasses(ctx, centerX, baseY, dir, glassesType, glassesColor)
+      }
     }
     drawCustomComponent(avatar.customComponents?.glasses)
 
@@ -218,7 +335,10 @@ export class AvatarRenderer {
     // 11. HATS & HAIR ACCESSORIES (Ribbon Bow, Cap, Beanie, Headband)
     // ==========================================
     if (hatType !== 'none') {
-      AccessoryRenderer.drawHat(ctx, centerX, baseY, dir, hatType, hatColor)
+      const renderedHat = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'hat', hatType, walkFrame)
+      if (!renderedHat) {
+        AccessoryRenderer.drawHat(ctx, centerX, baseY, dir, hatType, hatColor)
+      }
     }
     drawCustomComponent(avatar.customComponents?.hat)
 
@@ -226,7 +346,10 @@ export class AvatarRenderer {
     // 12. OTHER (Headphones, Mask, Star Badge)
     // ==========================================
     if (otherType !== 'none') {
-      AccessoryRenderer.drawOther(ctx, centerX, baseY, dir, otherType, otherColor)
+      const renderedOther = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'other', otherType, walkFrame)
+      if (!renderedOther) {
+        AccessoryRenderer.drawOther(ctx, centerX, baseY, dir, otherType, otherColor)
+      }
     }
     drawCustomComponent(avatar.customComponents?.other)
 
@@ -240,3 +363,4 @@ export class AvatarRenderer {
     ctx.restore()
   }
 }
+

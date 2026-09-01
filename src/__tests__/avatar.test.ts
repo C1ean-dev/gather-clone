@@ -106,4 +106,177 @@ describe('Avatar Customizer & Pixel Art Renderer - Expected Behaviors', () => {
 
     expect(() => AvatarRenderer.drawPlayer(mockCtx, fakePlayer, false, 0)).not.toThrow()
   })
+
+  it('should render avatar layers from AvatarAtlasManager when atlas subtexture is present', async () => {
+    const { AvatarAtlasManager } = await import('../engine/avatar/AvatarAtlasManager')
+    AvatarAtlasManager.clearCache()
+
+    const hairXml = `
+      <TextureAtlas imagePath="hair.png">
+        <SubTexture name="hair_messy_down_0" x="10" y="20" width="32" height="32"/>
+        <SubTexture name="hair_messy_up_0" x="42" y="20" width="32" height="32"/>
+        <SubTexture name="hair_messy_right_0" x="74" y="20" width="32" height="32"/>
+      </TextureAtlas>
+    `
+    AvatarAtlasManager.registerAtlasXml('hair', hairXml)
+    const mockImg = {
+      complete: true,
+      naturalWidth: 96,
+      naturalHeight: 64,
+    } as unknown as HTMLImageElement
+    AvatarAtlasManager.setImage('hair', mockImg)
+
+    const drawCalls: any[] = []
+    const mockCtx = {
+      save: () => {},
+      restore: () => {},
+      beginPath: () => {},
+      closePath: () => {},
+      fill: () => {},
+      stroke: () => {},
+      ellipse: () => {},
+      arc: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      fillRect: () => {},
+      strokeRect: () => {},
+      roundRect: () => {},
+      fillText: () => {},
+      translate: () => {},
+      scale: () => {},
+      drawImage: (...args: any[]) => {
+        drawCalls.push(args)
+      },
+      measureText: () => ({ width: 40 }),
+    } as unknown as CanvasRenderingContext2D
+
+    const fakePlayer: Player = {
+      id: 'test-atlas-player',
+      name: 'AtlasTester',
+      x: 0,
+      y: 0,
+      direction: 'down',
+      isMoving: false,
+      avatar: {
+        ...DEFAULT_AVATAR,
+        hairStyle: 'messy',
+      },
+      status: 'available',
+      lastUpdated: Date.now(),
+    }
+
+    AvatarRenderer.drawPlayer(mockCtx, fakePlayer, false, 0)
+
+    // Verify drawImage was invoked with the subtexture source coordinates (10, 20, 32, 32)
+    const atlasDrawCall = drawCalls.find(
+      (call) => call[1] === 10 && call[2] === 20 && call[3] === 32 && call[4] === 32
+    )
+    expect(atlasDrawCall).toBeDefined()
+  })
+
+  it('should synthesize left direction via horizontal flip (scale(-1, 1)) from right subtexture', async () => {
+    const { AvatarAtlasManager } = await import('../engine/avatar/AvatarAtlasManager')
+    AvatarAtlasManager.clearCache()
+
+    const hairXml = `
+      <TextureAtlas imagePath="hair.png">
+        <SubTexture name="hair_messy_right_0" x="74" y="20" width="32" height="32"/>
+      </TextureAtlas>
+    `
+    AvatarAtlasManager.registerAtlasXml('hair', hairXml)
+    const mockImg = {
+      complete: true,
+      naturalWidth: 96,
+      naturalHeight: 64,
+    } as unknown as HTMLImageElement
+    AvatarAtlasManager.setImage('hair', mockImg)
+
+    let scaledX = 1
+    const mockCtx = {
+      save: () => {},
+      restore: () => {},
+      beginPath: () => {},
+      closePath: () => {},
+      fill: () => {},
+      stroke: () => {},
+      ellipse: () => {},
+      arc: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      fillRect: () => {},
+      strokeRect: () => {},
+      roundRect: () => {},
+      fillText: () => {},
+      translate: () => {},
+      scale: (x: number) => {
+        if (x === -1) scaledX = x
+      },
+      drawImage: () => {},
+      measureText: () => ({ width: 40 }),
+    } as unknown as CanvasRenderingContext2D
+
+    const fakePlayer: Player = {
+      id: 'test-atlas-player-left',
+      name: 'AtlasTesterLeft',
+      x: 0,
+      y: 0,
+      direction: 'left',
+      isMoving: false,
+      avatar: {
+        ...DEFAULT_AVATAR,
+        hairStyle: 'messy',
+      },
+      status: 'available',
+      lastUpdated: Date.now(),
+    }
+
+    AvatarRenderer.drawPlayer(mockCtx, fakePlayer, false, 0)
+    expect(scaledX).toBe(-1)
+  })
+
+  it('should fall back to procedural renderer if preset is not present in atlas', async () => {
+    const { AvatarAtlasManager } = await import('../engine/avatar/AvatarAtlasManager')
+    AvatarAtlasManager.clearCache()
+
+    const mockCtx = {
+      save: () => {},
+      restore: () => {},
+      beginPath: () => {},
+      closePath: () => {},
+      fill: () => {},
+      stroke: () => {},
+      ellipse: () => {},
+      arc: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      fillRect: () => {},
+      strokeRect: () => {},
+      roundRect: () => {},
+      fillText: () => {},
+      translate: () => {},
+      scale: () => {},
+      drawImage: () => {},
+      measureText: () => ({ width: 40 }),
+    } as unknown as CanvasRenderingContext2D
+
+    const fakePlayer: Player = {
+      id: 'test-procedural-fallback',
+      name: 'FallbackTester',
+      x: 0,
+      y: 0,
+      direction: 'down',
+      isMoving: false,
+      avatar: {
+        ...DEFAULT_AVATAR,
+        hairStyle: 'messy',
+        topType: 'kimono',
+        glassesType: 'round',
+      },
+      status: 'available',
+      lastUpdated: Date.now(),
+    }
+
+    expect(() => AvatarRenderer.drawPlayer(mockCtx, fakePlayer, false, 0)).not.toThrow()
+  })
 })
+
