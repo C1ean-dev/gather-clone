@@ -67,4 +67,52 @@ describe('Custom Avatar Presets & Persistence', () => {
     expect(revertedAvatar.customComponents?.hair).toBeUndefined()
     expect(revertedAvatar.hairStyle).toBe('messy')
   })
+
+  it('should safely delete custom avatar preset and reset equipped state if in use', () => {
+    const store = useCustomAssetsStore.getState()
+    const testAsset: CustomAsset = {
+      id: 'avatar_jacket_test_del',
+      name: 'Jaqueta Punk',
+      type: 'avatar',
+      category: 'Avatares',
+      avatarSlot: 'jacket',
+      width: 1,
+      height: 1,
+      isObstacle: false,
+      frames: ['data:image/png;base64,jacketBase64ToDelete'],
+      frameRateMs: 160,
+      createdAt: Date.now(),
+    }
+
+    store.addCustomAsset(testAsset)
+    expect(useCustomAssetsStore.getState().customAssets.some((a) => a.id === 'avatar_jacket_test_del')).toBe(true)
+
+    // Setup avatar wearing this jacket
+    let avatar: AvatarConfig = {
+      ...DEFAULT_AVATAR,
+      jacketType: 'cardigan',
+      customComponents: {
+        jacket: 'data:image/png;base64,jacketBase64ToDelete',
+      },
+    }
+
+    // Simulate delete workflow:
+    store.deleteCustomAsset('avatar_jacket_test_del')
+    expect(useCustomAssetsStore.getState().customAssets.some((a) => a.id === 'avatar_jacket_test_del')).toBe(false)
+
+    // Safe fallback reset
+    if (avatar.customComponents?.jacket === testAsset.frames[0]) {
+      const updatedComponents = { ...avatar.customComponents }
+      delete updatedComponents.jacket
+      avatar = {
+        ...avatar,
+        jacketType: 'none',
+        customComponents: updatedComponents,
+      }
+    }
+
+    expect(avatar.customComponents?.jacket).toBeUndefined()
+    expect(avatar.jacketType).toBe('none')
+  })
 })
+

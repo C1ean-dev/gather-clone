@@ -1,5 +1,5 @@
-import React from 'react'
-import { Check, Pencil, Plus } from 'lucide-react'
+import React, { useState } from 'react'
+import { Check, Pencil, Plus, Trash2 } from 'lucide-react'
 import {
   AvatarConfig,
   AvatarComponentSlot,
@@ -17,6 +17,7 @@ import {
 } from '../../types/game'
 import { CategoryKey } from './CategoryTabs'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
+import { CustomAsset } from '../../types/customAsset'
 
 interface Props {
   activeCategory: CategoryKey
@@ -33,10 +34,49 @@ export const OptionSelectorGrid: React.FC<Props> = ({
   onEditPreset,
   onCreatePreset,
 }) => {
-  const { customAssets } = useCustomAssetsStore()
+  const { customAssets, deleteCustomAsset } = useCustomAssetsStore()
+  const [deletingAsset, setDeletingAsset] = useState<CustomAsset | null>(null)
+
   const categoryCustomAssets = customAssets.filter(
     (a) => a.type === 'avatar' && a.avatarSlot === activeCategory
   )
+
+  const handleConfirmDelete = (asset: CustomAsset) => {
+    // 1. Delete from custom assets store (syncs nativeAssets.json & P2P)
+    deleteCustomAsset(asset.id)
+
+    // 2. If current player is wearing this asset, safely reset to default
+    const slot = activeCategory as AvatarComponentSlot
+    if (avatar.customComponents?.[slot] === asset.frames[0]) {
+      const updatedComponents = { ...avatar.customComponents }
+      delete updatedComponents[slot]
+
+      const fallbackUpdate: Partial<AvatarConfig> = {
+        customComponents: updatedComponents,
+      }
+
+      switch (slot) {
+        case 'hair': fallbackUpdate.hairStyle = 'none'; break
+        case 'top': fallbackUpdate.topType = 'none'; break
+        case 'jacket': fallbackUpdate.jacketType = 'none'; break
+        case 'bottom': fallbackUpdate.bottomType = 'none'; break
+        case 'shoes': fallbackUpdate.shoesType = 'none'; break
+        case 'hat': fallbackUpdate.hatType = 'none'; break
+        case 'glasses': fallbackUpdate.glassesType = 'none'; break
+        case 'other': fallbackUpdate.otherType = 'none'; break
+        case 'facialHair': fallbackUpdate.facialHair = 'none'; break
+        case 'eyes': fallbackUpdate.eyeType = 'normal'; break
+        case 'skin': fallbackUpdate.skinDetail = 'smooth'; break
+      }
+
+      onChangeAvatar({
+        ...avatar,
+        ...fallbackUpdate,
+      })
+    }
+
+    setDeletingAsset(null)
+  }
 
   const selectNativePreset = (update: Partial<AvatarConfig>) => {
     const updatedComponents = { ...avatar.customComponents }
@@ -146,6 +186,17 @@ export const OptionSelectorGrid: React.FC<Props> = ({
             </div>
           )}
 
+          <div
+            onClick={(e) => {
+              e.stopPropagation()
+              setDeletingAsset(asset)
+            }}
+            title={`Excluir ${asset.name}`}
+            className="absolute top-1.5 right-1.5 w-6 h-6 rounded-lg bg-[#2b2d31]/90 hover:bg-rose-600 text-slate-400 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-10 shadow-md cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </div>
+
           <div className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center bg-[#18191c] border border-slate-700/60 overflow-hidden shadow">
             {asset.frames[0] ? (
               <img src={asset.frames[0]} alt={asset.name} className="w-8 h-8 [image-rendering:pixelated]" />
@@ -159,7 +210,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
           </span>
 
           {isSelected && (
-            <div className="absolute top-1.5 right-1.5 w-4 h-4 bg-[#3b82f6] text-white rounded-full flex items-center justify-center">
+            <div className="absolute bottom-1.5 right-1.5 w-4 h-4 bg-[#3b82f6] text-white rounded-full flex items-center justify-center shadow">
               <Check className="w-2.5 h-2.5" />
             </div>
           )}
@@ -544,6 +595,42 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               () => selectNativePreset({ otherType: item.id as OtherType })
             )
           })}
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deletingAsset && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-150 select-none">
+          <div className="bg-[#1e1f22] border border-[#383a40] rounded-2xl p-5 max-w-sm w-full shadow-2xl flex flex-col gap-4 text-slate-100">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-white">Excluir Preset</h3>
+                <p className="text-xs text-slate-400">Esta ação é permanente.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Tem certeza que deseja excluir o preset customizado <strong className="text-white font-semibold">"{deletingAsset.name}"</strong>?
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 mt-1">
+              <button
+                onClick={() => setDeletingAsset(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-[#2b2d31] transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleConfirmDelete(deletingAsset)}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/30 transition-all"
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
