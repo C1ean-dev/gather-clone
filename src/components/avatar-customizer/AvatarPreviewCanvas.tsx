@@ -1,12 +1,13 @@
 import React, { useEffect, useRef } from 'react'
 import { Download, Dices } from 'lucide-react'
-import { AvatarConfig, Player } from '../../types/game'
+import { AvatarConfig, Player, PresenceStatus } from '../../types/game'
 import { AvatarRenderer } from '../../engine/AvatarRenderer'
 
 interface Props {
   isOpen: boolean
   avatar: AvatarConfig
   name: string
+  status?: PresenceStatus
   localPlayer: Player
   onRandomize: () => void
 }
@@ -15,6 +16,7 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
   isOpen,
   avatar,
   name,
+  status,
   localPlayer,
   onRandomize,
 }) => {
@@ -69,12 +71,13 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
 
       // 2. Render Scaled Character in Room Center with smooth Idle / Walk loop
       ctx.save()
-      ctx.translate(w / 2 - 16, h * 0.48)
+      ctx.translate(w / 2 - 56, h * 0.48)
       ctx.scale(3.5, 3.5)
 
       const tempPlayer = {
         ...localPlayer,
         name: name.trim() || localPlayer.name,
+        status: status || localPlayer.status || 'available',
         avatar,
         direction: 'down' as const,
         isMoving: true,
@@ -90,7 +93,7 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
 
     frameId = requestAnimationFrame(render)
     return () => cancelAnimationFrame(frameId)
-  }, [isOpen, avatar, name, localPlayer])
+  }, [isOpen, avatar, name, status, localPlayer])
 
   // Export / Download PNG of Avatar
   const handleDownloadPNG = () => {

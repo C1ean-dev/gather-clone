@@ -11,7 +11,7 @@ export class NameTagRenderer {
     centerX: number,
     tagY: number
   ) {
-    const label = (isLocal ? 'Você' : player.name) + (player.statusEmoji ? ` ${player.statusEmoji}` : '')
+    const label = player.name || 'Player'
     ctx.font = 'bold 7.5px Inter, sans-serif'
     const textW = ctx.measureText(label).width
     const pillW = textW + 14

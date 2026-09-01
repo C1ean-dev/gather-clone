@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { X, Check } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
-import { AvatarConfig, AvatarComponentSlot } from '../types/game'
+import { AvatarConfig, AvatarComponentSlot, PresenceStatus } from '../types/game'
 import { PeerManager } from '../p2p/PeerManager'
 import { CategoryKey, CategoryTabs } from './avatar-customizer/CategoryTabs'
 import {
@@ -24,10 +24,11 @@ interface Props {
 }
 
 export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
-  const { localPlayer, setLocalPlayer } = useGameStore()
+  const { localPlayer, setLocalPlayer, setLocalStatus } = useGameStore()
 
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('skin')
   const [name, setName] = useState(localPlayer.name || 'Player')
+  const [status, setStatus] = useState<PresenceStatus>(localPlayer.status || 'available')
   const [avatar, setAvatar] = useState<AvatarConfig>({
     skinTone: localPlayer.avatar?.skinTone || localPlayer.avatar?.skinColor || '#ffd1a4',
     skinDetail: localPlayer.avatar?.skinDetail || 'smooth',
@@ -65,6 +66,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
   useEffect(() => {
     if (isOpen) {
       setName(localPlayer.name || 'Player')
+      setStatus(localPlayer.status || 'available')
       setAvatar({
         customSkinUrl: localPlayer.avatar?.customSkinUrl,
         customAvatarId: localPlayer.avatar?.customAvatarId,
@@ -156,10 +158,12 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   const handleSave = () => {
     const finalName = name.trim() || localPlayer.name
-    setLocalPlayer({ name: finalName, avatar })
+    setLocalPlayer({ name: finalName, avatar, status })
+    setLocalStatus(status)
     PeerManager.getInstance().sendPlayerUpdate({
       name: finalName,
       avatar,
+      status,
     })
     onClose()
   }
@@ -215,6 +219,34 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 className="bg-transparent text-xs font-bold text-slate-100 focus:outline-none focus:text-white w-28"
               />
             </div>
+
+            {/* Current Status Selector */}
+            <div className="flex items-center gap-2 bg-[#2b2d31] px-2.5 py-1 rounded-xl border border-[#383a40]">
+              <span className="text-[11px] font-semibold text-slate-400">Status:</span>
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    status === 'available'
+                      ? 'bg-emerald-500'
+                      : status === 'busy'
+                      ? 'bg-rose-500'
+                      : status === 'focusing'
+                      ? 'bg-purple-500'
+                      : 'bg-amber-500'
+                  }`}
+                />
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as PresenceStatus)}
+                  className="bg-transparent text-xs font-bold text-slate-100 focus:outline-hidden cursor-pointer pr-1"
+                >
+                  <option value="available" className="bg-[#1e1f22] text-white">Disponível</option>
+                  <option value="busy" className="bg-[#1e1f22] text-white">Ocupado</option>
+                  <option value="focusing" className="bg-[#1e1f22] text-white">Em Foco</option>
+                  <option value="away" className="bg-[#1e1f22] text-white">Ausente</option>
+                </select>
+              </div>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -251,6 +283,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
             isOpen={isOpen}
             avatar={avatar}
             name={name}
+            status={status}
             localPlayer={localPlayer}
             onRandomize={handleRandomize}
           />
