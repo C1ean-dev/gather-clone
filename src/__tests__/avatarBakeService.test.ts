@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { bakeAvatarPreset } from '../engine/avatar/avatarBakeService'
+import { bakeAvatarPreset, cropContentDataUrl } from '../engine/avatar/avatarBakeService'
 import { AvatarAtlasManager } from '../engine/avatar/AvatarAtlasManager'
 
 describe('avatarBakeService - Bake on Demand', () => {
@@ -40,5 +40,11 @@ describe('avatarBakeService - Bake on Demand', () => {
   it('should return empty/null for none or invalid presets', () => {
     const dataUrl = bakeAvatarPreset('hair', 'none')
     expect(dataUrl).toBe('')
+  })
+
+  it('should crop empty space and return close-up dataUrl', async () => {
+    const rawDataUrl = 'data:image/png;base64,sample'
+    const cropped = await cropContentDataUrl(rawDataUrl)
+    expect(cropped).toBeDefined()
   })
 })

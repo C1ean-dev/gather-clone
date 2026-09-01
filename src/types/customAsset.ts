@@ -21,6 +21,7 @@ export interface CustomAsset {
   type: CustomAssetType
   category: string
   avatarSlot?: AvatarComponentSlot
+  thumbnail?: string
   width: number // in tiles (1 to 10)
   height: number // in tiles (1 to 10)
   isObstacle: boolean // general flag for backward compatibility

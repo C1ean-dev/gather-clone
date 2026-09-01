@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Check, Pencil, Plus, Trash2, Download } from 'lucide-react'
 import {
   AvatarConfig,
@@ -19,6 +19,7 @@ import { CategoryKey } from './CategoryTabs'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 import { CustomAsset } from '../../types/customAsset'
 import { exportCategoryAtlas } from '../../engine/avatar/avatarAtlasExporter'
+import { cropContentDataUrl } from '../../engine/avatar/avatarBakeService'
 
 interface Props {
   activeCategory: CategoryKey
@@ -26,6 +27,48 @@ interface Props {
   onChangeAvatar: (newAvatar: AvatarConfig) => void
   onEditPreset?: (category: AvatarComponentSlot, presetId: string, label: string) => void
   onCreatePreset?: (category: AvatarComponentSlot) => void
+}
+
+/**
+ * Renders an auto-cropped close-up preview of the pixel art,
+ * eliminating all surrounding empty space and centering the item.
+ */
+const AutoCroppedThumbnail: React.FC<{
+  src: string
+  alt: string
+  category: CategoryKey
+  skinTone?: string
+}> = ({ src, alt, category, skinTone }) => {
+  const [displayUrl, setDisplayUrl] = useState<string>(src)
+
+  useEffect(() => {
+    let active = true
+    cropContentDataUrl(src).then((cropped) => {
+      if (active && cropped) {
+        setDisplayUrl(cropped)
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [src])
+
+  const isFaceCategory =
+    category === 'skin' || category === 'eyes' || category === 'facialHair'
+  const bgColor = isFaceCategory && skinTone ? skinTone : '#18191c'
+
+  return (
+    <div
+      className="w-12 h-12 rounded-xl mb-1.5 flex items-center justify-center relative shadow-sm overflow-hidden border border-slate-700/50 p-1"
+      style={{ backgroundColor: bgColor }}
+    >
+      <img
+        src={displayUrl}
+        alt={alt}
+        className="w-full h-full object-contain [image-rendering:pixelated]"
+      />
+    </div>
+  )
 }
 
 export const OptionSelectorGrid: React.FC<Props> = ({
@@ -145,7 +188,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
         className="group relative flex flex-col items-center justify-center p-3 rounded-2xl border-2 border-dashed border-[#3b82f6]/50 bg-[#3b82f6]/5 hover:bg-[#3b82f6]/15 hover:border-[#3b82f6] transition-all aspect-square text-[#3b82f6]"
         title="Criar novo preset do zero no estúdio"
       >
-        <div className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center bg-[#3b82f6]/10 group-hover:bg-[#3b82f6] group-hover:text-white transition-all shadow-sm">
+        <div className="w-12 h-12 rounded-xl mb-1.5 flex items-center justify-center bg-[#3b82f6]/10 group-hover:bg-[#3b82f6] group-hover:text-white transition-all shadow-sm">
           <Plus className="w-5 h-5" />
         </div>
         <span className="text-[11px] font-bold truncate max-w-[80px]">Criar Novo</span>
@@ -198,13 +241,13 @@ export const OptionSelectorGrid: React.FC<Props> = ({
             <Trash2 className="w-3.5 h-3.5" />
           </div>
 
-          <div className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center bg-[#18191c] border border-slate-700/60 overflow-hidden shadow">
-            {asset.frames[0] ? (
-              <img src={asset.frames[0]} alt={asset.name} className="w-8 h-8 [image-rendering:pixelated]" />
-            ) : (
-              <span className="text-xs">🎨</span>
-            )}
-          </div>
+          {/* Close-up Cropped Thumbnail Preview */}
+          <AutoCroppedThumbnail
+            src={asset.thumbnail || asset.frames[0]}
+            alt={asset.name}
+            category={activeCategory}
+            skinTone={avatar.skinTone}
+          />
 
           <span className="text-[11px] font-bold text-[#60a5fa] truncate max-w-[80px]" title={asset.name}>
             {asset.name}

@@ -230,3 +230,114 @@ export function bakeAvatarPreset(
 
   return canvas.toDataURL('image/png')
 }
+
+/**
+ * Scans an image canvas and crops tightly to the bounding box of non-transparent pixels,
+ * eliminating all empty margins so the item is brought close-up and centered.
+ */
+export function cropContentBoundingBox(
+  sourceCanvas: HTMLCanvasElement,
+  padding: number = 1
+): string {
+  const w = sourceCanvas.width
+  const h = sourceCanvas.height
+  const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return sourceCanvas.toDataURL()
+
+  const imgData = ctx.getImageData(0, 0, w, h)
+  const data = imgData.data
+
+  let minX = w
+  let minY = h
+  let maxX = -1
+  let maxY = -1
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const alpha = data[(y * w + x) * 4 + 3]
+      if (alpha > 10) {
+        if (x < minX) minX = x
+        if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+      }
+    }
+  }
+
+  // If entirely empty (all transparent)
+  if (maxX < minX || maxY < minY) {
+    return sourceCanvas.toDataURL()
+  }
+
+  // Calculate bounding box with padding
+  const pMinX = Math.max(0, minX - padding)
+  const pMinY = Math.max(0, minY - padding)
+  const pMaxX = Math.min(w - 1, maxX + padding)
+  const pMaxY = Math.min(h - 1, maxY + padding)
+
+  const bw = pMaxX - pMinX + 1
+  const bh = pMaxY - pMinY + 1
+
+  // Make it square so it fits cleanly into cards without aspect ratio distortion
+  const dim = Math.max(bw, bh)
+  const cx = pMinX + bw / 2
+  const cy = pMinY + bh / 2
+
+  let sMinX = Math.round(cx - dim / 2)
+  let sMinY = Math.round(cy - dim / 2)
+
+  if (sMinX < 0) sMinX = 0
+  if (sMinY < 0) sMinY = 0
+  if (sMinX + dim > w) sMinX = Math.max(0, w - dim)
+  if (sMinY + dim > h) sMinY = Math.max(0, h - dim)
+
+  const finalDim = Math.min(dim, w - sMinX, h - sMinY)
+
+  const cropCanvas = document.createElement('canvas')
+  cropCanvas.width = finalDim
+  cropCanvas.height = finalDim
+  const cropCtx = cropCanvas.getContext('2d')
+  if (!cropCtx) return sourceCanvas.toDataURL()
+
+  cropCtx.imageSmoothingEnabled = false
+  cropCtx.drawImage(
+    sourceCanvas,
+    sMinX,
+    sMinY,
+    finalDim,
+    finalDim,
+    0,
+    0,
+    finalDim,
+    finalDim
+  )
+
+  return cropCanvas.toDataURL('image/png')
+}
+
+/**
+ * Loads a data URL and returns an auto-cropped version with empty space removed
+ */
+export function cropContentDataUrl(
+  dataUrl: string,
+  padding: number = 1
+): Promise<string> {
+  return new Promise((resolve) => {
+    if (typeof document === 'undefined' || !dataUrl) {
+      return resolve(dataUrl)
+    }
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      if (!ctx) return resolve(dataUrl)
+      ctx.drawImage(img, 0, 0)
+      resolve(cropContentBoundingBox(canvas, padding))
+    }
+    img.onerror = () => resolve(dataUrl)
+    img.src = dataUrl
+  })
+}
+

@@ -15,7 +15,7 @@ import {
 import { OptionSelectorGrid } from './avatar-customizer/OptionSelectorGrid'
 import { AvatarPreviewCanvas } from './avatar-customizer/AvatarPreviewCanvas'
 import { AvatarPixelArtModal } from '../editor/avatar/AvatarPixelArtModal'
-import { bakeAvatarPreset } from '../engine/avatar/avatarBakeService'
+import { bakeAvatarPreset, cropContentDataUrl } from '../engine/avatar/avatarBakeService'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 
 interface Props {
@@ -118,18 +118,21 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
     })
   }
 
-  const handleSavePresetFromStudio = (savedDataUrl: string, name: string) => {
+  const handleSavePresetFromStudio = async (savedDataUrl: string, name: string) => {
     if (!editingPreset) return
     const category = editingPreset.category
 
     // 1. Create and persist CustomAsset permanently into nativeAssets & mesh
     const customName = name || `Preset ${category}`
+    const thumbnail = await cropContentDataUrl(savedDataUrl)
+
     const newAsset = {
       id: `avatar_${category}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       name: customName,
       type: 'avatar' as const,
       category: 'Avatares',
       avatarSlot: category,
+      thumbnail,
       width: 1,
       height: 1,
       isObstacle: false,
