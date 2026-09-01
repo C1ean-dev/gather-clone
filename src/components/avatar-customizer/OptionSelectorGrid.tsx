@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { Check, Pencil, Plus, Trash2, Download, Upload } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { Check, Pencil, Plus, Trash2, Download, Upload, Scissors } from 'lucide-react'
 import {
   AvatarConfig,
   AvatarComponentSlot,
@@ -21,6 +21,7 @@ import { CustomAsset } from '../../types/customAsset'
 import { exportCategoryAtlas } from '../../engine/avatar/avatarAtlasExporter'
 import { cropContentDataUrl } from '../../engine/avatar/avatarBakeService'
 import { AtlasImportModal } from './AtlasImportModal'
+import { AvatarSpritesheetSlicerModal } from './AvatarSpritesheetSlicerModal'
 
 interface Props {
   activeCategory: CategoryKey
@@ -78,6 +79,25 @@ export const OptionSelectorGrid: React.FC<Props> = ({
   const { customAssets, deleteCustomAsset } = useCustomAssetsStore()
   const [deletingAsset, setDeletingAsset] = useState<CustomAsset | null>(null)
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false)
+
+  // Direct Spritesheet Slicer state
+  const directSlicerInputRef = useRef<HTMLInputElement | null>(null)
+  const [slicerImageSrc, setSlicerImageSrc] = useState<string>('')
+  const [slicerImageName, setSlicerImageName] = useState<string>('')
+  const [isDirectSlicerOpen, setIsDirectSlicerOpen] = useState<boolean>(false)
+
+  const handleDirectSlicerFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setSlicerImageName(file.name)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string
+      setSlicerImageSrc(dataUrl)
+      setIsDirectSlicerOpen(true)
+    }
+    reader.readAsDataURL(file)
+  }
 
   const categoryCustomAssets = customAssets.filter(
     (a) => a.type === 'avatar' && a.avatarSlot === activeCategory
@@ -276,10 +296,29 @@ export const OptionSelectorGrid: React.FC<Props> = ({
 
   return (
     <div className="flex-1 overflow-y-auto pr-1">
-      {/* Top action bar with Export and Import Atlas Buttons */}
+      {/* Top action bar with Export, Import and Slicer Buttons */}
       <div className="flex items-center justify-between mb-3 px-1">
         <span className="text-xs font-bold text-slate-300">Opções & Presets</span>
         <div className="flex items-center gap-2">
+          {/* Hidden input for direct Spritesheet Slicer */}
+          <input
+            ref={directSlicerInputRef}
+            type="file"
+            accept="image/*,.png"
+            onChange={handleDirectSlicerFile}
+            className="hidden"
+          />
+
+          <button
+            type="button"
+            onClick={() => directSlicerInputRef.current?.click()}
+            title={`Abrir Fatiador Interativo para recortar frames de uma folha de spritesheet PNG e gerar o arquivo XML`}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#383a40] border border-[#383a40] text-indigo-400 hover:text-indigo-300 text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
+          >
+            <Scissors className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Fatiar Imagem</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsImportModalOpen(true)}
@@ -716,6 +755,22 @@ export const OptionSelectorGrid: React.FC<Props> = ({
         <AtlasImportModal
           isOpen={isImportModalOpen}
           onClose={() => setIsImportModalOpen(false)}
+          category={activeCategory as AvatarComponentSlot}
+        />
+      )}
+
+      {/* Direct Interactive Spritesheet Slicer Modal */}
+      {isDirectSlicerOpen && slicerImageSrc && (
+        <AvatarSpritesheetSlicerModal
+          isOpen={isDirectSlicerOpen}
+          onClose={() => {
+            setIsDirectSlicerOpen(false)
+            if (directSlicerInputRef.current) {
+              directSlicerInputRef.current.value = ''
+            }
+          }}
+          imageSrc={slicerImageSrc}
+          imageFileName={slicerImageName || `${activeCategory}.png`}
           category={activeCategory as AvatarComponentSlot}
         />
       )}

@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react'
-import { X, Upload, FileCode, Image as ImageIcon, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react'
+import { X, Upload, FileCode, Image as ImageIcon, CheckCircle, AlertCircle, ArrowRight, Scissors } from 'lucide-react'
 import { AvatarComponentSlot } from '../../types/game'
 import {
   parseSparrowAtlasAndSlice,
   importPresetsIntoStore,
   ParsedAtlasPreset,
 } from '../../engine/avatar/avatarAtlasImporter'
+import { AvatarSpritesheetSlicerModal } from './AvatarSpritesheetSlicerModal'
 
 interface Props {
   isOpen: boolean
@@ -43,6 +44,7 @@ export const AtlasImportModal: React.FC<Props> = ({
   const [parsedPresets, setParsedPresets] = useState<ParsedAtlasPreset[]>([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [successCount, setSuccessCount] = useState<number | null>(null)
+  const [isSlicerOpen, setIsSlicerOpen] = useState<boolean>(false)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -221,6 +223,34 @@ export const AtlasImportModal: React.FC<Props> = ({
             </div>
           </div>
 
+          {/* Slicer CTA when only PNG is uploaded */}
+          {pngFile && !xmlFile && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-r from-blue-500/15 via-indigo-500/15 to-blue-500/15 border border-blue-500/35 text-xs animate-in fade-in">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-500/25 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0">
+                  <Scissors className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                    Apenas imagem detectada (sem .xml)
+                  </h4>
+                  <p className="text-slate-300 text-xs mt-0.5">
+                    Recorte interativamente os frames direcionais na folha para gerar o arquivo <strong className="text-white">.xml</strong> e criar os presets.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsSlicerOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#3b82f6] hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-500/30 transition-all cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Scissors className="w-3.5 h-3.5" />
+                <span>Abrir Fatiador de Sprites ➔</span>
+              </button>
+            </div>
+          )}
+
           {/* Error message */}
           {errorMessage && (
             <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">
@@ -318,6 +348,23 @@ export const AtlasImportModal: React.FC<Props> = ({
           </button>
         </div>
       </div>
+
+      {/* Interactive Spritesheet Slicer Studio Modal */}
+      {isSlicerOpen && pngDataUrl && (
+        <AvatarSpritesheetSlicerModal
+          isOpen={isSlicerOpen}
+          onClose={() => setIsSlicerOpen(false)}
+          imageSrc={pngDataUrl}
+          imageFileName={pngFile?.name || `${category}.png`}
+          category={category}
+          onSaveComplete={(created) => {
+            setIsSlicerOpen(false)
+            setSuccessCount(created.length)
+            if (onImportSuccess) onImportSuccess(created.length)
+            setTimeout(() => onClose(), 1200)
+          }}
+        />
+      )}
     </div>
   )
 }
