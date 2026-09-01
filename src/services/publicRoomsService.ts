@@ -2,8 +2,8 @@ import { PublicRoomInfo } from '../types/game'
 
 const STORAGE_KEY = 'gather_v2_public_hub_cache'
 const BROADCAST_CHANNEL_NAME = 'gather_v2_public_hub_channel'
-const HEARTBEAT_INTERVAL_MS = 10000 // 10s
-const STALE_ROOM_THRESHOLD_MS = 35000 // 35s
+const HEARTBEAT_INTERVAL_MS = 4000 // 4s
+const STALE_ROOM_THRESHOLD_MS = 20000 // 20s
 
 type MessageType = 'ANNOUNCE_ROOM' | 'UNREGISTER_ROOM' | 'QUERY_ROOMS' | 'HEARTBEAT'
 
@@ -14,8 +14,10 @@ interface HubMessage {
   timestamp: number
 }
 
+export type BrokerConnectionStatus = 'connecting' | 'connected' | 'disconnected'
+
 export class PublicRoomsService {
-  private static instance: PublicRoomsService
+  private static instance: PublicRoomsService | null = null
   private rooms: Map<string, PublicRoomInfo> = new Map()
   private listeners: Set<(rooms: PublicRoomInfo[]) => void> = new Set()
   private broadcastChannel: BroadcastChannel | null = null
@@ -24,6 +26,9 @@ export class PublicRoomsService {
   private pruneTimer: any = null
   private currentHosting: PublicRoomInfo | null = null
   private isConnectedToRelay: boolean = false
+  private brokerStatus: BrokerConnectionStatus = 'connecting'
+  private brokerStatusListeners: Set<(status: BrokerConnectionStatus) => void> = new Set()
+  private connectTimeout: any = null
 
   private constructor() {
     this.initLocalStorageCache()
@@ -88,10 +93,35 @@ export class PublicRoomsService {
     }
   }
 
+  private setBrokerStatus(status: BrokerConnectionStatus) {
+    if (this.brokerStatus !== status) {
+      this.brokerStatus = status
+      this.brokerStatusListeners.forEach((listener) => {
+        try {
+          listener(status)
+        } catch (e) {
+          console.error('[PublicRoomsHub] Status listener error:', e)
+        }
+      })
+    }
+  }
+
+  public getBrokerStatus(): BrokerConnectionStatus {
+    return this.brokerStatus
+  }
+
+  public subscribeBrokerStatus(listener: (status: BrokerConnectionStatus) => void): () => void {
+    this.brokerStatusListeners.add(listener)
+    listener(this.brokerStatus)
+    return () => {
+      this.brokerStatusListeners.delete(listener)
+    }
+  }
+
   /**
    * 3. Public WebSockets Relay for Internet P2P discovery
    */
-  private initWebSocketRelay() {
+  private initWebSocketRelay(force: boolean = false) {
     const relayUrls = [
       'wss://broker.emqx.io:8084/mqtt',
       'wss://broker.hivemq.com:8884/mqtt',
@@ -99,18 +129,29 @@ export class PublicRoomsService {
 
     const connectToRelay = (urlIndex: number = 0) => {
       if (urlIndex >= relayUrls.length) {
+        this.setBrokerStatus('disconnected')
         return
       }
+
+      this.setBrokerStatus('connecting')
+      if (this.connectTimeout) clearTimeout(this.connectTimeout)
+      this.connectTimeout = setTimeout(() => {
+        if (this.brokerStatus === 'connecting') {
+          this.setBrokerStatus('disconnected')
+        }
+      }, 7000)
 
       try {
         const url = relayUrls[urlIndex]
         const ws = new WebSocket(url, ['mqtt'])
+        ws.binaryType = 'arraybuffer'
 
         ws.onopen = () => {
+          if (this.connectTimeout) clearTimeout(this.connectTimeout)
           this.isConnectedToRelay = true
           this.ws = ws
+          this.setBrokerStatus('connected')
           this.sendMqttConnectAndSubscribe()
-          this.queryRooms()
         }
 
         ws.onmessage = (event) => {
@@ -119,15 +160,18 @@ export class PublicRoomsService {
 
         ws.onerror = () => {
           this.isConnectedToRelay = false
+          this.setBrokerStatus('disconnected')
         }
 
         ws.onclose = () => {
           this.isConnectedToRelay = false
+          this.setBrokerStatus('disconnected')
           this.ws = null
           // Retry connection after delay
           setTimeout(() => connectToRelay((urlIndex + 1) % relayUrls.length), 10000)
         }
       } catch (err) {
+        this.setBrokerStatus('disconnected')
         // Fallback to next relay
         setTimeout(() => connectToRelay(urlIndex + 1), 5000)
       }
@@ -136,6 +180,48 @@ export class PublicRoomsService {
     if (typeof window !== 'undefined' && 'WebSocket' in window) {
       connectToRelay(0)
     }
+  }
+
+  public async testConnection(): Promise<boolean> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.setBrokerStatus('connected')
+      return true
+    }
+
+    if (this.ws) {
+      try {
+        this.ws.close()
+      } catch (e) {}
+      this.ws = null
+    }
+
+    return new Promise((resolve) => {
+      this.setBrokerStatus('connecting')
+      let done = false
+
+      const unsub = this.subscribeBrokerStatus((status) => {
+        if (done) return
+        if (status === 'connected') {
+          done = true
+          unsub()
+          resolve(true)
+        } else if (status === 'disconnected') {
+          done = true
+          unsub()
+          resolve(false)
+        }
+      })
+
+      this.initWebSocketRelay(true)
+
+      setTimeout(() => {
+        if (!done) {
+          done = true
+          unsub()
+          resolve(this.brokerStatus === 'connected')
+        }
+      }, 7500)
+    })
   }
 
   /**
@@ -149,13 +235,24 @@ export class PublicRoomsService {
       const connectPacket = this.encodeMqttConnect(clientId)
       this.ws.send(connectPacket)
 
-      // MQTT SUBSCRIBE to topic "gather_v2_public_hub/events"
+      // Fallback subscribe and query timers in case broker doesn't emit CONNACK/SUBACK
       setTimeout(() => {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
           const subPacket = this.encodeMqttSubscribe('gather_v2_public_hub/events', 1)
           this.ws.send(subPacket)
         }
-      }, 500)
+      }, 350)
+
+      setTimeout(() => {
+        this.queryRooms()
+        if (this.currentHosting) {
+          this.broadcastMessage({
+            type: 'ANNOUNCE_ROOM',
+            roomInfo: this.currentHosting,
+            timestamp: Date.now(),
+          })
+        }
+      }, 800)
     } catch (e) {
       console.warn('[PublicRoomsHub] MQTT framing failed:', e)
     }
@@ -198,12 +295,45 @@ export class PublicRoomsService {
     return new Uint8Array([0x30, ...lengthBytes, ...topicBytes, ...msgBytes])
   }
 
-  private handleMqttMessage(data: any) {
+  private async handleMqttMessage(data: any) {
     try {
-      if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
-        const bytes = new Uint8Array(data)
+      let bytes: Uint8Array | null = null
+
+      if (data instanceof ArrayBuffer) {
+        bytes = new Uint8Array(data)
+      } else if (data instanceof Uint8Array) {
+        bytes = data
+      } else if (typeof Blob !== 'undefined' && data instanceof Blob) {
+        bytes = new Uint8Array(await data.arrayBuffer())
+      }
+
+      if (bytes && bytes.length > 0) {
+        const packetType = bytes[0] & 0xf0
+
+        // CONNACK (0x20): Connect acknowledged! Send SUBSCRIBE immediately
+        if (packetType === 0x20) {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            const subPacket = this.encodeMqttSubscribe('gather_v2_public_hub/events', 1)
+            this.ws.send(subPacket)
+          }
+          return
+        }
+
+        // SUBACK (0x90): Subscribe acknowledged! Query rooms & announce if hosting
+        if (packetType === 0x90) {
+          this.queryRooms()
+          if (this.currentHosting) {
+            this.broadcastMessage({
+              type: 'ANNOUNCE_ROOM',
+              roomInfo: this.currentHosting,
+              timestamp: Date.now(),
+            })
+          }
+          return
+        }
+
         // Check if PUBLISH packet (0x30 to 0x3F)
-        if ((bytes[0] & 0xf0) === 0x30) {
+        if (packetType === 0x30) {
           let index = 1
           while ((bytes[index] & 0x80) !== 0) index++ // skip remaining length
           index++

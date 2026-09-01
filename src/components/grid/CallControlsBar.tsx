@@ -43,7 +43,20 @@ export const CallControlsBar: React.FC<Props> = ({
     toggleNoiseSuppression,
   } = useMediaStore()
 
-  const { toggleChat } = useChatStore()
+  const isChatOpen = useChatStore((state) => state.isChatOpen)
+  const activeChannelId = useChatStore((state) => state.activeChannelId)
+  const zoneChannel = useChatStore((state) => state.channels.find((c) => c.id === 'current-zone'))
+  const unreadZoneCount = zoneChannel?.unreadCount || 0
+
+  const handleOpenRoomChat = () => {
+    const chatStore = useChatStore.getState()
+    if (chatStore.isChatOpen && chatStore.activeChannelId === 'current-zone') {
+      chatStore.setChatOpen(false)
+    } else {
+      chatStore.setActiveChannel('current-zone')
+      chatStore.setChatOpen(true)
+    }
+  }
 
   return (
     <div className="flex items-center justify-between px-6 py-2.5 bg-[#12151d]/95 backdrop-blur-xl rounded-2xl border border-[#2a3142] max-w-3xl mx-auto w-full shadow-2xl shrink-0 mt-2">
@@ -141,11 +154,20 @@ export const CallControlsBar: React.FC<Props> = ({
       {/* Right Side: Chat & Leave */}
       <div className="flex items-center gap-2">
         <button
-          onClick={toggleChat}
-          className="p-2.5 rounded-xl bg-[#1b202c] border border-[#2a3142] text-slate-300 hover:bg-slate-700 transition-colors"
-          title="Abrir Chat"
+          onClick={handleOpenRoomChat}
+          className={`p-2.5 rounded-xl border transition-all relative ${
+            isChatOpen && activeChannelId === 'current-zone'
+              ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30'
+              : 'bg-[#1b202c] border-[#2a3142] text-slate-300 hover:bg-slate-700 hover:text-white'
+          }`}
+          title="Abrir Chat da Sala"
         >
           <MessageSquare className="w-4 h-4" />
+          {unreadZoneCount > 0 && (
+            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-indigo-400 ring-2 ring-[#12151d] animate-pulse flex items-center justify-center text-[8px] font-bold text-slate-950">
+              {unreadZoneCount > 9 ? '9+' : unreadZoneCount}
+            </span>
+          )}
         </button>
 
         <button

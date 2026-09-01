@@ -13,10 +13,12 @@ import {
   ChevronUp,
   Monitor,
   Sparkles,
+  MessageSquare,
 } from 'lucide-react'
 import { useMediaStore } from '../store/useMediaStore'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
+import { useChatStore } from '../store/useChatStore'
 import { MediaManager } from '../media/MediaManager'
 import { ScreenShareModal } from './ScreenShareModal'
 
@@ -222,6 +224,11 @@ export const MiniCallOverlay: React.FC = () => {
   const { localPlayer, remotePlayers } = useGameStore()
   const { mapData } = useMapStore()
 
+  const isChatOpen = useChatStore((state) => state.isChatOpen)
+  const activeChannelId = useChatStore((state) => state.activeChannelId)
+  const zoneChannel = useChatStore((state) => state.channels.find((c) => c.id === 'current-zone'))
+  const unreadZoneCount = zoneChannel?.unreadCount || 0
+
   const [isScreenModalOpen, setIsScreenModalOpen] = useState(false)
   const [isFloatingPreviewVisible, setIsFloatingPreviewVisible] = useState(true)
 
@@ -254,6 +261,16 @@ export const MiniCallOverlay: React.FC = () => {
 
   const isPresenterLocal = isScreenSharing
 
+  const handleOpenRoomChat = () => {
+    const chatStore = useChatStore.getState()
+    if (chatStore.isChatOpen && chatStore.activeChannelId === 'current-zone') {
+      chatStore.setChatOpen(false)
+    } else {
+      chatStore.setActiveChannel('current-zone')
+      chatStore.setChatOpen(true)
+    }
+  }
+
   const handleToggleScreenShare = async () => {
     if (isScreenSharing) {
       MediaManager.getInstance().stopScreenShare()
@@ -280,9 +297,15 @@ export const MiniCallOverlay: React.FC = () => {
         <div className="bg-[#1b202c]/95 backdrop-blur-xl border border-[#2a3142] rounded-3xl p-3 shadow-2xl animate-in slide-in-from-bottom-4 duration-200">
           {/* Top Status */}
           <div className="flex items-center justify-between gap-4 mb-2 px-1">
-            <div className="flex items-center gap-2">
+            <div
+              onClick={handleOpenRoomChat}
+              className="flex items-center gap-2 cursor-pointer group"
+              title={`Ir para o Chat da Sala (${zoneName})`}
+            >
               <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs font-bold text-slate-100">{zoneName}</span>
+              <span className="text-xs font-bold text-slate-100 group-hover:text-indigo-400 transition-colors">
+                {zoneName}
+              </span>
               <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded-full">
                 {peersInSameZone.length + 1} online
               </span>
@@ -389,6 +412,24 @@ export const MiniCallOverlay: React.FC = () => {
               title={isScreenSharing ? 'Parar Compartilhamento de Tela' : 'Compartilhar Tela'}
             >
               <ScreenShare className="w-4 h-4" />
+            </button>
+
+            {/* Chat da Sala */}
+            <button
+              onClick={handleOpenRoomChat}
+              className={`p-2 rounded-xl text-xs font-medium transition-all relative ${
+                isChatOpen && activeChannelId === 'current-zone'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40'
+                  : 'bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white'
+              }`}
+              title={`Ir para o Chat da Sala (${zoneName})`}
+            >
+              <MessageSquare className="w-4 h-4" />
+              {unreadZoneCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-indigo-400 ring-2 ring-[#1b202c] animate-pulse flex items-center justify-center text-[8px] font-bold text-slate-950">
+                  {unreadZoneCount > 9 ? '9+' : unreadZoneCount}
+                </span>
+              )}
             </button>
 
             {/* Settings */}

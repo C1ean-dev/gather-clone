@@ -4,7 +4,8 @@ import { fileURLToPath } from 'url'
 import fs from 'fs'
 import https from 'https'
 import http from 'http'
-import { spawn } from 'child_process'
+import dgram from 'dgram'
+import { spawn, exec } from 'child_process'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -342,8 +343,73 @@ ipcMain.handle('load-native-spaces', async () => {
   return null
 })
 
+// Socket UDP para descoberta local e disparo da janela nativa do Windows Defender Firewall
+let lanSocket: dgram.Socket | null = null
+
+function initNetworkTriggerAndLanDiscovery() {
+  try {
+    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
+    socket.on('error', (err) => {
+      console.warn('[Network/Firewall] UDP Socket warning:', err.message)
+    })
+    socket.on('listening', () => {
+      const addr = socket.address()
+      console.log(`[Network/Firewall] UDP listening na porta ${addr.port} (permissão de firewall disparada).`)
+      try {
+        socket.setBroadcast(true)
+      } catch (e) {}
+    })
+    // O bind de porta no Windows força o Windows Defender Firewall a abrir a caixa de permissão se ainda não autorizada
+    socket.bind(41234, '0.0.0.0')
+    lanSocket = socket
+  } catch (err) {
+    console.warn('[Network/Firewall] Falha ao iniciar socket UDP:', err)
+  }
+}
+
+// IPCs para checagem e solicitação de liberação do Firewall do Windows
+ipcMain.handle('check-firewall-status', async () => {
+  if (process.platform !== 'win32') return { isAllowed: true }
+  return new Promise((resolve) => {
+    const execPath = process.execPath.replace(/'/g, "''")
+    const query = `((Get-NetFirewallRule -DisplayName '*Gather*' -ErrorAction SilentlyContinue | Where-Object { $_.Action -eq 'Allow' -and $_.Enabled -eq 'True' }).Count + (Get-NetFirewallApplicationFilter -Program '${execPath}' -ErrorAction SilentlyContinue | Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object { $_.Action -eq 'Allow' -and $_.Enabled -eq 'True' }).Count)`
+    exec(
+      `powershell -NoProfile -Command "${query}"`,
+      (error, stdout) => {
+        if (error) {
+          resolve({ isAllowed: false })
+          return
+        }
+        const count = parseInt(stdout?.trim()) || 0
+        resolve({ isAllowed: count > 0 })
+      }
+    )
+  })
+})
+
+ipcMain.handle('request-firewall-access', async () => {
+  if (process.platform !== 'win32') return { success: true }
+  return new Promise((resolve) => {
+    const execPath = process.execPath.replace(/'/g, "''")
+    // Cria ou atualiza a regra no Firewall do Windows com Profile Any (Privada + Pública) com privilégios de Administrador
+    const script = `if (!(Get-NetFirewallRule -DisplayName ''Gather Clone'' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName ''Gather Clone'' -Direction Inbound -Program ''${execPath}'' -Action Allow -Profile Any -Enabled True } else { Set-NetFirewallRule -DisplayName ''Gather Clone'' -Program ''${execPath}'' -Action Allow -Profile Any -Enabled True }`
+    const psCommand = `Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile', '-Command', "${script}"`
+
+    exec(`powershell -NoProfile -Command "${psCommand}"`, (error) => {
+      if (error) {
+        console.warn('[Firewall] Erro ou cancelamento pelo usuário:', error)
+        resolve({ success: false, error: error.message })
+      } else {
+        console.log('[Firewall] Regra adicionada/atualizada com sucesso no Firewall do Windows!')
+        resolve({ success: true })
+      }
+    })
+  })
+})
+
 app.whenReady().then(() => {
   createWindow()
+  initNetworkTriggerAndLanDiscovery()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -353,6 +419,11 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  if (lanSocket) {
+    try {
+      lanSocket.close()
+    } catch (e) {}
+  }
   if (process.platform !== 'darwin') {
     app.quit()
   }

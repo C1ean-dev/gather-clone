@@ -30,7 +30,7 @@ export const ChatDrawer: React.FC = () => {
   } = useChatStore()
 
   const { localPlayer, remotePlayers } = useGameStore()
-  const { peerStreams } = useMediaStore()
+  const { peerStreams, isGridCallOpen } = useMediaStore()
 
   const [inputMessage, setInputMessage] = useState('')
   const [showEmojiMenu, setShowEmojiMenu] = useState<string | null>(null)
@@ -72,7 +72,11 @@ export const ChatDrawer: React.FC = () => {
   }
 
   return (
-    <div className="fixed top-14 left-0 bottom-0 w-[420px] bg-[#12151d]/98 backdrop-blur-xl border-r border-[#2a3142] z-40 flex flex-col shadow-2xl animate-in slide-in-from-left duration-200">
+    <div
+      className={`fixed left-0 bottom-0 w-[420px] max-w-[90vw] bg-[#12151d]/98 backdrop-blur-xl border-r border-[#2a3142] flex flex-col shadow-2xl animate-in slide-in-from-left duration-200 ${
+        isGridCallOpen ? 'top-0 z-[60]' : 'top-14 z-40'
+      }`}
+    >
       {/* Top Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a3142] bg-[#1b202c]/50">
         <div className="flex items-center gap-2">

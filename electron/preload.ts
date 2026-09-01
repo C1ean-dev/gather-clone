@@ -27,6 +27,8 @@ export interface IElectronAPI {
   loadNativeAssets: () => Promise<{ categories: string[]; assets: any[] } | null>
   saveNativeSpaces: (spaces: any[]) => Promise<boolean>
   loadNativeSpaces: () => Promise<any[] | null>
+  checkFirewallStatus: () => Promise<{ isAllowed: boolean }>
+  requestFirewallAccess: () => Promise<{ success: boolean; error?: string }>
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -46,4 +48,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadNativeAssets: () => ipcRenderer.invoke('load-native-assets'),
   saveNativeSpaces: (spaces: any[]) => ipcRenderer.invoke('save-native-spaces', spaces),
   loadNativeSpaces: () => ipcRenderer.invoke('load-native-spaces'),
+  checkFirewallStatus: () => ipcRenderer.invoke('check-firewall-status'),
+  requestFirewallAccess: () => ipcRenderer.invoke('request-firewall-access'),
 })

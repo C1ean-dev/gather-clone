@@ -1,6 +1,7 @@
 import React from 'react'
 import { Radio, RefreshCw, Plus, Search, X, Globe, Users, Check, Copy, ArrowRight } from 'lucide-react'
 import { PublicRoomInfo } from '../../types/game'
+import { useBrokerStatus } from '../../hooks/useBrokerStatus'
 
 interface Props {
   publicRooms: PublicRoomInfo[]
@@ -29,6 +30,8 @@ export const PublicRoomsTab: React.FC<Props> = ({
   loading,
   onOpenCreateMode,
 }) => {
+  const { status: brokerStatus, isResolving, feedback, resolveConnection } = useBrokerStatus()
+
   return (
     <div className="p-5 space-y-3.5 overflow-y-auto flex-1 flex flex-col">
       {/* Top Hub Bar: Status, Search, Refresh, Create */}
@@ -50,10 +53,38 @@ export const PublicRoomsTab: React.FC<Props> = ({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {brokerStatus === 'connected' ? (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs font-semibold"
+                title="Conectado ao broker de salas públicas em tempo real"
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Conectado</span>
+              </div>
+            ) : brokerStatus === 'connecting' || isResolving ? (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-500/10 border border-blue-500/25 text-blue-400 text-xs font-semibold"
+              >
+                <RefreshCw className="w-3 h-3 animate-spin text-blue-400" />
+                <span>Conectando...</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={resolveConnection}
+                disabled={isResolving}
+                className="flex items-center gap-2 px-3 py-1 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 text-xs font-bold transition-all cursor-pointer animate-pulse"
+                title="Broker desconectado. Clique para tentar resolver a conexão."
+              >
+                <span className="w-2 h-2 rounded-full bg-rose-500" />
+                <span>Não conectado — aperte aqui para tentar resolver</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleManualRefresh}
-              className="p-1.5 rounded-xl bg-[#12151d] hover:bg-slate-800 border border-[#2a3142] text-slate-300 hover:text-white transition-all"
+              className="p-1.5 rounded-xl bg-[#12151d] hover:bg-slate-800 border border-[#2a3142] text-slate-300 hover:text-white transition-all cursor-pointer"
               title="Atualizar lista de salas públicas"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
@@ -61,13 +92,39 @@ export const PublicRoomsTab: React.FC<Props> = ({
             <button
               type="button"
               onClick={onOpenCreateMode}
-              className="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all active:scale-95"
+              className="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all active:scale-95 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Abrir Sala</span>
             </button>
           </div>
         </div>
+
+        {/* Feedback message if any */}
+        {feedback && (
+          <div
+            className={`text-xs p-2.5 rounded-xl border flex items-center justify-between gap-2 animate-in fade-in ${
+              feedback.type === 'success'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${feedback.type === 'success' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+              <span>{feedback.text}</span>
+            </div>
+            {feedback.type === 'error' && (
+              <button
+                type="button"
+                onClick={resolveConnection}
+                disabled={isResolving}
+                className="text-[11px] font-bold underline hover:text-rose-200 cursor-pointer"
+              >
+                Tentar Novamente
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Search input */}
         <div className="relative">

@@ -67,8 +67,14 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
   useEffect(() => {
     if (activeTab === 'available_rooms') {
-      const rooms = PublicRoomsService.getInstance().getRooms()
-      setPublicRooms(rooms)
+      const hub = PublicRoomsService.getInstance()
+      setPublicRooms(hub.getRooms())
+      hub.refresh()
+
+      const interval = setInterval(() => {
+        hub.refresh()
+      }, 3000)
+      return () => clearInterval(interval)
     }
   }, [activeTab])
 
@@ -81,8 +87,9 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
   const handleManualRefresh = () => {
     setIsRefreshing(true)
-    const rooms = PublicRoomsService.getInstance().getRooms()
-    setPublicRooms(rooms)
+    const hub = PublicRoomsService.getInstance()
+    hub.refresh()
+    setPublicRooms(hub.getRooms())
     setTimeout(() => setIsRefreshing(false), 500)
   }
 
@@ -274,7 +281,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
         playerPayload,
         {
           roomName: targetSpace.name,
-          isPublic: false,
+          isPublic: true,
         }
       )
       onJoined()
