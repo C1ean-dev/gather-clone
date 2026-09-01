@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Check, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Check, Pencil, Plus, Trash2, Download } from 'lucide-react'
 import {
   AvatarConfig,
   AvatarComponentSlot,
@@ -18,6 +18,7 @@ import {
 import { CategoryKey } from './CategoryTabs'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 import { CustomAsset } from '../../types/customAsset'
+import { exportCategoryAtlas } from '../../engine/avatar/avatarAtlasExporter'
 
 interface Props {
   activeCategory: CategoryKey
@@ -221,6 +222,20 @@ export const OptionSelectorGrid: React.FC<Props> = ({
 
   return (
     <div className="flex-1 overflow-y-auto pr-1">
+      {/* Top action bar with Export Atlas Button */}
+      <div className="flex items-center justify-between mb-3 px-1">
+        <span className="text-xs font-bold text-slate-300">Opções & Presets</span>
+        <button
+          type="button"
+          onClick={() => exportCategoryAtlas(activeCategory, customAssets, avatar)}
+          title={`Exportar Folha PNG e Arquivo Sparrow XML para a categoria ${activeCategory}`}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#383a40] border border-[#383a40] text-slate-300 hover:text-white text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
+        >
+          <Download className="w-3.5 h-3.5 text-[#3b82f6]" />
+          <span>Exportar Atlas (.xml + .png)</span>
+        </button>
+      </div>
+
       {/* CATEGORY: TOM DA PELE */}
       {activeCategory === 'skin' && (
         <div className="grid grid-cols-3 gap-3">
