@@ -14,6 +14,8 @@ import {
   Check,
   RotateCcw,
   Sparkles,
+  Move,
+  Maximize2,
 } from 'lucide-react'
 import { AvatarRenderer } from '../../engine/AvatarRenderer'
 import { DEFAULT_AVATAR } from '../../engine/Constants'
@@ -78,7 +80,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     '#ffd1a4',
   ])
 
-  // View state
+  // View state & Panning
   const [zoom, setZoom] = useState<number>(14)
   const [showGrid, setShowGrid] = useState<boolean>(true)
   const [showGhost, setShowGhost] = useState<boolean>(true)
@@ -86,6 +88,17 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
   const [customName, setCustomName] = useState<string>(
     presetName ? `${presetName} (Custom)` : `Novo ${CATEGORY_LABELS[category]}`
   )
+
+  // Canvas Panning (Right Click Drag)
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [isPanning, setIsPanning] = useState<boolean>(false)
+  const panStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number }>({
+    mouseX: 0,
+    mouseY: 0,
+    startX: 0,
+    startY: 0,
+  })
+  const stageRef = useRef<HTMLDivElement | null>(null)
 
   // Drawing state
   const [isDrawing, setIsDrawing] = useState<boolean>(false)
@@ -128,7 +141,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
   }, [])
 
   // Render Ghost Guide Underlay (translucent neutral avatar body)
-  useEffect(() => {
+  const renderGhostGuide = useCallback(() => {
     const gCanvas = ghostCanvasRef.current
     if (!gCanvas) return
     const gCtx = gCanvas.getContext('2d')
@@ -157,6 +170,61 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
 
     AvatarRenderer.drawPlayer(gCtx, ghostPlayer, false, 0, 32, false)
   }, [avatar])
+
+  // Re-draw ghost guide whenever avatar or showGhost changes
+  useEffect(() => {
+    renderGhostGuide()
+  }, [renderGhostGuide, showGhost])
+
+  // Ctrl + Mouse Wheel Zoom
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.deltaY < 0) {
+          setZoom((z) => Math.min(32, z + 2))
+        } else if (e.deltaY > 0) {
+          setZoom((z) => Math.max(4, z - 2))
+        }
+      }
+    }
+
+    stage.addEventListener('wheel', handleWheel, { passive: false })
+    return () => {
+      stage.removeEventListener('wheel', handleWheel)
+    }
+  }, [])
+
+  // Global mouse tracking while panning with right click
+  useEffect(() => {
+    if (!isPanning) return
+
+    const onGlobalMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - panStartRef.current.mouseX
+      const dy = e.clientY - panStartRef.current.mouseY
+      setPanOffset({
+        x: panStartRef.current.startX + dx,
+        y: panStartRef.current.startY + dy,
+      })
+    }
+
+    const onGlobalMouseUp = (e: MouseEvent) => {
+      if (e.button === 2 || e.buttons === 0) {
+        setIsPanning(false)
+      }
+    }
+
+    window.addEventListener('mousemove', onGlobalMouseMove)
+    window.addEventListener('mouseup', onGlobalMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onGlobalMouseMove)
+      window.removeEventListener('mouseup', onGlobalMouseUp)
+    }
+  }, [isPanning])
 
   // Load initial artwork onto drawing canvas
   useEffect(() => {
@@ -307,24 +375,42 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
 
   // Mouse Handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const pt = getCanvasPixelCoords(e)
-    if (!pt) return
-
-    if (tool === 'picker') {
-      pickColor(pt.x, pt.y)
+    // Right Click (button === 2) -> Pan Viewport
+    if (e.button === 2) {
+      e.preventDefault()
+      setIsPanning(true)
+      panStartRef.current = {
+        mouseX: e.clientX,
+        mouseY: e.clientY,
+        startX: panOffset.x,
+        startY: panOffset.y,
+      }
       return
     }
 
-    if (tool === 'bucket') {
-      floodFill(pt.x, pt.y, color)
-      return
-    }
+    // Left Click (button === 0) -> Paint
+    if (e.button === 0) {
+      const pt = getCanvasPixelCoords(e)
+      if (!pt) return
 
-    setIsDrawing(true)
-    applyPixel(pt.x, pt.y, tool, color)
+      if (tool === 'picker') {
+        pickColor(pt.x, pt.y)
+        return
+      }
+
+      if (tool === 'bucket') {
+        floodFill(pt.x, pt.y, color)
+        return
+      }
+
+      setIsDrawing(true)
+      applyPixel(pt.x, pt.y, tool, color)
+    }
   }
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isPanning) return
+
     const pt = getCanvasPixelCoords(e)
     setHoverPixel(pt)
 
@@ -333,6 +419,9 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
   }
 
   const handleMouseUp = () => {
+    if (isPanning) {
+      setIsPanning(false)
+    }
     if (isDrawing) {
       setIsDrawing(false)
       pushHistoryState()
@@ -536,25 +625,58 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
           </div>
 
           {/* Center Canvas Stage */}
-          <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-hidden relative select-none">
+          <div
+            ref={stageRef}
+            onContextMenu={(e) => e.preventDefault()}
+            onMouseDown={(e) => {
+              if (e.button === 2) {
+                e.preventDefault()
+                setIsPanning(true)
+                panStartRef.current = {
+                  mouseX: e.clientX,
+                  mouseY: e.clientY,
+                  startX: panOffset.x,
+                  startY: panOffset.y,
+                }
+              }
+            }}
+            className={`flex-1 flex flex-col items-center justify-center p-4 overflow-hidden relative select-none ${
+              isPanning ? 'cursor-grabbing' : ''
+            }`}
+          >
             {/* Stage Controls Float Bar */}
             <div className="absolute top-4 left-6 z-10 flex items-center gap-2 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-lg">
               <button
-                onClick={() => setZoom((z) => Math.max(8, z - 2))}
-                className="p-1.5 rounded-lg hover:bg-[#2b2d31] text-slate-400 hover:text-white"
-                title="Diminuir Zoom"
+                onClick={() => setZoom((z) => Math.max(4, z - 2))}
+                className="p-1.5 rounded-lg hover:bg-[#2b2d31] text-slate-400 hover:text-white transition-colors"
+                title="Diminuir Zoom (Ctrl + Scroll para baixo)"
               >
                 <ZoomOut className="w-4 h-4" />
               </button>
               <span className="text-xs font-mono font-bold text-slate-300 min-w-[36px] text-center">{zoom}x</span>
               <button
-                onClick={() => setZoom((z) => Math.min(24, z + 2))}
-                className="p-1.5 rounded-lg hover:bg-[#2b2d31] text-slate-400 hover:text-white"
-                title="Aumentar Zoom"
+                onClick={() => setZoom((z) => Math.min(32, z + 2))}
+                className="p-1.5 rounded-lg hover:bg-[#2b2d31] text-slate-400 hover:text-white transition-colors"
+                title="Aumentar Zoom (Ctrl + Scroll para cima)"
               >
                 <ZoomIn className="w-4 h-4" />
               </button>
+
               <div className="w-px h-4 bg-[#383a40] mx-1" />
+
+              {(panOffset.x !== 0 || panOffset.y !== 0 || zoom !== 14) && (
+                <button
+                  onClick={() => {
+                    setPanOffset({ x: 0, y: 0 })
+                    setZoom(14)
+                  }}
+                  className="px-2 py-1 rounded-lg bg-[#2b2d31] hover:bg-[#383a40] text-slate-300 text-[11px] font-semibold transition-all"
+                  title="Centralizar e redefinir zoom original"
+                >
+                  Centralizar
+                </button>
+              )}
+
               <button
                 onClick={() => setShowGrid(!showGrid)}
                 className={`p-1.5 rounded-lg transition-all ${
@@ -581,6 +703,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
               style={{
                 width: 32 * pixelScale,
                 height: 32 * pixelScale,
+                transform: `translate(${panOffset.x}px, ${panOffset.y}px)`,
                 backgroundImage: `
                   linear-gradient(45deg, #18191c 25%, transparent 25%),
                   linear-gradient(-45deg, #18191c 25%, transparent 25%),
@@ -591,32 +714,33 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                 backgroundColor: '#232428',
               }}
             >
-              {/* Ghost Guide Canvas (Underlay) */}
-              {showGhost && (
-                <canvas
-                  ref={ghostCanvasRef}
-                  width={32}
-                  height={32}
-                  className="absolute inset-0 pointer-events-none"
-                  style={{
-                    width: 32 * pixelScale,
-                    height: 32 * pixelScale,
-                    imageRendering: 'pixelated',
-                    opacity: ghostOpacity,
-                  }}
-                />
-              )}
+              {/* Ghost Guide Canvas (Underlay) - Always in DOM so pixels remain cached */}
+              <canvas
+                ref={ghostCanvasRef}
+                width={32}
+                height={32}
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  width: 32 * pixelScale,
+                  height: 32 * pixelScale,
+                  imageRendering: 'pixelated',
+                  opacity: showGhost ? ghostOpacity : 0,
+                  visibility: showGhost ? 'visible' : 'hidden',
+                  transition: 'opacity 0.15s ease',
+                }}
+              />
 
               {/* Interactive Drawing Canvas */}
               <canvas
                 ref={drawCanvasRef}
                 width={32}
                 height={32}
+                onContextMenu={(e) => e.preventDefault()}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
-                className="absolute inset-0 cursor-crosshair"
+                className={`absolute inset-0 ${isPanning ? 'cursor-grabbing' : 'cursor-crosshair'}`}
                 style={{
                   width: 32 * pixelScale,
                   height: 32 * pixelScale,
@@ -639,7 +763,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
               )}
 
               {/* Pixel Hover Cursor */}
-              {hoverPixel && (
+              {hoverPixel && !isPanning && (
                 <div
                   className="absolute pointer-events-none border border-white/80 shadow-xs"
                   style={{
@@ -653,14 +777,14 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
               )}
             </div>
 
-            {/* Bottom Status Bar */}
-            <div className="absolute bottom-4 z-10 flex items-center gap-4 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-4 py-2 rounded-2xl text-xs text-slate-400">
+            {/* Bottom Status Bar with Controls Tip */}
+            <div className="absolute bottom-4 z-10 flex items-center gap-4 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-4 py-2 rounded-2xl text-xs text-slate-400 shadow-lg">
               <span>
                 Pixel: <strong className="text-white">{hoverPixel ? `${hoverPixel.x}, ${hoverPixel.y}` : '-'}</strong>
               </span>
               <div className="w-px h-3 bg-[#383a40]" />
               <div className="flex items-center gap-2">
-                <span>Opacidade Guia Fantasma:</span>
+                <span>Opacidade Guia:</span>
                 <input
                   type="range"
                   min={0.1}
@@ -668,9 +792,17 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                   step={0.05}
                   value={ghostOpacity}
                   onChange={(e) => setGhostOpacity(parseFloat(e.target.value))}
-                  className="w-20 accent-[#3b82f6] cursor-pointer"
+                  className="w-16 accent-[#3b82f6] cursor-pointer"
                 />
                 <span className="font-mono text-slate-300">{Math.round(ghostOpacity * 100)}%</span>
+              </div>
+              <div className="w-px h-3 bg-[#383a40]" />
+              <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                <span>🖱️ <strong className="text-slate-300">Esq:</strong> Pintar</span>
+                <span>•</span>
+                <span>🖱️ <strong className="text-slate-300">Dir:</strong> Mover Tela</span>
+                <span>•</span>
+                <span>🔍 <strong className="text-slate-300">Ctrl+Scroll:</strong> Zoom</span>
               </div>
             </div>
           </div>
