@@ -2,7 +2,80 @@ import { Direction } from '../../types/game'
 
 export class FaceRenderer {
   /**
-   * Draw Head, Eyes, Expressions & Skin Details (Vitiligo / Freckles / Blush)
+   * Draw Base Head Shape and Chin Shadow
+   */
+  static drawHeadBase(
+    ctx: CanvasRenderingContext2D,
+    centerX: number,
+    baseY: number,
+    _dir: Direction,
+    skinTone: string
+  ) {
+    ctx.fillStyle = skinTone
+    ctx.beginPath()
+    ctx.roundRect(centerX - 8, baseY - 29, 16, 14, 3.5)
+    ctx.fill()
+
+    // Chin shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.12)'
+    ctx.fillRect(centerX - 6.5, baseY - 16, 13, 1.5)
+  }
+
+  /**
+   * Draw Skin Details / Makeup ONLY (Blush, Freckles, Vitiligo) without head or eyes
+   */
+  static drawSkinDetails(
+    ctx: CanvasRenderingContext2D,
+    centerX: number,
+    baseY: number,
+    dir: Direction,
+    skinDetail: string
+  ) {
+    if (dir !== 'down') return
+
+    if (skinDetail === 'vitiligo1' || skinDetail === 'vitiligo2') {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)'
+      ctx.fillRect(centerX - 6.5, baseY - 23, 4, 3)
+      ctx.fillRect(centerX - 5.5, baseY - 20, 3, 2.5)
+      ctx.fillRect(centerX - 1, baseY - 26, 4, 3)
+      if (skinDetail === 'vitiligo2') {
+        ctx.fillRect(centerX + 3, baseY - 22, 3, 4)
+      }
+    } else if (skinDetail === 'freckles') {
+      ctx.fillStyle = 'rgba(120, 50, 20, 0.5)'
+      ctx.fillRect(centerX - 5, baseY - 21, 1, 1)
+      ctx.fillRect(centerX - 3, baseY - 20, 1, 1)
+      ctx.fillRect(centerX - 1, baseY - 21, 1, 1)
+      ctx.fillRect(centerX + 1, baseY - 20, 1, 1)
+      ctx.fillRect(centerX + 3, baseY - 21, 1, 1)
+    } else if (skinDetail === 'blush') {
+      ctx.fillStyle = 'rgba(255, 120, 120, 0.55)'
+      ctx.fillRect(centerX - 6.5, baseY - 20, 2.5, 1.5)
+      ctx.fillRect(centerX + 4, baseY - 20, 2.5, 1.5)
+    }
+  }
+
+  /**
+   * Draw Cute Smile / Mouth
+   */
+  static drawMouth(
+    ctx: CanvasRenderingContext2D,
+    centerX: number,
+    baseY: number,
+    dir: Direction
+  ) {
+    ctx.fillStyle = '#8d4925'
+    if (dir === 'down') {
+      ctx.fillRect(centerX - 1.5, baseY - 18, 3, 1.2)
+    } else if (dir === 'left') {
+      ctx.fillRect(centerX - 6.5, baseY - 18, 2, 1.2)
+    } else if (dir === 'right') {
+      ctx.fillRect(centerX + 4.5, baseY - 18, 2, 1.2)
+    }
+  }
+
+  /**
+   * Draw Head, Eyes, Expressions & Skin Details
    */
   static drawHeadAndFace(
     ctx: CanvasRenderingContext2D,
@@ -14,59 +87,10 @@ export class FaceRenderer {
     eyeType: string = 'normal',
     eyeColor: string = '#111111'
   ) {
-    // 1. Base Head Shape
-    ctx.fillStyle = skinTone
-    ctx.beginPath()
-    ctx.roundRect(centerX - 8, baseY - 29, 16, 14, 3.5)
-    ctx.fill()
-
-    // Chin shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.12)'
-    ctx.fillRect(centerX - 6.5, baseY - 16, 13, 1.5)
-
-    if (dir === 'down') {
-      // 2. Skin Details - ONLY draw when explicitly chosen (Smooth = 100% clean and neutral)
-      if (skinDetail === 'vitiligo1' || skinDetail === 'vitiligo2') {
-        // Distinctive Vitiligo Patches across face
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.45)'
-        // Under left eye & cheek
-        ctx.fillRect(centerX - 6.5, baseY - 23, 4, 3)
-        ctx.fillRect(centerX - 5.5, baseY - 20, 3, 2.5)
-        // Across forehead / nose
-        ctx.fillRect(centerX - 1, baseY - 26, 4, 3)
-        if (skinDetail === 'vitiligo2') {
-          ctx.fillRect(centerX + 3, baseY - 22, 3, 4)
-        }
-      } else if (skinDetail === 'freckles') {
-        ctx.fillStyle = 'rgba(120, 50, 20, 0.5)'
-        ctx.fillRect(centerX - 5, baseY - 21, 1, 1)
-        ctx.fillRect(centerX - 3, baseY - 20, 1, 1)
-        ctx.fillRect(centerX - 1, baseY - 21, 1, 1)
-        ctx.fillRect(centerX + 1, baseY - 20, 1, 1)
-        ctx.fillRect(centerX + 3, baseY - 21, 1, 1)
-      } else if (skinDetail === 'blush') {
-        // Soft Pink Cheek Blush (ONLY when blush is selected)
-        ctx.fillStyle = 'rgba(255, 120, 120, 0.4)'
-        ctx.fillRect(centerX - 6.5, baseY - 20, 2.5, 1.5)
-        ctx.fillRect(centerX + 4, baseY - 20, 2.5, 1.5)
-      }
-
-      // 3. Eyes rendering
-      this.drawEyes(ctx, centerX, baseY, dir, eyeType, eyeColor)
-
-      // Cute Smile / Mouth
-      ctx.fillStyle = '#8d4925'
-      ctx.fillRect(centerX - 1.5, baseY - 18, 3, 1.2)
-    } else if (dir === 'left' || dir === 'right') {
-      this.drawEyes(ctx, centerX, baseY, dir, eyeType, eyeColor)
-
-      ctx.fillStyle = '#8d4925'
-      if (dir === 'left') {
-        ctx.fillRect(centerX - 6.5, baseY - 18, 2, 1.2)
-      } else {
-        ctx.fillRect(centerX + 4.5, baseY - 18, 2, 1.2)
-      }
-    }
+    this.drawHeadBase(ctx, centerX, baseY, dir, skinTone)
+    this.drawSkinDetails(ctx, centerX, baseY, dir, skinDetail)
+    this.drawEyes(ctx, centerX, baseY, dir, eyeType, eyeColor)
+    this.drawMouth(ctx, centerX, baseY, dir)
   }
 
   /**

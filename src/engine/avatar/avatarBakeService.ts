@@ -214,15 +214,12 @@ export function bakeAvatarPreset(
       break
 
     case 'skin':
-      FaceRenderer.drawHeadAndFace(
+      FaceRenderer.drawSkinDetails(
         ctx,
         centerX,
         baseY,
         direction,
-        avatarConfig?.skinTone || '#ffd1a4',
-        presetId as SkinDetailType,
-        'none',
-        '#111'
+        presetId as SkinDetailType
       )
       break
   }

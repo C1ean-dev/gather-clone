@@ -36,7 +36,9 @@ interface Props {
 const AutoCroppedThumbnail: React.FC<{
   src: string
   alt: string
-}> = ({ src, alt }) => {
+  isSkinCategory?: boolean
+  skinTone?: string
+}> = ({ src, alt, isSkinCategory, skinTone }) => {
   const [displayUrl, setDisplayUrl] = useState<string>(src)
 
   useEffect(() => {
@@ -52,7 +54,10 @@ const AutoCroppedThumbnail: React.FC<{
   }, [src])
 
   return (
-    <div className="w-12 h-12 rounded-xl mb-1.5 flex items-center justify-center relative shadow-sm overflow-hidden bg-[#18191c] border border-slate-700/50">
+    <div
+      className="w-12 h-12 rounded-xl mb-1.5 flex items-center justify-center relative shadow-sm overflow-hidden border border-slate-700/50"
+      style={{ backgroundColor: isSkinCategory && skinTone ? skinTone : '#18191c' }}
+    >
       <img
         src={displayUrl}
         alt={alt}
@@ -236,6 +241,8 @@ export const OptionSelectorGrid: React.FC<Props> = ({
           <AutoCroppedThumbnail
             src={asset.thumbnail || asset.frames[0]}
             alt={asset.name}
+            isSkinCategory={activeCategory === 'skin'}
+            skinTone={avatar.skinTone}
           />
 
           <span className="text-[11px] font-bold text-[#60a5fa] truncate max-w-[80px]" title={asset.name}>

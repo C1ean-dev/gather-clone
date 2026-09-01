@@ -281,22 +281,25 @@ export class AvatarRenderer {
     // ==========================================
     // 8. HEAD, SKIN DETAILS, EYES & FACE
     // ==========================================
+    // 8.1 Base Head Shape
+    FaceRenderer.drawHeadBase(ctx, centerX, baseY, dir, skinTone)
+
+    // 8.2 Skin Details & Makeup (Blush, Freckles, Vitiligo)
     const renderedSkin = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'skin', skinDetail, walkFrame)
+    if (!renderedSkin && !avatar.customComponents?.skin) {
+      FaceRenderer.drawSkinDetails(ctx, centerX, baseY, dir, skinDetail)
+    }
+    drawCustomComponent(avatar.customComponents?.skin)
+
+    // 8.3 Eyes (Rendered on top of makeup so eyes are always visible)
     const renderedEyes = this.drawAtlasPart(ctx, px, py, bodyBob, size, dir, 'eyes', eyeType, walkFrame)
-    if (!renderedSkin || !renderedEyes) {
-      FaceRenderer.drawHeadAndFace(
-        ctx,
-        centerX,
-        baseY,
-        dir,
-        skinTone,
-        renderedSkin ? 'smooth' : skinDetail,
-        renderedEyes ? 'normal' : eyeType,
-        eyeColor
-      )
+    if (!renderedEyes && !avatar.customComponents?.eyes) {
+      FaceRenderer.drawEyes(ctx, centerX, baseY, dir, eyeType, eyeColor)
     }
     drawCustomComponent(avatar.customComponents?.eyes)
-    drawCustomComponent(avatar.customComponents?.skin)
+
+    // 8.4 Mouth
+    FaceRenderer.drawMouth(ctx, centerX, baseY, dir)
 
     // ==========================================
     // 8. FACIAL HAIR (Beard, Mustache, Goatee, Stubble)
