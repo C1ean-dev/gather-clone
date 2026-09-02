@@ -88,31 +88,21 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
   const prevVolumeRef = useRef(prevVolume)
   prevVolumeRef.current = prevVolume
 
-  // Safe Fullscreen Request: Executed strictly ONCE on mount, and cleaned up on unmount
+  // Native Electron Window Fullscreen / Theater Mode
   useEffect(() => {
-    const el = theaterContainerRef.current
-    if (el && !document.fullscreenElement) {
-      el.requestFullscreen().catch(() => {
-        // Fallback silently: CSS fixed inset-0 already covers the entire screen perfectly
-      })
+    if (window.electronAPI && typeof window.electronAPI.setFullScreen === 'function') {
+      window.electronAPI.setFullScreen(true).catch(() => {})
     }
-
-    const handleFullscreenChange = () => {
-      // If user pressed ESC or exited fullscreen through browser/OS gesture, close overlay
-      if (!document.fullscreenElement) {
-        onClose()
-      }
-    }
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
 
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      if (window.electronAPI && typeof window.electronAPI.setFullScreen === 'function') {
+        window.electronAPI.setFullScreen(false).catch(() => {})
+      }
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {})
       }
     }
-  }, [onClose])
+  }, [])
 
   // Keyboard shortcut handlers (ESC, Mute, Volume Up/Down)
   useEffect(() => {
@@ -152,6 +142,14 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
     }, 3500)
   }
 
+  const mountedAtRef = useRef(Date.now())
+  const handleDoubleClickVideo = () => {
+    // Only close if at least 500ms have passed since mount, preventing double-click bounce
+    if (Date.now() - mountedAtRef.current > 500) {
+      onClose()
+    }
+  }
+
   return (
     <div
       ref={theaterContainerRef}
@@ -166,7 +164,7 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
         onLoadedMetadata={() => theaterVideoRef.current?.play().catch(() => {})}
         onCanPlay={() => theaterVideoRef.current?.play().catch(() => {})}
         className="w-full h-full object-contain bg-black"
-        onDoubleClick={onClose}
+        onDoubleClick={handleDoubleClickVideo}
       />
 
       {/* Floating Top Control Bar */}

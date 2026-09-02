@@ -124,6 +124,19 @@ ipcMain.handle('get-sources', async () => {
   }
 })
 
+// Native Electron Window Fullscreen Handlers
+ipcMain.handle('set-fullscreen', (_event, flag: boolean) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setFullScreen(flag)
+    return mainWindow.isFullScreen()
+  }
+  return false
+})
+
+ipcMain.handle('is-fullscreen', () => {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow.isFullScreen() : false
+})
+
 // 2. IPC handler for checking GitHub Releases
 ipcMain.handle('check-update', async () => {
   const currentVersion = app.getVersion() || '1.0.0'

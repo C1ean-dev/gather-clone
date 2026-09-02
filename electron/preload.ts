@@ -29,6 +29,8 @@ export interface IElectronAPI {
   loadNativeSpaces: () => Promise<any[] | null>
   checkFirewallStatus: () => Promise<{ isAllowed: boolean }>
   requestFirewallAccess: () => Promise<{ success: boolean; error?: string }>
+  setFullScreen: (flag: boolean) => Promise<boolean>
+  isFullScreen: () => Promise<boolean>
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -50,4 +52,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadNativeSpaces: () => ipcRenderer.invoke('load-native-spaces'),
   checkFirewallStatus: () => ipcRenderer.invoke('check-firewall-status'),
   requestFirewallAccess: () => ipcRenderer.invoke('request-firewall-access'),
+  setFullScreen: (flag: boolean) => ipcRenderer.invoke('set-fullscreen', flag),
+  isFullScreen: () => ipcRenderer.invoke('is-fullscreen'),
 })

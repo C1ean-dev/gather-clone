@@ -23,6 +23,8 @@ declare global {
       onUpdateProgress: (callback: (progress: UpdateProgress) => void) => () => void
       openExternal: (url: string) => Promise<void>
       getSources: () => Promise<any[]>
+      setFullScreen?: (flag: boolean) => Promise<boolean>
+      isFullScreen?: () => Promise<boolean>
     }
   }
 }
