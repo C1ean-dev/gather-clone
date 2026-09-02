@@ -87,8 +87,19 @@ interface MediaStore {
   participantVolumes: Record<string, number> // peerId or streamId -> 0 to 100
   setParticipantVolume: (id: string, volume: number) => void
   getEffectiveParticipantVolume: (id: string) => number
-  liveBufferDelay: number // in ms, default 300 (range: 50 to 1500)
+  liveBufferMode: 'dynamic' | 'manual'
+  liveBufferDelay: number // in ms, default 3000 (range: 200 to 5000, max 5s)
+  dynamicBufferMetrics: {
+    calculatedMs: number
+    jitterMs: number
+    frameDropRate: number
+    statusText: string
+  }
+  setLiveBufferMode: (mode: 'dynamic' | 'manual') => void
   setLiveBufferDelay: (ms: number) => void
+  setDynamicBufferMetrics: (
+    metrics: Partial<{ calculatedMs: number; jitterMs: number; frameDropRate: number; statusText: string }>
+  ) => void
   setPeerStream: (peerId: string, stream: MediaStream) => void
   removePeerStream: (peerId: string) => void
   setPeerScreenStream: (peerId: string, stream: MediaStream) => void
@@ -294,16 +305,33 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
     return Math.max(0, Math.min(1, master * (pVol / 100)))
   },
 
-  liveBufferDelay: typeof saved.liveBufferDelay === 'number' ? saved.liveBufferDelay : 300,
+  liveBufferMode: (saved.liveBufferMode as any) || 'dynamic',
+  liveBufferDelay: typeof saved.liveBufferDelay === 'number' ? saved.liveBufferDelay : 3000,
+  dynamicBufferMetrics: {
+    calculatedMs: typeof saved.liveBufferDelay === 'number' ? saved.liveBufferDelay : 3000,
+    jitterMs: 0,
+    frameDropRate: 0,
+    statusText: 'Buffer Dinâmico Ativo',
+  },
+
+  setLiveBufferMode: (mode) => {
+    saveAudioSettings({ liveBufferMode: mode })
+    set({ liveBufferMode: mode })
+  },
 
   setLiveBufferDelay: (ms) => {
-    const clamped = Math.max(50, Math.min(1500, Math.round(ms)))
+    const clamped = Math.max(200, Math.min(5000, Math.round(ms)))
     saveAudioSettings({ liveBufferDelay: clamped })
     set({ liveBufferDelay: clamped })
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('gather:live-buffer-changed', { detail: clamped }))
     }
   },
+
+  setDynamicBufferMetrics: (metrics) =>
+    set((state) => ({
+      dynamicBufferMetrics: { ...state.dynamicBufferMetrics, ...metrics },
+    })),
 
   setPeerStream: (peerId, stream) =>
     set((state) => ({

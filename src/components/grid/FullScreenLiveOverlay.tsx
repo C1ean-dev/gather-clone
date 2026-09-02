@@ -22,6 +22,9 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
     selectedAudioOutput,
     liveBufferDelay,
     setLiveBufferDelay,
+    liveBufferMode,
+    setLiveBufferMode,
+    dynamicBufferMetrics,
   } = useMediaStore()
   const rawVolume = participantVolumes[user.id] !== undefined ? participantVolumes[user.id] : 100
   const [prevVolume, setPrevVolume] = useState<number>(rawVolume > 0 ? rawVolume : 100)
@@ -143,6 +146,7 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
         onDoubleClick={onClose}
       />
 
+      {/* Floating Top Control Bar */}
       <div
         className={`absolute top-6 left-6 right-6 flex items-center justify-between transition-opacity duration-300 z-50 ${
           controlsVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -159,12 +163,12 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
           </div>
         </div>
 
-        {/* Right Actions: Buffer Control + Volume Control + Exit Fullscreen */}
+        {/* Right Actions: Dynamic Buffer + Volume + Exit */}
         <div className="flex items-center gap-3">
-          {/* Live Anti-Stutter Jitter Buffer Selector */}
+          {/* Live Dynamic Anti-Stutter Buffer Selector (Max 5s, 1080p60 Target) */}
           {!user.isLocal && (
             <div
-              className="flex items-center gap-2 bg-black/80 backdrop-blur-xl px-3.5 py-2 rounded-2xl border border-white/15 shadow-2xl"
+              className="flex items-center gap-2.5 bg-black/80 backdrop-blur-xl px-3.5 py-2 rounded-2xl border border-white/15 shadow-2xl"
               onMouseEnter={() => {
                 isInteractingWithVolumeRef.current = true
               }}
@@ -175,25 +179,45 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
               <div className="flex items-center gap-1.5 text-xs text-slate-200">
                 <Gauge className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span className="hidden sm:inline font-semibold">Buffer:</span>
-                <span className="font-mono text-emerald-400 font-bold">{liveBufferDelay}ms</span>
+                <span className="font-mono text-emerald-400 font-bold">
+                  {(liveBufferDelay / 1000).toFixed(1)}s
+                </span>
               </div>
 
-              {/* Quick Buffer Presets */}
+              {/* Quick Buffer Presets (Auto Dinâmico, 1s, 3s 1080p60, 5s Max) */}
               <div className="flex items-center gap-1 bg-white/5 p-0.5 rounded-xl border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLiveBufferMode('dynamic')
+                    setLiveBufferDelay(3000)
+                  }}
+                  title="Modo Dinâmico Automático (Ajusta sozinho até 5s para manter 1080p 60fps liso)"
+                  className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                    liveBufferMode === 'dynamic'
+                      ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
+                      : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  Auto Dinâmico
+                </button>
+
                 {[
-                  { ms: 100, label: '100ms', desc: 'Tempo Real' },
-                  { ms: 300, label: '300ms', desc: 'Fluido (Padrão)' },
-                  { ms: 600, label: '600ms', desc: 'Anti-travamento' },
-                  { ms: 1000, label: '1.0s', desc: 'Buffer Alto' },
+                  { ms: 1000, label: '1.0s', desc: '1.0s (Leve)' },
+                  { ms: 3000, label: '3.0s', desc: '3.0s (1080p 60fps)' },
+                  { ms: 5000, label: '5.0s', desc: '5.0s (Buffer Máximo)' },
                 ].map((preset) => (
                   <button
                     key={preset.ms}
                     type="button"
-                    onClick={() => setLiveBufferDelay(preset.ms)}
-                    title={`Buffer ${preset.label} (${preset.desc})`}
+                    onClick={() => {
+                      setLiveBufferMode('manual')
+                      setLiveBufferDelay(preset.ms)
+                    }}
+                    title={`Buffer Manual: ${preset.desc}`}
                     className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
-                      liveBufferDelay === preset.ms
-                        ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30'
+                      liveBufferMode === 'manual' && liveBufferDelay === preset.ms
+                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/30'
                         : 'text-slate-400 hover:text-white hover:bg-white/10'
                     }`}
                   >
@@ -261,6 +285,7 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
         </div>
       </div>
 
+      {/* Floating Bottom Info Pill */}
       <div
         className={`absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-black/80 backdrop-blur-xl px-6 py-3 rounded-3xl border border-white/15 shadow-2xl transition-opacity duration-300 z-50 ${
           controlsVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -273,9 +298,10 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
               <span className="text-slate-500">•</span>
               <span>Volume: <kbd className="bg-slate-800 px-1.5 py-0.5 rounded text-white border border-slate-700 text-[10px]">↑</kbd> <kbd className="bg-slate-800 px-1.5 py-0.5 rounded text-white border border-slate-700 text-[10px]">↓</kbd></span>
               <span className="text-slate-500">•</span>
-              <span className="text-emerald-400 font-semibold flex items-center gap-1">
+              <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
                 <Gauge className="w-3.5 h-3.5" />
-                Buffer Anti-Lag: {liveBufferDelay}ms
+                <span>Buffer: {(liveBufferDelay / 1000).toFixed(1)}s</span>
+                <span className="text-[11px] text-slate-400">({dynamicBufferMetrics.statusText})</span>
               </span>
             </>
           )}

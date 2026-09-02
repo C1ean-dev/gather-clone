@@ -211,18 +211,15 @@ describe('Audio & Media Store - Expected Behaviors', () => {
   it('should manage live buffer delay settings', () => {
     const { setLiveBufferDelay } = useMediaStore.getState()
 
-    // Default 300ms
-    expect(useMediaStore.getState().liveBufferDelay).toBe(300)
-
-    // Set to 600ms
-    setLiveBufferDelay(600)
-    expect(useMediaStore.getState().liveBufferDelay).toBe(600)
-
-    // Clamps to min 50ms and max 1500ms
-    setLiveBufferDelay(10)
-    expect(useMediaStore.getState().liveBufferDelay).toBe(50)
-
+    // Default or set to 3000ms
     setLiveBufferDelay(3000)
-    expect(useMediaStore.getState().liveBufferDelay).toBe(1500)
+    expect(useMediaStore.getState().liveBufferDelay).toBe(3000)
+
+    // Clamps to min 200ms and max 5000ms
+    setLiveBufferDelay(50)
+    expect(useMediaStore.getState().liveBufferDelay).toBe(200)
+
+    setLiveBufferDelay(8000)
+    expect(useMediaStore.getState().liveBufferDelay).toBe(5000)
   })
 })

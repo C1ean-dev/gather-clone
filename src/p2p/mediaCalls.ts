@@ -39,10 +39,10 @@ export class MediaCallHandler {
 
         const call = peer.call(remotePlayer.id, streamToSend)
         if (call) {
-          // Configure receiver jitter buffer to eliminate stutter / frame dropping
+          // Configure receiver jitter buffer to eliminate stutter / frame dropping (up to 5.0s max)
           const applyBuffer = () => {
-            const delayMs = useMediaStore.getState().liveBufferDelay || 300
-            const delaySec = Math.max(0.05, Math.min(1.5, delayMs / 1000))
+            const delayMs = useMediaStore.getState().liveBufferDelay || 3000
+            const delaySec = Math.max(0.1, Math.min(5.0, delayMs / 1000))
             try {
               const pc = (call as any).peerConnection as RTCPeerConnection
               if (pc && pc.getReceivers) {
@@ -91,11 +91,11 @@ export class MediaCallHandler {
   }
 
   /**
-   * Apply Jitter Buffer (playoutDelayHint & jitterBufferTarget) to all active peer connections
+   * Apply Jitter Buffer (playoutDelayHint & jitterBufferTarget) to all active peer connections (max 5.0s)
    * Smooths packet timing variance and prevents frozen / choppy live video
    */
-  static applyJitterBuffer(mediaCalls: Map<string, MediaConnection>, bufferDelayMs: number = 300) {
-    const delaySec = Math.max(0.05, Math.min(1.5, bufferDelayMs / 1000))
+  static applyJitterBuffer(mediaCalls: Map<string, MediaConnection>, bufferDelayMs: number = 3000) {
+    const delaySec = Math.max(0.1, Math.min(5.0, bufferDelayMs / 1000))
     mediaCalls.forEach((call) => {
       try {
         const pc = (call as any).peerConnection as RTCPeerConnection

@@ -37,6 +37,10 @@ export class PeerManager {
     return PeerManager.instance
   }
 
+  public getMediaCalls(): Map<string, MediaConnection> {
+    return this.mediaCalls
+  }
+
   /**
    * Host a new Room
    */
@@ -227,10 +231,10 @@ export class PeerManager {
 
       call.answer(streamToAnswer)
 
-      // Configure receiver jitter buffer to eliminate stutter / frame dropping
+      // Configure receiver jitter buffer to eliminate stutter / frame dropping (up to 5.0s max)
       const applyBuffer = () => {
-        const delayMs = useMediaStore.getState().liveBufferDelay || 300
-        const delaySec = Math.max(0.05, Math.min(1.5, delayMs / 1000))
+        const delayMs = useMediaStore.getState().liveBufferDelay || 3000
+        const delaySec = Math.max(0.1, Math.min(5.0, delayMs / 1000))
         try {
           const pc = (call as any).peerConnection as RTCPeerConnection
           if (pc && pc.getReceivers) {
