@@ -35,8 +35,23 @@ export const GridParticipantTile: React.FC<Props> = ({
   const isLive = Boolean(user.screenStream || user.isScreenSharing)
   const activeStream = user.screenStream || user.stream
 
-  const { participantVolumes, setParticipantVolume, outputVolume, selectedAudioOutput } = useMediaStore()
-  const rawVolume = participantVolumes[user.id] !== undefined ? participantVolumes[user.id] : 100
+  const {
+    participantVolumes,
+    setParticipantVolume,
+    liveStreamVolume,
+    setLiveStreamVolume,
+    outputVolume,
+    selectedAudioOutput,
+  } = useMediaStore()
+
+  const rawVolume =
+    participantVolumes[user.id] !== undefined
+      ? participantVolumes[user.id]
+      : user.name && participantVolumes[user.name] !== undefined
+      ? participantVolumes[user.name]
+      : isLive && liveStreamVolume !== undefined
+      ? liveStreamVolume
+      : 100
 
   // Apply viewer's volume preference & audio output sink
   useEffect(() => {
@@ -244,11 +259,10 @@ export const GridParticipantTile: React.FC<Props> = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (rawVolume === 0) {
-                    setParticipantVolume(user.id, 100)
-                  } else {
-                    setParticipantVolume(user.id, 0)
-                  }
+                  const nextVol = rawVolume === 0 ? 100 : 0
+                  setParticipantVolume(user.id, nextVol)
+                  if (user.name) setParticipantVolume(user.name, nextVol)
+                  if (isLive) setLiveStreamVolume(nextVol)
                 }}
                 className="p-0.5 rounded text-slate-300 hover:text-white transition-colors"
                 title={rawVolume === 0 ? 'Desmutar este participante' : 'Mutar este participante'}
@@ -269,7 +283,12 @@ export const GridParticipantTile: React.FC<Props> = ({
                   min="0"
                   max="100"
                   value={rawVolume}
-                  onChange={(e) => setParticipantVolume(user.id, Number(e.target.value))}
+                  onChange={(e) => {
+                    const val = Number(e.target.value)
+                    setParticipantVolume(user.id, val)
+                    if (user.name) setParticipantVolume(user.name, val)
+                    if (isLive) setLiveStreamVolume(val)
+                  }}
                   className="w-16 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400"
                   title={`Volume: ${rawVolume}%`}
                 />

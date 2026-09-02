@@ -18,10 +18,21 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
   const {
     participantVolumes,
     setParticipantVolume,
+    liveStreamVolume,
+    setLiveStreamVolume,
     outputVolume,
     selectedAudioOutput,
   } = useMediaStore()
-  const rawVolume = participantVolumes[user.id] !== undefined ? participantVolumes[user.id] : 100
+
+  const rawVolume =
+    participantVolumes[user.id] !== undefined
+      ? participantVolumes[user.id]
+      : user.name && participantVolumes[user.name] !== undefined
+      ? participantVolumes[user.name]
+      : liveStreamVolume !== undefined
+      ? liveStreamVolume
+      : 100
+
   const [prevVolume, setPrevVolume] = useState<number>(rawVolume > 0 ? rawVolume : 100)
 
   const activeStream = user.screenStream || user.stream
@@ -68,7 +79,11 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
 
   const handleVolumeChange = (newVal: number) => {
     const clamped = Math.max(0, Math.min(100, newVal))
+    setLiveStreamVolume(clamped)
     setParticipantVolume(user.id, clamped)
+    if (user.name) {
+      setParticipantVolume(user.name, clamped)
+    }
     if (clamped > 0) {
       setPrevVolume(clamped)
     }

@@ -222,4 +222,19 @@ describe('Audio & Media Store - Expected Behaviors', () => {
     setLiveBufferDelay(8000)
     expect(useMediaStore.getState().liveBufferDelay).toBe(5000)
   })
+
+  it('should synchronize and persist live stream volume across overlays and modal', () => {
+    const { setLiveStreamVolume } = useMediaStore.getState()
+
+    setLiveStreamVolume(42)
+    expect(useMediaStore.getState().liveStreamVolume).toBe(42)
+    expect(useMediaStore.getState().participantVolumes['live']).toBe(42)
+
+    // Clamping
+    setLiveStreamVolume(150)
+    expect(useMediaStore.getState().liveStreamVolume).toBe(100)
+
+    setLiveStreamVolume(-10)
+    expect(useMediaStore.getState().liveStreamVolume).toBe(0)
+  })
 })

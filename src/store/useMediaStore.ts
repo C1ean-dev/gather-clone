@@ -87,6 +87,8 @@ interface MediaStore {
   participantVolumes: Record<string, number> // peerId or streamId -> 0 to 100
   setParticipantVolume: (id: string, volume: number) => void
   getEffectiveParticipantVolume: (id: string) => number
+  liveStreamVolume: number // shared persisted volume for live / screen share
+  setLiveStreamVolume: (volume: number) => void
   liveBufferMode: 'dynamic' | 'manual'
   liveBufferDelay: number // in ms, default 3000 (range: 200 to 5000, max 5s)
   dynamicBufferMetrics: {
@@ -291,16 +293,27 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   peerStreams: {},
   peerScreenStreams: {},
   participantVolumes: saved.participantVolumes || {},
+  liveStreamVolume: typeof saved.liveStreamVolume === 'number' ? saved.liveStreamVolume : 100,
 
   setParticipantVolume: (id, volume) => {
     const clamped = Math.max(0, Math.min(100, Math.round(volume)))
-    const next = { ...get().participantVolumes, [id]: clamped }
+    const current = get().participantVolumes || {}
+    const next = { ...current, [id]: clamped }
     saveAudioSettings({ participantVolumes: next })
     set({ participantVolumes: next })
   },
 
+  setLiveStreamVolume: (volume) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(volume)))
+    const current = get().participantVolumes || {}
+    const nextVolumes = { ...current, live: clamped }
+    saveAudioSettings({ liveStreamVolume: clamped, participantVolumes: nextVolumes })
+    set({ liveStreamVolume: clamped, participantVolumes: nextVolumes })
+  },
+
   getEffectiveParticipantVolume: (id) => {
-    const pVol = get().participantVolumes[id] !== undefined ? get().participantVolumes[id] : 100
+    const vols = get().participantVolumes || {}
+    const pVol = vols[id] !== undefined ? vols[id] : 100
     const master = (get().outputVolume !== undefined ? get().outputVolume : 100) / 100
     return Math.max(0, Math.min(1, master * (pVol / 100)))
   },

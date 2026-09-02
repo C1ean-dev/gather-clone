@@ -162,7 +162,8 @@ const VideoTile: React.FC<VideoTileProps> = ({
  * Floating Picture-in-Picture Screen Share Preview Window
  */
 interface FloatingScreenPreviewProps {
-  stream: MediaStream | null
+  stream: MediaStream
+  presenterId?: string
   presenterName: string
   isLocal: boolean
   onExpand: () => void
@@ -171,6 +172,7 @@ interface FloatingScreenPreviewProps {
 
 const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
   stream,
+  presenterId,
   presenterName,
   isLocal,
   onExpand,
@@ -182,8 +184,25 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
     selectedAudioOutput,
     participantVolumes,
     setParticipantVolume,
+    liveStreamVolume,
+    setLiveStreamVolume,
   } = useMediaStore()
-  const rawVolume = participantVolumes[presenterName] !== undefined ? participantVolumes[presenterName] : 100
+
+  const rawVolume =
+    presenterId && participantVolumes[presenterId] !== undefined
+      ? participantVolumes[presenterId]
+      : participantVolumes[presenterName] !== undefined
+      ? participantVolumes[presenterName]
+      : liveStreamVolume !== undefined
+      ? liveStreamVolume
+      : 100
+
+  const handleVolumeChange = (val: number) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(val)))
+    setLiveStreamVolume(clamped)
+    if (presenterId) setParticipantVolume(presenterId, clamped)
+    if (presenterName) setParticipantVolume(presenterName, clamped)
+  }
 
   useEffect(() => {
     const video = videoRef.current
@@ -233,31 +252,25 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
 
   return (
     <div className="mb-2 w-72 sm:w-80 bg-[#12151d] rounded-2xl overflow-hidden border-2 border-indigo-500/80 shadow-2xl animate-in slide-in-from-bottom-2 duration-200">
-      {/* Floating Screen Header */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#1b202c] border-b border-[#2a3142]">
+      {/* Header Bar */}
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[#1b202c]/90 border-b border-[#2a3142]">
         <div className="flex items-center gap-1.5">
-          <div className="flex items-center gap-1 px-1.5 py-0.5 bg-rose-600 text-white rounded text-[9px] font-bold shadow animate-pulse">
-            <Radio className="w-2.5 h-2.5" />
-            <span>AO VIVO</span>
-          </div>
-          <span className="text-[11px] font-bold text-slate-200 truncate max-w-[120px]">
-            {isLocal ? 'Sua Apresentação' : `Tela de ${presenterName}`}
+          <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+          <span className="text-[11px] font-bold text-slate-200">
+            {isLocal ? 'Sua Tela' : `Tela de ${presenterName}`}
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
+          {/* Volume Control for Viewer */}
           {!isLocal && (
-            <div
-              className="relative group/vol flex items-center bg-[#12151d] rounded-lg border border-[#2a3142] px-1.5 py-0.5"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <div className="group/vol relative flex items-center bg-[#12151d] border border-[#2a3142] rounded-lg px-1.5 py-0.5">
               <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  if (rawVolume === 0) {
-                    setParticipantVolume(presenterName, 100)
+                onClick={() => {
+                  if (rawVolume > 0) {
+                    handleVolumeChange(0)
                   } else {
-                    setParticipantVolume(presenterName, 0)
+                    handleVolumeChange(100)
                   }
                 }}
                 className="text-slate-300 hover:text-white transition-colors p-0.5"
@@ -277,7 +290,7 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
                   min="0"
                   max="100"
                   value={rawVolume}
-                  onChange={(e) => setParticipantVolume(presenterName, Number(e.target.value))}
+                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
                   className="w-14 h-1 bg-slate-700 rounded appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400"
                   title={`Volume: ${rawVolume}%`}
                 />
@@ -376,6 +389,12 @@ export const MiniCallOverlay: React.FC = () => {
     ? peerStreams[remotePresenter.id]
     : null
 
+  const presenterId = isScreenSharing
+    ? localPlayer.id
+    : remotePresenter
+    ? remotePresenter.id
+    : ''
+
   const presenterName = isScreenSharing
     ? localPlayer.name
     : remotePresenter
@@ -409,6 +428,7 @@ export const MiniCallOverlay: React.FC = () => {
         {hasActiveScreenShare && activeScreenStream && isFloatingPreviewVisible && (
           <FloatingScreenPreview
             stream={activeScreenStream}
+            presenterId={presenterId}
             presenterName={presenterName}
             isLocal={isPresenterLocal}
             onExpand={() => setGridCallOpen(true)}
