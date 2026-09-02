@@ -38,6 +38,7 @@ import {
   hexToRgb,
 } from '../../utils/imageTransparency'
 import { convertAssetToSlicedPresets } from '../../utils/avatarAssetOrigin'
+import { saveAssetFileToDisk } from '../../utils/diskAssetPersistence'
 
 export interface SlicedFrameSlot {
   x: number
@@ -973,25 +974,20 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
     }
 
     // Save XML and PNG directly to public/assets/pet/ (for pets) or public/assets/avatar/ so they are tracked in Git
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.saveAssetFile) {
-      try {
-        const subfolder = category === 'pet' ? 'pet' : 'avatar'
-        const cleanBase = imageFileName.replace(/\.[^/.]+$/, '') || `${category}_atlas`
-        ;(window as any).electronAPI.saveAssetFile(
-          `public/assets/${subfolder}/${cleanBase}.xml`,
-          generateXmlString(),
-          'utf-8'
-        )
-        if (imageSrc) {
-          ;(window as any).electronAPI.saveAssetFile(
-            `public/assets/${subfolder}/${cleanBase}.png`,
-            imageSrc,
-            'base64'
-          )
-        }
-      } catch (e) {
-        console.warn('Could not auto-save avatar/pet atlas file to disk:', e)
-      }
+    const subfolder = category === 'pet' ? 'pet' : 'avatar'
+    const cleanBase = imageFileName.replace(/\.[^/.]+$/, '') || `${category}_atlas`
+    saveAssetFileToDisk(
+      `public/assets/${subfolder}/${cleanBase}.xml`,
+      generateXmlString(),
+      'utf-8'
+    ).catch((e) => console.warn('Could not auto-save atlas XML to disk:', e))
+
+    if (imageSrc) {
+      saveAssetFileToDisk(
+        `public/assets/${subfolder}/${cleanBase}.png`,
+        imageSrc,
+        'base64'
+      ).catch((e) => console.warn('Could not auto-save atlas PNG to disk:', e))
     }
 
     setSavedSuccessCount(createdAssets.length)

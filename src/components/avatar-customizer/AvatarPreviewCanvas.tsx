@@ -12,6 +12,7 @@ interface Props {
   status?: PresenceStatus
   localPlayer: Player
   onRandomize: () => void
+  showNameTags?: boolean
 }
 
 export const AvatarPreviewCanvas: React.FC<Props> = ({
@@ -21,6 +22,7 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
   status,
   localPlayer,
   onRandomize,
+  showNameTags = true,
 }) => {
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -87,7 +89,7 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
         y: 0,
       }
 
-      AvatarRenderer.drawPlayer(ctx, tempPlayer, true, tick, 32, true)
+      AvatarRenderer.drawPlayer(ctx, tempPlayer, true, tick, 32, showNameTags)
 
       // Draw companion pet beside avatar if equipped
       if (avatar.pet && avatar.pet.type !== 'none') {
@@ -102,7 +104,7 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
           history: [],
           idleTime: 0,
         }
-        PetRenderer.drawPet(ctx, previewPet, avatar.pet, tick)
+        PetRenderer.drawPet(ctx, previewPet, avatar.pet, tick, showNameTags)
       }
 
       ctx.restore()
@@ -112,7 +114,7 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
 
     frameId = requestAnimationFrame(render)
     return () => cancelAnimationFrame(frameId)
-  }, [isOpen, avatar, name, status, localPlayer])
+  }, [isOpen, avatar, name, status, localPlayer, showNameTags])
 
   // Export / Download PNG of Avatar
   const handleDownloadPNG = () => {

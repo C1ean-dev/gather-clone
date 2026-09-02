@@ -7,6 +7,7 @@ import {
   ParsedAtlasPreset,
 } from '../../engine/avatar/avatarAtlasImporter'
 import { AvatarSpritesheetSlicerModal } from './AvatarSpritesheetSlicerModal'
+import { saveAssetFileToDisk } from '../../utils/diskAssetPersistence'
 
 interface Props {
   isOpen: boolean
@@ -117,27 +118,21 @@ export const AtlasImportModal: React.FC<Props> = ({
     const created = importPresetsIntoStore(category, parsedPresets)
 
     // Save XML and PNG directly to public/assets/pet/ (for pets) or public/assets/avatar/ so they are tracked in Git
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.saveAssetFile) {
-      try {
-        const subfolder = category === 'pet' ? 'pet' : 'avatar'
-        const baseName = `${category}_imported_${Date.now()}`
-        if (xmlContent) {
-          ;(window as any).electronAPI.saveAssetFile(
-            `public/assets/${subfolder}/${baseName}.xml`,
-            xmlContent,
-            'utf-8'
-          )
-        }
-        if (pngDataUrl) {
-          ;(window as any).electronAPI.saveAssetFile(
-            `public/assets/${subfolder}/${baseName}.png`,
-            pngDataUrl,
-            'base64'
-          )
-        }
-      } catch (e) {
-        console.warn('Could not auto-save imported atlas to disk:', e)
-      }
+    const subfolder = category === 'pet' ? 'pet' : 'avatar'
+    const baseName = `${category}_imported_${Date.now()}`
+    if (xmlContent) {
+      saveAssetFileToDisk(
+        `public/assets/${subfolder}/${baseName}.xml`,
+        xmlContent,
+        'utf-8'
+      ).catch((e) => console.warn('Could not auto-save imported XML to disk:', e))
+    }
+    if (pngDataUrl) {
+      saveAssetFileToDisk(
+        `public/assets/${subfolder}/${baseName}.png`,
+        pngDataUrl,
+        'base64'
+      ).catch((e) => console.warn('Could not auto-save imported PNG to disk:', e))
     }
 
     setSuccessCount(created.length)

@@ -49,6 +49,62 @@ export default defineConfig({
       },
     ]),
     renderer(),
+    {
+      name: 'disk-file-persistence-middleware',
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          if (req.url === '/api/save-asset-file' && req.method === 'POST') {
+            let body = ''
+            req.on('data', (chunk) => {
+              body += chunk
+            })
+            req.on('end', () => {
+              try {
+                const { relativePath, content, encoding } = JSON.parse(body)
+                const targetPath = path.resolve(process.cwd(), relativePath)
+                fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+                if (encoding === 'base64') {
+                  const base64Data = content.replace(/^data:image\/\w+;base64,/, '')
+                  fs.writeFileSync(targetPath, Buffer.from(base64Data, 'base64'))
+                } else {
+                  fs.writeFileSync(targetPath, content, 'utf-8')
+                }
+                console.log('[DiskMiddleware] Saved asset to disk:', targetPath)
+                res.setHeader('Content-Type', 'application/json')
+                res.statusCode = 200
+                res.end(JSON.stringify({ success: true, path: targetPath }))
+              } catch (e) {
+                console.error('[DiskMiddleware] Error saving asset:', e)
+                res.statusCode = 500
+                res.end(JSON.stringify({ error: String(e) }))
+              }
+            })
+            return
+          }
+          if (req.url === '/api/save-native-assets' && req.method === 'POST') {
+            let body = ''
+            req.on('data', (chunk) => {
+              body += chunk
+            })
+            req.on('end', () => {
+              try {
+                const targetPath = path.resolve(process.cwd(), 'src/data/nativeAssets.json')
+                fs.writeFileSync(targetPath, body, 'utf-8')
+                console.log('[DiskMiddleware] Saved nativeAssets.json to disk')
+                res.setHeader('Content-Type', 'application/json')
+                res.statusCode = 200
+                res.end(JSON.stringify({ success: true }))
+              } catch (e) {
+                res.statusCode = 500
+                res.end(JSON.stringify({ error: String(e) }))
+              }
+            })
+            return
+          }
+          next()
+        })
+      },
+    },
   ],
   resolve: {
     alias: {
@@ -71,7 +127,11 @@ export default defineConfig({
       // the spawn point and teleporting the view to the top of the map on
       // every editor save. Runtime data also lives in localStorage, so
       // skipping the watch here has no functional downside in dev.
-      ignored: ['**/src/data/nativeAssets.json', '**/src/data/nativeSpaces.json'],
+      ignored: [
+        '**/src/data/nativeAssets.json',
+        '**/src/data/nativeSpaces.json',
+        '**/public/assets/**',
+      ],
     },
   },
 })

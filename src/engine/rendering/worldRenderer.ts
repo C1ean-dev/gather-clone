@@ -197,11 +197,13 @@ export class WorldRenderer {
 
       allEntities.sort((a, b) => a.y - b.y)
 
+      const showNameTags = useSettingsStore.getState().showNameTags ?? true
+
       for (const entity of allEntities) {
         if (entity.kind === 'player') {
-          AvatarRenderer.drawPlayer(ctx, entity.player, entity.isLocal, currentTime)
+          AvatarRenderer.drawPlayer(ctx, entity.player, entity.isLocal, currentTime, TILE_SIZE, showNameTags)
         } else {
-          PetRenderer.drawPet(ctx, entity.pet, entity.petConfig, currentTime)
+          PetRenderer.drawPet(ctx, entity.pet, entity.petConfig, currentTime, showNameTags)
         }
       }
 

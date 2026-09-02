@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { X, Check } from 'lucide-react'
+import { X, Check, Eye, EyeOff } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
+import { useSettingsStore } from '../store/useSettingsStore'
 import { AvatarConfig, AvatarComponentSlot, PresenceStatus, Direction, PetType } from '../types/game'
 import { PeerManager } from '../p2p/PeerManager'
 import { PetRenderer } from '../engine/pet/PetRenderer'
@@ -20,6 +21,7 @@ import { AvatarPixelArtModal } from '../editor/avatar/AvatarPixelArtModal'
 import { bakeAllAvatarDirections, cropContentDataUrl } from '../engine/avatar/avatarBakeService'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { CustomAsset } from '../types/customAsset'
+import { saveAssetFileToDisk, savePetAtlasToDisk } from '../utils/diskAssetPersistence'
 
 interface Props {
   isOpen: boolean
@@ -28,6 +30,7 @@ interface Props {
 
 export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const { localPlayer, setLocalPlayer, setLocalStatus } = useGameStore()
+  const { showNameTags, setShowNameTags } = useSettingsStore()
 
   const [activeCategory, setActiveCategory] = useState<CategoryKey>('skin')
   const [name, setName] = useState(localPlayer.name || 'Player')
@@ -172,6 +175,20 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
     let savedAssetId = ''
 
+    let petAtlasInfo: { pngDataUrl: string; xmlContent: string } | null = null
+    const cleanBase = customName.toLowerCase().replace(/[^a-z0-9]/g, '_') || `${category}_${Date.now()}`
+
+    // 1. If it's a pet, generate and save the full spritesheet PNG and Sparrow XML to public/assets/pet/
+    if (category === 'pet') {
+      try {
+        petAtlasInfo = await savePetAtlasToDisk(cleanBase, directionalFrames)
+      } catch (e) {
+        console.warn('Could not auto-save pet atlas file to disk:', e)
+      }
+    } else if (thumbnail) {
+      saveAssetFileToDisk(`public/assets/avatar/${cleanBase}.png`, thumbnail, 'base64')
+    }
+
     if (existingAsset) {
       savedAssetId = existingAsset.id
       store.updateCustomAsset(existingAsset.id, {
@@ -185,6 +202,13 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
         ],
         directionalFrames,
         creationSource: 'studio',
+        ...(petAtlasInfo
+          ? {
+              sourceImageSrc: petAtlasInfo.pngDataUrl,
+              sourceFileName: `${cleanBase}.png`,
+              sourceXmlContent: petAtlasInfo.xmlContent,
+            }
+          : {}),
       })
     } else {
       const newAsset: CustomAsset = {
@@ -207,26 +231,16 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
         frameRateMs: 160,
         createdAt: Date.now(),
         creationSource: 'studio',
+        ...(petAtlasInfo
+          ? {
+              sourceImageSrc: petAtlasInfo.pngDataUrl,
+              sourceFileName: `${cleanBase}.png`,
+              sourceXmlContent: petAtlasInfo.xmlContent,
+            }
+          : {}),
       }
       savedAssetId = newAsset.id
       store.addCustomAsset(newAsset)
-    }
-
-    // Save PNG directly to public/assets/pet/ (for pets) or public/assets/avatar/ so they are tracked in Git
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.saveAssetFile) {
-      try {
-        const subfolder = category === 'pet' ? 'pet' : 'avatar'
-        const cleanBase = customName.toLowerCase().replace(/[^a-z0-9]/g, '_') || `${category}_${Date.now()}`
-        if (thumbnail) {
-          ;(window as any).electronAPI.saveAssetFile(
-            `public/assets/${subfolder}/${cleanBase}.png`,
-            thumbnail,
-            'base64'
-          )
-        }
-      } catch (e) {
-        console.warn('Could not auto-save asset file to disk:', e)
-      }
     }
 
     // 2. Equip immediately onto player avatar
@@ -346,6 +360,27 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 </select>
               </div>
             </div>
+
+            {/* Show / Hide Names Selector (Character & Pet) */}
+            <div className="flex items-center gap-2 bg-[#2b2d31] px-2.5 py-1 rounded-xl border border-[#383a40]">
+              <span className="text-[11px] font-semibold text-slate-400">Nomes:</span>
+              <div className="flex items-center gap-1.5">
+                {showNameTags ? (
+                  <Eye className="w-3.5 h-3.5 text-blue-400" />
+                ) : (
+                  <EyeOff className="w-3.5 h-3.5 text-slate-500" />
+                )}
+                <select
+                  value={showNameTags ? 'show' : 'hide'}
+                  onChange={(e) => setShowNameTags(e.target.value === 'show')}
+                  className="bg-transparent text-xs font-bold text-slate-100 focus:outline-hidden cursor-pointer pr-1"
+                  title="Mostrar ou ocultar nomes em cima do personagem e do pet"
+                >
+                  <option value="show" className="bg-[#1e1f22] text-white">Mostrar</option>
+                  <option value="hide" className="bg-[#1e1f22] text-white">Ocultar</option>
+                </select>
+              </div>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -396,6 +431,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
             status={status}
             localPlayer={localPlayer}
             onRandomize={handleRandomize}
+            showNameTags={showNameTags}
           />
         </div>
 

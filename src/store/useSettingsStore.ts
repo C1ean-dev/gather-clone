@@ -8,6 +8,7 @@ export interface GraphicsSettings {
   enableCulling: boolean
   moveSpeed: number // tiles per second, fixed at 8.0
   currentFps: number
+  showNameTags: boolean
 }
 
 interface SettingsStore extends GraphicsSettings {
@@ -16,6 +17,7 @@ interface SettingsStore extends GraphicsSettings {
   setEnableCulling: (enable: boolean) => void
   setMoveSpeed: (speed: number) => void
   setCurrentFps: (fps: number) => void
+  setShowNameTags: (show: boolean) => void
 }
 
 const loadSavedSettings = (): Partial<GraphicsSettings> => {
@@ -38,6 +40,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   enableCulling: saved.enableCulling ?? true,
   moveSpeed: 8.0, // Fixed at 8.0 tiles/s
   currentFps: 60,
+  showNameTags: saved.showNameTags ?? true,
 
   setTargetFps: (fps: number) => {
     set({ targetFps: fps })
@@ -57,6 +60,10 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   },
   setCurrentFps: (fps: number) => {
     set({ currentFps: fps })
+  },
+  setShowNameTags: (show: boolean) => {
+    set({ showNameTags: show })
+    saveSettings({ showNameTags: show })
   },
 }))
 

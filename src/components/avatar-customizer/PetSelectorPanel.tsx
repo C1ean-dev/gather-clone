@@ -19,6 +19,7 @@ import { cropContentDataUrl } from '../../engine/avatar/avatarBakeService'
 import { exportCategoryAtlas } from '../../engine/avatar/avatarAtlasExporter'
 import { AtlasImportModal } from './AtlasImportModal'
 import { AvatarSpritesheetSlicerModal } from './AvatarSpritesheetSlicerModal'
+import { savePetAtlasToDisk } from '../../utils/diskAssetPersistence'
 import {
   detectAssetCreationSource,
   resolveAssetSourceImage,
@@ -130,6 +131,18 @@ export const PetSelectorPanel: React.FC<Props> = ({
   const petCustomAssets = customAssets.filter(
     (a) => a.type === 'avatar' && a.avatarSlot === 'pet'
   )
+
+  // Auto-sync custom pets to public/assets/pet/ on disk
+  useEffect(() => {
+    for (const asset of petCustomAssets) {
+      if (asset.directionalFrames) {
+        const cleanBase = asset.name.toLowerCase().replace(/[^a-z0-9]/g, '_') || `pet_${asset.id}`
+        savePetAtlasToDisk(cleanBase, asset.directionalFrames as Record<Direction, string>).catch((e) =>
+          console.warn('[PetSelectorPanel] Auto-sync pet to disk error:', e)
+        )
+      }
+    }
+  }, [petCustomAssets])
 
   // Modals state
   const [deletingAsset, setDeletingAsset] = useState<CustomAsset | null>(null)
@@ -252,9 +265,9 @@ export const PetSelectorPanel: React.FC<Props> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col justify-between overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden min-h-0">
       {/* Top action bar with Slicer, Import, and Export buttons */}
-      <div className="flex items-center justify-between mb-3 px-1">
+      <div className="flex items-center justify-between mb-3 px-1 shrink-0">
         <span className="text-xs font-bold text-slate-300">Opções & Presets</span>
         <div className="flex items-center gap-2">
           {/* Hidden input for direct Spritesheet Slicer */}
@@ -299,7 +312,7 @@ export const PetSelectorPanel: React.FC<Props> = ({
       </div>
 
       {/* Grid of Pets - 3x3 matching the rest of the menu */}
-      <div className="flex-1 overflow-y-auto pr-1">
+      <div className="flex-1 overflow-y-auto pr-1 min-h-0 mb-3">
         <div className="grid grid-cols-3 gap-3 pb-2">
           {/* 1. Create New Pet Button (Pixel Art Studio) */}
           {onCreatePreset && (
@@ -436,72 +449,70 @@ export const PetSelectorPanel: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Bottom Customization: Pet Name & Color Palette (when a pet is equipped) */}
+      {/* Bottom Customization: Compact Name & Color Palette (matching ColorPalettePicker) */}
       {currentPet.type !== 'none' && (
-        <div className="bg-[#1e1f22] p-3.5 rounded-2xl border border-[#383a40] space-y-3 mt-2 shrink-0">
-          <div className="flex items-center justify-between">
-            {/* Pet Name input */}
-            <div className="flex items-center gap-2 flex-1 max-w-sm">
-              <label className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5 shrink-0">
-                <Heart className="w-3.5 h-3.5 text-rose-400" />
-                <span>Nome:</span>
-              </label>
-              <input
-                type="text"
-                value={currentPet.name || ''}
-                onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="Ex: Rex, Mingau..."
-                maxLength={14}
-                className="flex-1 bg-[#2b2d31] border border-[#383a40] focus:border-blue-500 rounded-xl px-3 py-1 text-xs font-bold text-white outline-none"
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  handleNameChange(PetRenderer.getDefaultPetName(currentPet.type))
-                }
-                className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold border border-slate-700 transition-colors"
-                title="Restaurar nome padrão"
-              >
-                Padrão
-              </button>
-            </div>
-
-            {/* Color Palette (for procedural pets or custom tint) */}
-            {currentPet.type !== 'meowth' && currentPet.type !== 'custom' && (
-              <div className="flex items-center gap-1.5 pl-4 border-l border-[#383a40]">
-                <span className="text-[11px] font-bold text-slate-300 shrink-0 mr-1">
-                  Cor:
-                </span>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {PET_COLORS.map((c) => {
-                    const isColorSelected =
-                      currentPet.color?.toLowerCase() === c.hex.toLowerCase()
-                    return (
-                      <button
-                        key={c.hex}
-                        type="button"
-                        onClick={() => handleColorChange(c.hex)}
-                        title={c.label}
-                        style={{ backgroundColor: c.hex }}
-                        className={`w-5 h-5 rounded-lg transition-transform hover:scale-110 cursor-pointer ${
-                          isColorSelected
-                            ? 'ring-2 ring-blue-400 scale-110 shadow-md'
-                            : 'border border-black/40'
-                        }`}
-                      />
-                    )
-                  })}
-                  <input
-                    type="color"
-                    value={currentPet.color || '#10b981'}
-                    onChange={(e) => handleColorChange(e.target.value)}
-                    className="w-5 h-5 rounded-lg bg-transparent border border-[#383a40] cursor-pointer p-0"
-                    title="Cor Personalizada"
-                  />
-                </div>
-              </div>
-            )}
+        <div className="pt-3 border-t border-[#383a40] flex items-center justify-between gap-3 shrink-0">
+          {/* Pet Name input */}
+          <div className="flex items-center gap-2 flex-1 max-w-xs">
+            <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5 shrink-0">
+              <Heart className="w-3.5 h-3.5 text-rose-400" />
+              Nome:
+            </span>
+            <input
+              type="text"
+              value={currentPet.name || ''}
+              onChange={(e) => handleNameChange(e.target.value)}
+              placeholder="Ex: Rex, Mingau..."
+              maxLength={14}
+              className="flex-1 bg-[#1e1f22] border border-[#383a40] focus:border-blue-500 rounded-xl px-2.5 py-1 text-xs font-semibold text-white outline-none"
+            />
+            <button
+              type="button"
+              onClick={() =>
+                handleNameChange(PetRenderer.getDefaultPetName(currentPet.type))
+              }
+              className="px-2 py-1 rounded-xl bg-[#1e1f22] hover:bg-[#383a40] text-slate-300 text-[10px] font-semibold border border-[#383a40] transition-colors shrink-0"
+              title="Restaurar nome padrão"
+            >
+              Padrão
+            </button>
           </div>
+
+          {/* Color Palette (for procedural pets or custom tint) */}
+          {currentPet.type !== 'custom' && (
+            <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto">
+              <span className="text-[11px] font-bold text-slate-300 mr-1">
+                Cor:
+              </span>
+              <div className="flex items-center gap-1.5">
+                {PET_COLORS.map((c) => {
+                  const isColorSelected =
+                    currentPet.color?.toLowerCase() === c.hex.toLowerCase()
+                  return (
+                    <button
+                      key={c.hex}
+                      type="button"
+                      onClick={() => handleColorChange(c.hex)}
+                      title={c.label}
+                      style={{ backgroundColor: c.hex }}
+                      className={`w-6 h-6 rounded-full transition-transform hover:scale-110 cursor-pointer shrink-0 ${
+                        isColorSelected
+                          ? 'border-2 border-white scale-110 shadow-lg'
+                          : 'border border-transparent'
+                      }`}
+                    />
+                  )
+                })}
+                <input
+                  type="color"
+                  value={currentPet.color || '#10b981'}
+                  onChange={(e) => handleColorChange(e.target.value)}
+                  className="w-6 h-6 rounded-full bg-transparent border border-[#383a40] cursor-pointer p-0 shrink-0"
+                  title="Cor Personalizada"
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -35,7 +35,8 @@ export class PetRenderer {
     ctx: CanvasRenderingContext2D,
     pet: PetState,
     petConfig: PetConfig,
-    currentTime: number
+    currentTime: number,
+    showNameTag: boolean = true
   ) {
     if (!petConfig || petConfig.type === 'none') return
 
@@ -44,15 +45,7 @@ export class PetRenderer {
 
     ctx.save()
 
-    // 1. Soft Ambient Ground Shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)'
-    ctx.beginPath()
-    const shadowW = pet.isMoving ? 8 : 9
-    const shadowH = 4
-    ctx.ellipse(px + 16, py + 26, shadowW, shadowH, 0, 0, Math.PI * 2)
-    ctx.fill()
-
-    // 2. Draw Specific Model (Built-in or Custom Hand-drawn/Sliced)
+    // 1. Draw Specific Model (Built-in or Custom Hand-drawn/Sliced)
     if (petConfig.type === 'custom' || petConfig.directionalFrames || petConfig.customAssetId) {
       this.drawCustomPet(ctx, px, py, pet, petConfig, currentTime)
     } else {
@@ -76,7 +69,9 @@ export class PetRenderer {
     }
 
     // 3. Floating Name Tag & Heart Badge
-    this.drawNameTag(ctx, px, py, petConfig, currentTime)
+    if (showNameTag) {
+      this.drawNameTag(ctx, px, py, petConfig, currentTime)
+    }
 
     ctx.restore()
   }
