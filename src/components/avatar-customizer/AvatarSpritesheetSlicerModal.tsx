@@ -22,13 +22,21 @@ import {
   ArrowRightLeft,
   GripVertical,
   Move,
+  Pipette,
+  Wand2,
 } from 'lucide-react'
 import { AvatarComponentSlot, Direction } from '../../types/game'
 import { CustomAsset } from '../../types/customAsset'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 import { generateSparrowXml, downloadFile, PackedSubTexture } from '../../engine/avatar/avatarAtlasExporter'
 import { cropContentDataUrl } from '../../engine/avatar/avatarBakeService'
-import { applyBackgroundRemoval, RGBColor } from '../../utils/imageTransparency'
+import {
+  applyBackgroundRemoval,
+  RGBColor,
+  detectBackgroundColor,
+  rgbToHex,
+  hexToRgb,
+} from '../../utils/imageTransparency'
 import { convertAssetToSlicedPresets } from '../../utils/avatarAssetOrigin'
 
 export interface SlicedFrameSlot {
@@ -76,25 +84,6 @@ const DIRECTIONS: { id: Direction; label: string; icon: string }[] = [
   { id: 'right', label: 'Direita', icon: '➡️' },
 ]
 
-const BG_COLOR_PRESETS = [
-  { label: 'Escuro', hex: '#21232a' },
-  { label: 'Verde', hex: '#00ff00' },
-  { label: 'Magenta', hex: '#ff00ff' },
-  { label: 'Branco', hex: '#ffffff' },
-  { label: 'Preto', hex: '#000000' },
-  { label: 'Azul Claro', hex: '#00ffff' },
-]
-
-function hexToRgb(hex: string): RGBColor {
-  const clean = hex.replace('#', '')
-  const bigint = parseInt(clean, 16)
-  return {
-    r: (bigint >> 16) & 255,
-    g: (bigint >> 8) & 255,
-    b: bigint & 255,
-  }
-}
-
 export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -105,7 +94,7 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
   editingAsset,
 }) => {
   const [sourceImg, setSourceImg] = useState<HTMLImageElement | null>(null)
-  const [zoom, setZoom] = useState<number>(2)
+  const [zoom, setZoom] = useState<number>(0.5)
   const [showGrid, setShowGrid] = useState<boolean>(true)
   const [gridSnapSize, setGridSnapSize] = useState<number>(16) // Supports 8, 16, 24, 32 or custom sizes
 
@@ -113,13 +102,30 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
   const [enableBgRemoval, setEnableBgRemoval] = useState<boolean>(false)
   const [targetColorHex, setTargetColorHex] = useState<string>('#21232a')
   const [tolerance, setTolerance] = useState<number>(25)
+  const [isPickingColor, setIsPickingColor] = useState<boolean>(false)
 
   // Selection Box (supports any pixel size, smaller than 32x32)
-  const [selection, setSelection] = useState<{ x: number; y: number; w: number; h: number }>({
-    x: 0,
-    y: 0,
-    w: editingAsset ? (editingAsset.width || 1) * 32 : 16,
-    h: editingAsset ? (editingAsset.height || 1) * 32 : 16,
+  const [selection, setSelection] = useState<{ x: number; y: number; w: number; h: number }>(() => {
+    const firstSlot =
+      editingAsset?.slicerPresets?.[0]?.directions.down[0] ||
+      editingAsset?.slicerPresets?.[0]?.directions.up[0] ||
+      editingAsset?.slicerPresets?.[0]?.directions.left[0] ||
+      editingAsset?.slicerPresets?.[0]?.directions.right[0]
+
+    if (firstSlot && firstSlot.w && firstSlot.h) {
+      return {
+        x: firstSlot.x,
+        y: firstSlot.y,
+        w: firstSlot.w,
+        h: firstSlot.h,
+      }
+    }
+    return {
+      x: 0,
+      y: 0,
+      w: editingAsset ? (editingAsset.width || 1) * 32 : 16,
+      h: editingAsset ? (editingAsset.height || 1) * 32 : 16,
+    }
   })
   const [selectedRegionDataUrl, setSelectedRegionDataUrl] = useState<string>('')
 
@@ -150,7 +156,7 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
   // Presets List with Multi-Frame Support per Direction
   const [presets, setPresets] = useState<SlicedPreset[]>(() => {
     if (editingAsset) {
-      return convertAssetToSlicedPresets(editingAsset)
+      return convertAssetToSlicedPresets(editingAsset, editingAsset.sourceXmlContent)
     }
     return [
       {
@@ -169,8 +175,27 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
   // Sync presets whenever editingAsset changes
   useEffect(() => {
     if (editingAsset) {
-      setPresets(convertAssetToSlicedPresets(editingAsset))
+      const converted = convertAssetToSlicedPresets(editingAsset, editingAsset.sourceXmlContent)
+      setPresets(converted)
       setActivePresetIndex(0)
+
+      const firstSlot =
+        converted[0]?.directions.down[0] ||
+        converted[0]?.directions.up[0] ||
+        converted[0]?.directions.left[0] ||
+        converted[0]?.directions.right[0]
+
+      if (firstSlot && firstSlot.w && firstSlot.h) {
+        setSelection({
+          x: firstSlot.x,
+          y: firstSlot.y,
+          w: firstSlot.w,
+          h: firstSlot.h,
+        })
+        if (sourceImg) {
+          sliceRegion(sourceImg, firstSlot.x, firstSlot.y, firstSlot.w, firstSlot.h)
+        }
+      }
     }
   }, [editingAsset])
 
@@ -210,6 +235,14 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
     [enableBgRemoval, targetColorHex, tolerance]
   )
 
+  // Reset zoom and pan on open
+  useEffect(() => {
+    if (isOpen) {
+      setZoom(0.5)
+      setPanOffset({ x: 0, y: 0 })
+    }
+  }, [isOpen])
+
   // Load Source Image
   useEffect(() => {
     if (!imageSrc) return
@@ -217,7 +250,23 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
     img.src = imageSrc
     img.onload = () => {
       setSourceImg(img)
-      sliceRegion(img, 0, 0, 16, 16)
+      const firstSlot =
+        presets[0]?.directions.down[0] ||
+        presets[0]?.directions.up[0] ||
+        presets[0]?.directions.left[0] ||
+        presets[0]?.directions.right[0]
+
+      if (firstSlot && firstSlot.w && firstSlot.h) {
+        setSelection({
+          x: firstSlot.x,
+          y: firstSlot.y,
+          w: firstSlot.w,
+          h: firstSlot.h,
+        })
+        sliceRegion(img, firstSlot.x, firstSlot.y, firstSlot.w, firstSlot.h)
+      } else {
+        sliceRegion(img, selection.x, selection.y, selection.w || 16, selection.h || 16)
+      }
     }
   }, [imageSrc, sliceRegion])
 
@@ -227,6 +276,53 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       sliceRegion(sourceImg, selection.x, selection.y, selection.w, selection.h)
     }
   }, [enableBgRemoval, targetColorHex, tolerance, sourceImg, selection, sliceRegion])
+
+  // Automatically detects the background color and applies removal
+  const handleAutoDetectBg = useCallback(() => {
+    if (!sourceImg) return
+    // 1. Try region around current selection
+    let detected = detectBackgroundColor(sourceImg, selection)
+    // 2. If not found or transparent, sample whole sheet
+    if (!detected) {
+      detected = detectBackgroundColor(sourceImg)
+    }
+    if (detected) {
+      const hex = rgbToHex(detected)
+      setTargetColorHex(hex)
+      setEnableBgRemoval(true)
+      setIsPickingColor(false)
+    }
+  }, [sourceImg, selection])
+
+  // Eyedropper activation: native browser API if supported, or interactive canvas click
+  const handleToggleEyedropper = async () => {
+    if (typeof window !== 'undefined' && (window as any).EyeDropper) {
+      try {
+        const dropper = new (window as any).EyeDropper()
+        const res = await dropper.open()
+        if (res?.sRGBHex) {
+          setTargetColorHex(res.sRGBHex)
+          setEnableBgRemoval(true)
+          setIsPickingColor(false)
+          return
+        }
+      } catch {
+        // Cancelled by user
+      }
+    }
+    setIsPickingColor((prev) => !prev)
+  }
+
+  // Cancel color picker on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isPickingColor) {
+        setIsPickingColor(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isPickingColor])
 
   // Walk Cycle Loop Timer
   useEffect(() => {
@@ -363,6 +459,23 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
 
       const clientX = (e.clientX - rect.left) * scaleX
       const clientY = (e.clientY - rect.top) * scaleY
+
+      // If in Eyedropper mode: sample pixel directly from canvas
+      if (isPickingColor) {
+        e.preventDefault()
+        e.stopPropagation()
+        const cx = Math.max(0, Math.min(canvas.width - 1, Math.floor(clientX)))
+        const cy = Math.max(0, Math.min(canvas.height - 1, Math.floor(clientY)))
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          const p = ctx.getImageData(cx, cy, 1, 1).data
+          const hex = rgbToHex({ r: p[0], g: p[1], b: p[2] })
+          setTargetColorHex(hex)
+          setEnableBgRemoval(true)
+        }
+        setIsPickingColor(false)
+        return
+      }
 
       // Check if clicking inside the existing selection box to drag/move it
       const isInside =
@@ -1012,20 +1125,34 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
             </div>
 
             {/* Bottom Status Tips */}
-            <div className="absolute bottom-4 z-10 flex items-center gap-3 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-4 py-2 rounded-2xl text-xs text-slate-400 shadow-lg">
-              <span>
-                Seleção:{' '}
-                <strong className="text-white">
-                  x: {selection.x}, y: {selection.y} ({selection.w}×{selection.h}px)
-                </strong>
-              </span>
-              <div className="w-px h-3 bg-[#383a40]" />
-              <span>🖱️ Arraste dentro da seleção ou use setas do teclado para movê-la</span>
-              <span>•</span>
-              <span>🔍 Ctrl + Scroll: Zoom</span>
-              <span>•</span>
-              <span>🖱️ Botão Direito: Mover tela</span>
-            </div>
+            {isPickingColor ? (
+              <div className="absolute bottom-4 z-10 flex items-center gap-2 bg-amber-500 text-slate-950 font-bold px-4 py-2 rounded-2xl text-xs shadow-xl animate-bounce">
+                <Pipette className="w-4 h-4" />
+                <span>Conta-gotas ativo: Clique em qualquer ponto da imagem para selecionar a cor de fundo!</span>
+                <button
+                  type="button"
+                  onClick={() => setIsPickingColor(false)}
+                  className="ml-2 px-2 py-0.5 rounded-lg bg-slate-900/30 hover:bg-slate-900/50 text-slate-950 text-[10px]"
+                >
+                  Cancelar (Esc)
+                </button>
+              </div>
+            ) : (
+              <div className="absolute bottom-4 z-10 flex items-center gap-3 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-4 py-2 rounded-2xl text-xs text-slate-400 shadow-lg">
+                <span>
+                  Seleção:{' '}
+                  <strong className="text-white">
+                    x: {selection.x}, y: {selection.y} ({selection.w}×{selection.h}px)
+                  </strong>
+                </span>
+                <div className="w-px h-3 bg-[#383a40]" />
+                <span>🖱️ Arraste dentro da seleção ou use setas do teclado para movê-la</span>
+                <span>•</span>
+                <span>🔍 Ctrl + Scroll: Zoom</span>
+                <span>•</span>
+                <span>🖱️ Botão Direito: Mover tela</span>
+              </div>
+            )}
 
             {/* Canvas Container with Pan & Zoom */}
             <div
@@ -1039,7 +1166,9 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
               <canvas
                 ref={canvasRef}
                 onMouseDown={handleCanvasMouseDown}
-                className={`block [image-rendering:pixelated] ${isHoveringSelection ? 'cursor-move' : 'cursor-crosshair'}`}
+                className={`block [image-rendering:pixelated] ${
+                  isPickingColor ? 'cursor-crosshair' : isHoveringSelection ? 'cursor-move' : 'cursor-crosshair'
+                }`}
               />
             </div>
           </div>
@@ -1067,42 +1196,64 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
               </div>
 
               {enableBgRemoval && (
-                <div className="flex flex-col gap-2 pt-1 border-t border-[#383a40]/60">
-                  <div className="flex items-center gap-1.5">
-                    {BG_COLOR_PRESETS.map((c) => (
-                      <button
-                        key={c.hex}
-                        type="button"
-                        onClick={() => setTargetColorHex(c.hex)}
-                        title={c.label}
-                        style={{ backgroundColor: c.hex }}
-                        className={`w-6 h-6 rounded-lg transition-transform hover:scale-110 ${
-                          targetColorHex.toLowerCase() === c.hex.toLowerCase()
-                            ? 'ring-2 ring-blue-400 scale-105 shadow'
-                            : 'border border-black/30'
-                        }`}
-                      />
-                    ))}
-                    <input
-                      type="color"
-                      value={targetColorHex}
-                      onChange={(e) => setTargetColorHex(e.target.value)}
-                      className="w-6 h-6 rounded-lg bg-transparent border-none cursor-pointer"
-                      title="Cor Personalizada"
-                    />
+                <div className="flex flex-col gap-2.5 pt-1 border-t border-[#383a40]/60">
+                  {/* Conta-gotas, Modo Automático e Amostra de Cor */}
+                  <div className="flex items-center gap-2">
+                    {/* Botão Modo Automático */}
+                    <button
+                      type="button"
+                      onClick={handleAutoDetectBg}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer"
+                      title="Detecta automaticamente a cor de fundo analisando as bordas e cantos da imagem e a remove"
+                    >
+                      <Wand2 className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Modo Automático</span>
+                    </button>
+
+                    {/* Botão Conta-gotas */}
+                    <button
+                      type="button"
+                      onClick={handleToggleEyedropper}
+                      className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer ${
+                        isPickingColor
+                          ? 'bg-amber-500 text-slate-900 border-amber-400 shadow-md shadow-amber-500/20 animate-pulse'
+                          : 'bg-[#1e1f22] hover:bg-[#2b2d31] text-slate-200 border-[#383a40]'
+                      }`}
+                      title="Clique para ativar o conta-gotas e selecionar a cor diretamente na imagem"
+                    >
+                      <Pipette className="w-3.5 h-3.5 text-blue-400" />
+                      <span>{isPickingColor ? 'Clique...' : 'Conta-gotas'}</span>
+                    </button>
+
+                    {/* Preview e ajuste da cor selecionada */}
+                    <div className="relative group/picker shrink-0">
+                      <div
+                        className="w-7 h-7 rounded-xl border border-white/30 shadow-inner flex items-center justify-center cursor-pointer overflow-hidden transition-transform hover:scale-105"
+                        style={{ backgroundColor: targetColorHex }}
+                        title={`Cor de fundo: ${targetColorHex} (Clique para ajustar)`}
+                      >
+                        <input
+                          type="color"
+                          value={targetColorHex}
+                          onChange={(e) => setTargetColorHex(e.target.value)}
+                          className="opacity-0 w-full h-full cursor-pointer"
+                        />
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Tolerância:</span>
+                  {/* Slider de Tolerância */}
+                  <div className="flex items-center justify-between text-xs text-slate-300 bg-[#1e1f22]/60 px-2.5 py-1.5 rounded-xl border border-[#383a40]/40">
+                    <span className="text-[11px] font-semibold text-slate-400">Tolerância:</span>
                     <input
                       type="range"
                       min={0}
-                      max={80}
+                      max={100}
                       value={tolerance}
                       onChange={(e) => setTolerance(parseInt(e.target.value))}
-                      className="w-32 accent-[#3b82f6] cursor-pointer"
+                      className="w-28 accent-[#3b82f6] cursor-pointer"
                     />
-                    <span className="font-mono text-slate-200">{tolerance}%</span>
+                    <span className="font-mono font-bold text-slate-200 w-8 text-right">{tolerance}%</span>
                   </div>
                 </div>
               )}

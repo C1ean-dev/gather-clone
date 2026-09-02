@@ -1,19 +1,71 @@
 import { CustomAsset } from '../types/customAsset'
-import { Direction } from '../types/game'
+import { Direction, AvatarComponentSlot } from '../types/game'
 import { SlicedPreset, SlicedFrameSlot } from '../components/avatar-customizer/AvatarSpritesheetSlicerModal'
+import { AvatarAtlasManager } from '../engine/avatar/AvatarAtlasManager'
+import { parseSubTextureIdentifier } from '../engine/avatar/avatarAtlasImporter'
 
-const KNOWN_IMAGE_MAP: Record<string, string> = {
-  gladion: '/assets/avatar/alola_gladion_overworld_sprite__gen_iv_style__by_lime029_dezuvty.png',
-  professora: '/assets/avatar/commission___veteran_by_purplezaffre_db8xl9c.png',
-  idoso: '/assets/avatar/island_kahuna_nanu_by_purplezaffre_de10eu7.png',
-  retro: '/assets/avatar/7d595a64c99a634d94759de8096cca14.png',
-  office: '/assets/avatar/SpriteSheet.png',
-  unova_rich: '/assets/avatar/unova_rich_boy_overworld_sprite__gen_iv_style__by_lime029_dex0yno.png',
-  unova_psychic: '/assets/avatar/unova_psychic_overworld_sprite__gen_iv_style__by_lime029_dex0yg8.png',
-  cool_trainer: '/assets/avatar/cool_trainer_female_by_aveontrainer_ddnnno2.png',
-  maylene: '/assets/avatar/maylene__gen_3__by_purplezaffre_dcu0f7w (1).png',
-  morrison: '/assets/avatar/morrison_by_aveontrainer_dd67lb4.png',
-  maxie: '/assets/avatar/team_magma_boss_maxie_by_purplezaffre_dec9k7r.png',
+export interface KnownAssetInfo {
+  png: string
+  xml: string
+}
+
+export const KNOWN_ASSET_MAP: Record<string, KnownAssetInfo> = {
+  gladion: {
+    png: '/assets/avatar/alola_gladion_overworld_sprite__gen_iv_style__by_lime029_dezuvty.png',
+    xml: '/assets/avatar/alola_gladion_overworld_sprite__gen_iv_style__by_lime029_dezuvty.xml',
+  },
+  professora: {
+    png: '/assets/avatar/commission___veteran_by_purplezaffre_db8xl9c.png',
+    xml: '/assets/avatar/commission___veteran_by_purplezaffre_db8xl9c.xml',
+  },
+  idoso: {
+    png: '/assets/avatar/island_kahuna_nanu_by_purplezaffre_de10eu7.png',
+    xml: '/assets/avatar/island_kahuna_nanu_by_purplezaffre_de10eu7.xml',
+  },
+  retro: {
+    png: '/assets/avatar/7d595a64c99a634d94759de8096cca14.png',
+    xml: '/assets/avatar/7d595a64c99a634d94759de8096cca14.xml',
+  },
+  retro_2: {
+    png: '/assets/avatar/7d595a64c99a634d94759de8096cca14.png',
+    xml: '/assets/avatar/7d595a64c99a634d94759de8096cca14.xml',
+  },
+  office: {
+    png: '/assets/avatar/SpriteSheet.png',
+    xml: '/assets/avatar/SpriteSheet.xml',
+  },
+  unova_rich: {
+    png: '/assets/avatar/unova_rich_boy_overworld_sprite__gen_iv_style__by_lime029_dex0yno.png',
+    xml: '/assets/avatar/unova_rich_boy_overworld_sprite__gen_iv_style__by_lime029_dex0yno.xml',
+  },
+  unova_psychic: {
+    png: '/assets/avatar/unova_psychic_overworld_sprite__gen_iv_style__by_lime029_dex0yg8.png',
+    xml: '/assets/avatar/unova_psychic_overworld_sprite__gen_iv_style__by_lime029_dex0yg8.xml',
+  },
+  cool_trainer: {
+    png: '/assets/avatar/cool_trainer_female_by_aveontrainer_ddnnno2.png',
+    xml: '/assets/avatar/cool_trainer_female_by_aveontrainer_ddnnno2.xml',
+  },
+  maylene: {
+    png: '/assets/avatar/maylene__gen_3__by_purplezaffre_dcu0f7w (1).png',
+    xml: '/assets/avatar/maylene__gen_3__by_purplezaffre_dcu0f7w (1).xml',
+  },
+  morrison: {
+    png: '/assets/avatar/morrison_by_aveontrainer_dd67lb4.png',
+    xml: '/assets/avatar/morrison_by_aveontrainer_dd67lb4.xml',
+  },
+  maxie: {
+    png: '/assets/avatar/team_magma_boss_maxie_by_purplezaffre_dec9k7r.png',
+    xml: '/assets/avatar/team_magma_boss_maxie_by_purplezaffre_dec9k7r.xml',
+  },
+  meowth: {
+    png: '/assets/avatar/5660688_738696_lazy91_meowth-sprite-sheet.fff89e386a74ef7fd067b8f49695f124.png',
+    xml: '/assets/avatar/5660688_738696_lazy91_meowth-sprite-sheet.fff89e386a74ef7fd067b8f49695f124.xml',
+  },
+  cynthia: {
+    png: '/assets/avatar/pokemon_d2p2_sprites__overworld_cynthia_by_cynthiacelestic_d8h8pjl-fullview.png',
+    xml: '/assets/avatar/pokemon_d2p2_sprites__overworld_cynthia_by_cynthiacelestic_d8h8pjl-fullview.xml',
+  },
 }
 
 /**
@@ -35,7 +87,7 @@ export function detectAssetCreationSource(asset: CustomAsset): 'slicer' | 'atlas
 
   // Check if it has multi-frame walk animations or matched known spritesheets
   const clean = asset.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
-  for (const key of Object.keys(KNOWN_IMAGE_MAP)) {
+  for (const key of Object.keys(KNOWN_ASSET_MAP)) {
     if (clean.includes(key) || key.includes(clean)) {
       return 'slicer'
     }
@@ -68,9 +120,9 @@ export function resolveAssetSourceImage(asset: CustomAsset): string {
   }
 
   const clean = asset.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
-  for (const [key, path] of Object.entries(KNOWN_IMAGE_MAP)) {
+  for (const [key, info] of Object.entries(KNOWN_ASSET_MAP)) {
     if (clean.includes(key) || key.includes(clean)) {
-      return path
+      return info.png
     }
   }
 
@@ -79,11 +131,140 @@ export function resolveAssetSourceImage(asset: CustomAsset): string {
 }
 
 /**
- * Converts a CustomAsset into the SlicedPreset structure expected by AvatarSpritesheetSlicerModal.
+ * Resolves XML atlas content for an asset, either from stored metadata or from /assets/avatar/*.xml.
  */
-export function convertAssetToSlicedPresets(asset: CustomAsset): SlicedPreset[] {
+export async function resolveAssetXmlContent(asset: CustomAsset): Promise<string | null> {
+  if (asset.sourceXmlContent) {
+    return asset.sourceXmlContent
+  }
+
+  let xmlUrl: string | null = null
+  if (asset.sourceFileName) {
+    xmlUrl = `/assets/avatar/${asset.sourceFileName.replace(/\.[^/.]+$/, '')}.xml`
+  } else {
+    const clean = asset.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
+    for (const [key, info] of Object.entries(KNOWN_ASSET_MAP)) {
+      if (clean.includes(key) || key.includes(clean)) {
+        xmlUrl = info.xml
+        break
+      }
+    }
+  }
+
+  if (!xmlUrl) return null
+
+  // In Node / Vitest test environment, load directly from filesystem if available
+  if (typeof window === 'undefined') {
+    try {
+      const fs = await import('fs')
+      const path = await import('path')
+      const localPath = path.join(process.cwd(), 'public', xmlUrl.replace(/^\//, ''))
+      if (fs.existsSync(localPath)) {
+        return fs.readFileSync(localPath, 'utf-8')
+      }
+    } catch {}
+  }
+
+  // In browser/Electron: fetch from static public directory
+  try {
+    if (typeof fetch !== 'undefined') {
+      const resp = await fetch(xmlUrl)
+      if (resp.ok) {
+        return await resp.text()
+      }
+    }
+  } catch (err) {
+    console.warn('[resolveAssetXmlContent] Fetch failed:', err)
+  }
+
+  return null
+}
+
+/**
+ * Converts a Sparrow XML string and CustomAsset into exact-coordinate SlicedPresets.
+ */
+export function convertXmlToSlicedPresets(asset: CustomAsset, xmlContent: string): SlicedPreset[] {
+  const atlasData = AvatarAtlasManager.parseAtlasXml(xmlContent)
+  if (!atlasData.subTextures || atlasData.subTextures.size === 0) {
+    return convertAssetToSlicedPresets(asset)
+  }
+
+  const category = (asset.avatarSlot || 'other') as AvatarComponentSlot
+  const dirFramesMap: Record<Direction, Array<{ x: number; y: number; w: number; h: number; order: number }>> = {
+    down: [],
+    up: [],
+    left: [],
+    right: [],
+  }
+
+  atlasData.subTextures.forEach((sub, name) => {
+    const { direction } = parseSubTextureIdentifier(name, category)
+    const match = name.match(/[_-](\d+)$/)
+    const order = match ? parseInt(match[1], 10) : 0
+
+    dirFramesMap[direction].push({
+      x: sub.x,
+      y: sub.y,
+      w: sub.width,
+      h: sub.height,
+      order,
+    })
+  })
+
+  const dirs: Direction[] = ['down', 'up', 'left', 'right']
+  const directions: Record<Direction, SlicedFrameSlot[]> = {
+    down: [],
+    up: [],
+    left: [],
+    right: [],
+  }
+
+  dirs.forEach((d) => {
+    const sorted = dirFramesMap[d].sort((a, b) => a.order - b.order)
+    const existingFrames = asset.directionalFrames?.[d]
+    const frameList = Array.isArray(existingFrames)
+      ? existingFrames
+      : typeof existingFrames === 'string' && existingFrames
+      ? [existingFrames]
+      : []
+
+    directions[d] = sorted.map((sub, idx) => ({
+      x: sub.x,
+      y: sub.y,
+      w: sub.w,
+      h: sub.h,
+      dataUrl: frameList[idx] || (asset.frames ? asset.frames[0] : ''),
+    }))
+  })
+
+  return [
+    {
+      id: asset.id,
+      name: asset.name,
+      directions,
+    },
+  ]
+}
+
+/**
+ * Converts a CustomAsset into the SlicedPreset structure expected by AvatarSpritesheetSlicerModal.
+ * If XML content is available, it uses the exact pixel coordinates from the XML.
+ */
+export function convertAssetToSlicedPresets(asset: CustomAsset, xmlContent?: string): SlicedPreset[] {
   if (asset.slicerPresets && asset.slicerPresets.length > 0) {
     return asset.slicerPresets
+  }
+
+  const xml = xmlContent || asset.sourceXmlContent
+  if (xml) {
+    try {
+      const fromXml = convertXmlToSlicedPresets(asset, xml)
+      if (fromXml && fromXml.length > 0) {
+        return fromXml
+      }
+    } catch (err) {
+      console.warn('Error parsing XML in convertAssetToSlicedPresets:', err)
+    }
   }
 
   const fw = (asset.width || 1) * 32
@@ -141,22 +322,24 @@ function generateSpritesheetFromAsset(asset: CustomAsset): string {
     return asset.frames[idx] ? [asset.frames[idx]] : []
   }
 
-  const allRows = dirs.map(getFrames)
-  const maxCols = Math.max(1, ...allRows.map((r) => r.length))
+  const maxSteps = Math.max(...dirs.map((d) => getFrames(d).length), 1)
   const fw = (asset.width || 1) * 32
   const fh = (asset.height || 1) * 32
 
   const canvas = document.createElement('canvas')
-  canvas.width = maxCols * fw
-  canvas.height = dirs.length * fh
+  canvas.width = maxSteps * fw
+  canvas.height = 4 * fh
   const ctx = canvas.getContext('2d')
-  if (!ctx) return asset.thumbnail || asset.frames[0] || ''
+  if (!ctx) return ''
 
-  allRows.forEach((frames, rowIdx) => {
-    frames.forEach((frameUrl, colIdx) => {
+  dirs.forEach((dir, row) => {
+    const frames = getFrames(dir)
+    frames.forEach((dataUrl, col) => {
       const img = new Image()
-      img.src = frameUrl
-      ctx.drawImage(img, colIdx * fw, rowIdx * fh, fw, fh)
+      img.src = dataUrl
+      if (img.complete) {
+        ctx.drawImage(img, col * fw, row * fh, fw, fh)
+      }
     })
   })
 

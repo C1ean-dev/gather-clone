@@ -171,4 +171,40 @@ describe('Avatar Asset Origin Detection & Editing Routing', () => {
     expect(updatedList[0].name).toBe('New Name')
     expect(updatedList[0].creationSource).toBe('slicer')
   })
+
+  it('converts Sparrow XML into exact-pixel SlicedPresets', () => {
+    const retroAsset: CustomAsset = {
+      id: 'avatar_other_sliced_retro',
+      name: 'Retro',
+      type: 'avatar',
+      category: 'Avatares',
+      avatarSlot: 'other',
+      frames: ['down_0', 'down_1'],
+      directionalFrames: {
+        down: ['down_0', 'down_1'],
+      },
+      width: 2,
+      height: 2,
+      isObstacle: false,
+      frameRateMs: 160,
+      createdAt: Date.now(),
+    }
+
+    const xmlSample = `<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="other.png">
+  <SubTexture name="other_retro_down_0" x="16" y="48" width="160" height="208"/>
+  <SubTexture name="other_retro_down_1" x="208" y="48" width="160" height="208"/>
+</TextureAtlas>`
+
+    const presets = convertAssetToSlicedPresets(retroAsset, xmlSample)
+    expect(presets).toHaveLength(1)
+    expect(presets[0].directions.down).toHaveLength(2)
+    expect(presets[0].directions.down[0].x).toBe(16)
+    expect(presets[0].directions.down[0].y).toBe(48)
+    expect(presets[0].directions.down[0].w).toBe(160)
+    expect(presets[0].directions.down[0].h).toBe(208)
+    expect(presets[0].directions.down[1].x).toBe(208)
+    expect(presets[0].directions.down[1].y).toBe(48)
+  })
 })
+

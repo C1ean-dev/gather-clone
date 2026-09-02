@@ -22,7 +22,12 @@ import { exportCategoryAtlas } from '../../engine/avatar/avatarAtlasExporter'
 import { cropContentDataUrl } from '../../engine/avatar/avatarBakeService'
 import { AtlasImportModal } from './AtlasImportModal'
 import { AvatarSpritesheetSlicerModal } from './AvatarSpritesheetSlicerModal'
-import { detectAssetCreationSource, resolveAssetSourceImage } from '../../utils/avatarAssetOrigin'
+import {
+  detectAssetCreationSource,
+  resolveAssetSourceImage,
+  resolveAssetXmlContent,
+  convertAssetToSlicedPresets,
+} from '../../utils/avatarAssetOrigin'
 
 interface Props {
   activeCategory: CategoryKey
@@ -103,11 +108,18 @@ export const OptionSelectorGrid: React.FC<Props> = ({
   }
 
   // Opens the exact same editor modal that created the asset!
-  const handleEditAsset = (asset: CustomAsset) => {
+  const handleEditAsset = async (asset: CustomAsset) => {
     const source = detectAssetCreationSource(asset)
     if (source === 'slicer' || source === 'atlas') {
       const resolvedImage = resolveAssetSourceImage(asset)
-      setEditingSlicerAsset(asset)
+      const xmlContent = await resolveAssetXmlContent(asset)
+      const initialPresets = convertAssetToSlicedPresets(asset, xmlContent || undefined)
+
+      setEditingSlicerAsset({
+        ...asset,
+        slicerPresets: initialPresets,
+        sourceXmlContent: xmlContent || asset.sourceXmlContent,
+      })
       setSlicerImageSrc(resolvedImage)
       setSlicerImageName(asset.sourceFileName || `${asset.name}.png`)
       setIsDirectSlicerOpen(true)
