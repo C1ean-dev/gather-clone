@@ -60,24 +60,8 @@ export const CallControlsBar: React.FC<Props> = ({
 
   return (
     <div className="flex items-center justify-between px-6 py-2.5 bg-[#12151d]/95 backdrop-blur-xl rounded-2xl border border-[#2a3142] max-w-3xl mx-auto w-full shadow-2xl shrink-0 mt-2">
-      {/* Left Side: Noise Suppressor DSP & Audio Settings */}
+      {/* Left Side: Audio Settings */}
       <div className="flex items-center gap-2">
-        <button
-          onClick={() => {
-            toggleNoiseSuppression()
-            MediaManager.getInstance().updateNoiseSuppression(!isNoiseSuppressionEnabled)
-          }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-            isNoiseSuppressionEnabled
-              ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300 shadow-md'
-              : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-slate-200'
-          }`}
-          title="Filtra ruídos de teclado, ventiladores e barulhos de fundo com DSP"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-          <span className="hidden sm:inline">Supressor IA {isNoiseSuppressionEnabled ? 'ON' : 'OFF'}</span>
-        </button>
-
         <button
           onClick={() => useMediaStore.getState().setSettingsModalOpen(true)}
           className="p-2 rounded-xl bg-slate-800/60 border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"

@@ -306,8 +306,8 @@ export const GridParticipantTile: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Bottom Name Pill & Live Expand Button */}
-      <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none z-10">
+      {/* Bottom Name Pill */}
+      <div className="absolute bottom-3 left-3 pointer-events-none z-10">
         <div className="bg-black/80 backdrop-blur-md px-3.5 py-1.5 rounded-xl flex items-center gap-2 border border-white/10 text-xs font-semibold text-white pointer-events-auto">
           <span>{isLive ? `Tela de ${user.name}` : user.isLocal ? `${user.name} (Você)` : user.name}</span>
           {!user.isLocal && rawVolume === 0 && (
@@ -318,16 +318,6 @@ export const GridParticipantTile: React.FC<Props> = ({
           )}
           {user.isMuted && !isLive && <MicOff className="w-3.5 h-3.5 text-rose-400" />}
         </div>
-
-        {isLive && (
-          <button
-            onClick={handleFullscreenClick}
-            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-2xl flex items-center gap-2 pointer-events-auto backdrop-blur-md transition-transform hover:scale-105 active:scale-95"
-          >
-            <Maximize2 className="w-4 h-4" />
-            <span>Expandir Live</span>
-          </button>
-        )}
       </div>
     </div>
   )
