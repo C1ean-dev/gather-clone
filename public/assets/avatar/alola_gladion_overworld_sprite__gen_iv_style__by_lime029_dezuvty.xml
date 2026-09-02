@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="alola_gladion_overworld_sprite__gen_iv_style__by_lime029_dezuvty.png">
+  <SubTexture name="other_gladion_down_0" x="8" y="8" width="48" height="56"/>
+  <SubTexture name="other_gladion_down_1" x="72" y="8" width="48" height="56"/>
+  <SubTexture name="other_gladion_down_2" x="136" y="8" width="48" height="56"/>
+  <SubTexture name="other_gladion_down_3" x="200" y="8" width="48" height="56"/>
+  <SubTexture name="other_gladion_up_0" x="8" y="200" width="48" height="56"/>
+  <SubTexture name="other_gladion_up_1" x="72" y="192" width="48" height="64"/>
+  <SubTexture name="other_gladion_up_2" x="136" y="192" width="48" height="64"/>
+  <SubTexture name="other_gladion_up_3" x="200" y="192" width="48" height="64"/>
+  <SubTexture name="other_gladion_left_0" x="8" y="72" width="48" height="56"/>
+  <SubTexture name="other_gladion_left_1" x="72" y="72" width="48" height="56"/>
+  <SubTexture name="other_gladion_left_2" x="136" y="72" width="48" height="56"/>
+  <SubTexture name="other_gladion_left_3" x="200" y="72" width="48" height="56"/>
+  <SubTexture name="other_gladion_right_0" x="8" y="136" width="48" height="56"/>
+  <SubTexture name="other_gladion_right_1" x="72" y="136" width="48" height="56"/>
+  <SubTexture name="other_gladion_right_2" x="136" y="136" width="48" height="56"/>
+  <SubTexture name="other_gladion_right_3" x="200" y="136" width="48" height="56"/>
+</TextureAtlas>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="dc4wnxs-2f6361ec-6d6d-4dae-aa2f-b00ff3de9f73.png">
+  <SubTexture name="other_office_down_0" x="8" y="8" width="48" height="56"/>
+  <SubTexture name="other_office_down_1" x="72" y="8" width="48" height="56"/>
+  <SubTexture name="other_office_down_2" x="136" y="8" width="48" height="56"/>
+  <SubTexture name="other_office_down_3" x="200" y="8" width="48" height="56"/>
+  <SubTexture name="other_office_up_0" x="136" y="200" width="48" height="56"/>
+  <SubTexture name="other_office_up_1" x="200" y="200" width="48" height="56"/>
+  <SubTexture name="other_office_up_2" x="72" y="200" width="48" height="56"/>
+  <SubTexture name="other_office_up_3" x="136" y="200" width="48" height="56"/>
+  <SubTexture name="other_office_left_0" x="8" y="72" width="48" height="56"/>
+  <SubTexture name="other_office_left_1" x="72" y="72" width="48" height="56"/>
+  <SubTexture name="other_office_left_2" x="136" y="72" width="48" height="56"/>
+  <SubTexture name="other_office_left_3" x="200" y="72" width="48" height="56"/>
+  <SubTexture name="other_office_right_0" x="8" y="136" width="48" height="56"/>
+  <SubTexture name="other_office_right_1" x="72" y="136" width="48" height="56"/>
+  <SubTexture name="other_office_right_2" x="136" y="136" width="48" height="56"/>
+  <SubTexture name="other_office_right_3" x="200" y="136" width="48" height="56"/>
+</TextureAtlas>

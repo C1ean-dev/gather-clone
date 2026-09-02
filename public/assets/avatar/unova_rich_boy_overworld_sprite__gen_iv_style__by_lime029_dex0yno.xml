@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="unova_rich_boy_overworld_sprite__gen_iv_style__by_lime029_dex0yno.png">
+  <SubTexture name="other_unova_rich_down_0" x="8" y="8" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_down_1" x="72" y="8" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_down_2" x="136" y="8" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_down_3" x="200" y="8" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_up_0" x="8" y="200" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_up_1" x="72" y="200" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_up_2" x="136" y="200" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_up_3" x="200" y="200" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_left_0" x="8" y="72" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_left_1" x="72" y="72" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_left_2" x="136" y="72" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_left_3" x="200" y="72" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_right_0" x="8" y="136" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_right_1" x="72" y="136" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_right_2" x="136" y="136" width="48" height="56"/>
+  <SubTexture name="other_unova_rich_right_3" x="200" y="136" width="48" height="56"/>
+</TextureAtlas>

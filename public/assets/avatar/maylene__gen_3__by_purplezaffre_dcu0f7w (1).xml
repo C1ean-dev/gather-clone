@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="maylene__gen_3__by_purplezaffre_dcu0f7w (1).png">
+  <SubTexture name="other_maylene_down_0" x="0" y="0" width="48" height="48"/>
+  <SubTexture name="other_maylene_down_1" x="48" y="0" width="48" height="48"/>
+  <SubTexture name="other_maylene_down_2" x="96" y="0" width="48" height="48"/>
+  <SubTexture name="other_maylene_down_3" x="144" y="0" width="48" height="48"/>
+  <SubTexture name="other_maylene_up_0" x="0" y="144" width="48" height="48"/>
+  <SubTexture name="other_maylene_up_1" x="48" y="144" width="48" height="48"/>
+  <SubTexture name="other_maylene_up_2" x="96" y="144" width="48" height="48"/>
+  <SubTexture name="other_maylene_up_3" x="144" y="144" width="48" height="48"/>
+  <SubTexture name="other_maylene_left_0" x="0" y="48" width="48" height="48"/>
+  <SubTexture name="other_maylene_left_1" x="48" y="48" width="48" height="48"/>
+  <SubTexture name="other_maylene_left_2" x="96" y="48" width="48" height="48"/>
+  <SubTexture name="other_maylene_left_3" x="144" y="48" width="48" height="48"/>
+  <SubTexture name="other_maylene_right_0" x="0" y="96" width="48" height="48"/>
+  <SubTexture name="other_maylene_right_1" x="48" y="96" width="48" height="48"/>
+  <SubTexture name="other_maylene_right_2" x="96" y="96" width="48" height="48"/>
+  <SubTexture name="other_maylene_right_3" x="144" y="96" width="48" height="48"/>
+</TextureAtlas>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="dd3i3fs-710905ae-a047-45c2-a2c3-e6ffc0ec00aa.png">
+  <SubTexture name="other_rosa_down_0" x="0" y="0" width="32" height="48"/>
+  <SubTexture name="other_rosa_down_1" x="32" y="0" width="32" height="48"/>
+  <SubTexture name="other_rosa_down_2" x="64" y="0" width="32" height="48"/>
+  <SubTexture name="other_rosa_down_3" x="96" y="0" width="32" height="48"/>
+  <SubTexture name="other_rosa_up_0" x="0" y="144" width="32" height="48"/>
+  <SubTexture name="other_rosa_up_1" x="32" y="144" width="32" height="48"/>
+  <SubTexture name="other_rosa_up_2" x="64" y="144" width="32" height="48"/>
+  <SubTexture name="other_rosa_up_3" x="96" y="144" width="32" height="48"/>
+  <SubTexture name="other_rosa_left_0" x="0" y="48" width="32" height="48"/>
+  <SubTexture name="other_rosa_left_1" x="32" y="48" width="32" height="48"/>
+  <SubTexture name="other_rosa_left_2" x="64" y="48" width="32" height="48"/>
+  <SubTexture name="other_rosa_left_3" x="96" y="48" width="32" height="48"/>
+  <SubTexture name="other_rosa_right_0" x="0" y="96" width="32" height="48"/>
+  <SubTexture name="other_rosa_right_1" x="32" y="96" width="32" height="48"/>
+  <SubTexture name="other_rosa_right_2" x="64" y="96" width="32" height="48"/>
+  <SubTexture name="other_rosa_right_3" x="96" y="96" width="32" height="48"/>
+</TextureAtlas>

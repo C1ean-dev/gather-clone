@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="dcyqacy-1061642f-a31f-4f3f-a724-765d7acf8305.png">
+  <SubTexture name="other_lyra_down_0" x="0" y="0" width="32" height="48"/>
+  <SubTexture name="other_lyra_down_1" x="32" y="0" width="32" height="48"/>
+  <SubTexture name="other_lyra_down_2" x="64" y="0" width="32" height="48"/>
+  <SubTexture name="other_lyra_down_3" x="96" y="0" width="32" height="48"/>
+  <SubTexture name="other_lyra_up_0" x="0" y="144" width="32" height="48"/>
+  <SubTexture name="other_lyra_up_1" x="32" y="144" width="32" height="48"/>
+  <SubTexture name="other_lyra_up_2" x="64" y="144" width="32" height="48"/>
+  <SubTexture name="other_lyra_up_3" x="96" y="144" width="32" height="48"/>
+  <SubTexture name="other_lyra_left_0" x="0" y="48" width="32" height="48"/>
+  <SubTexture name="other_lyra_left_1" x="32" y="48" width="32" height="48"/>
+  <SubTexture name="other_lyra_left_2" x="64" y="48" width="32" height="48"/>
+  <SubTexture name="other_lyra_left_3" x="96" y="48" width="32" height="48"/>
+  <SubTexture name="other_lyra_right_0" x="0" y="96" width="32" height="48"/>
+  <SubTexture name="other_lyra_right_1" x="32" y="96" width="32" height="48"/>
+  <SubTexture name="other_lyra_right_2" x="64" y="96" width="32" height="48"/>
+  <SubTexture name="other_lyra_right_3" x="96" y="96" width="32" height="48"/>
+</TextureAtlas>
