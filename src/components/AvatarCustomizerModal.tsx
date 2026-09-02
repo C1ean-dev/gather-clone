@@ -159,27 +159,48 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
       directionalFrames.down || Object.values(directionalFrames).find(Boolean) || ''
     )
 
-    const newAsset: CustomAsset = {
-      id: `avatar_${category}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      name: customName,
-      type: 'avatar' as const,
-      category: 'Avatares',
-      avatarSlot: category,
-      thumbnail,
-      width: 1,
-      height: 1,
-      isObstacle: false,
-      frames: [
-        directionalFrames.down || '',
-        directionalFrames.up || '',
-        directionalFrames.left || '',
-        directionalFrames.right || '',
-      ],
-      directionalFrames,
-      frameRateMs: 160,
-      createdAt: Date.now(),
+    const store = useCustomAssetsStore.getState()
+    const existingAsset = editingPreset.presetId
+      ? store.customAssets.find((a) => a.id === editingPreset.presetId)
+      : null
+
+    if (existingAsset) {
+      store.updateCustomAsset(existingAsset.id, {
+        name: customName,
+        thumbnail,
+        frames: [
+          directionalFrames.down || '',
+          directionalFrames.up || '',
+          directionalFrames.left || '',
+          directionalFrames.right || '',
+        ],
+        directionalFrames,
+        creationSource: 'studio',
+      })
+    } else {
+      const newAsset: CustomAsset = {
+        id: `avatar_${category}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name: customName,
+        type: 'avatar' as const,
+        category: 'Avatares',
+        avatarSlot: category,
+        thumbnail,
+        width: 1,
+        height: 1,
+        isObstacle: false,
+        frames: [
+          directionalFrames.down || '',
+          directionalFrames.up || '',
+          directionalFrames.left || '',
+          directionalFrames.right || '',
+        ],
+        directionalFrames,
+        frameRateMs: 160,
+        createdAt: Date.now(),
+        creationSource: 'studio',
+      }
+      store.addCustomAsset(newAsset)
     }
-    useCustomAssetsStore.getState().addCustomAsset(newAsset)
 
     // 2. Equip immediately onto player avatar
     const updatedAvatar: AvatarConfig = {

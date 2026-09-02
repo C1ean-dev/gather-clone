@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="other.png">
+  <SubTexture name="other_personagem_1_down_0" x="0" y="32" width="80" height="80"/>
+  <SubTexture name="other_personagem_1_down_1" x="0" y="112" width="80" height="80"/>
+  <SubTexture name="other_personagem_1_down_2" x="80" y="32" width="80" height="80"/>
+  <SubTexture name="other_personagem_1_down_3" x="80" y="112" width="80" height="80"/>
+  <SubTexture name="other_personagem_1_up_0" x="160" y="32" width="80" height="80"/>
+  <SubTexture name="other_personagem_1_up_1" x="160" y="112" width="80" height="80"/>
+  <SubTexture name="other_personagem_1_left_0" x="240" y="112" width="80" height="80"/>
+  <SubTexture name="other_personagem_1_right_0" x="240" y="32" width="80" height="80"/>
+</TextureAtlas>

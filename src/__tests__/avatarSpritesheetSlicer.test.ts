@@ -142,4 +142,49 @@ describe('avatarSpritesheetSlicer - Interactive Slicer and XML Generator', () =>
     expect(transferred.up).toHaveLength(2)
     expect(transferred.up[1].id).toBe('frame_down_1')
   })
+
+  it('should synchronize selector dimensions whenever the grid size is changed from 1 to 64', () => {
+    // Logic matching handleUpdateGridSize in AvatarSpritesheetSlicerModal
+    const updateGridAndSelector = (
+      currentSelection: { x: number; y: number; w: number; h: number },
+      newGridSize: number,
+      imgBounds: { w: number; h: number }
+    ) => {
+      const safeSize = Math.max(1, Math.min(64, Math.round(newGridSize)))
+      const targetW = Math.min(safeSize, imgBounds.w)
+      const targetH = Math.min(safeSize, imgBounds.h)
+      const snappedX = Math.max(0, Math.min(imgBounds.w - targetW, Math.floor(currentSelection.x / safeSize) * safeSize))
+      const snappedY = Math.max(0, Math.min(imgBounds.h - targetH, Math.floor(currentSelection.y / safeSize) * safeSize))
+      return {
+        gridSnapSize: safeSize,
+        selection: { x: snappedX, y: snappedY, w: targetW, h: targetH },
+      }
+    }
+
+    const img = { w: 256, h: 256 }
+    let state = { x: 35, y: 40, w: 16, h: 16 }
+
+    // Test 1px grid
+    const res1 = updateGridAndSelector(state, 1, img)
+    expect(res1.gridSnapSize).toBe(1)
+    expect(res1.selection.w).toBe(1)
+    expect(res1.selection.h).toBe(1)
+
+    // Test 64px grid
+    const res64 = updateGridAndSelector(res1.selection, 64, img)
+    expect(res64.gridSnapSize).toBe(64)
+    expect(res64.selection.w).toBe(64)
+    expect(res64.selection.h).toBe(64)
+    expect(res64.selection.x % 64).toBe(0)
+    expect(res64.selection.y % 64).toBe(0)
+
+    // Clamping boundaries (e.g. trying 0 or 100)
+    const resClampMin = updateGridAndSelector(state, 0, img)
+    expect(resClampMin.gridSnapSize).toBe(1)
+    expect(resClampMin.selection.w).toBe(1)
+
+    const resClampMax = updateGridAndSelector(state, 120, img)
+    expect(resClampMax.gridSnapSize).toBe(64)
+    expect(resClampMax.selection.w).toBe(64)
+  })
 })

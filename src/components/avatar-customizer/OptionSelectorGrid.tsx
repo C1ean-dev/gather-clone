@@ -22,6 +22,7 @@ import { exportCategoryAtlas } from '../../engine/avatar/avatarAtlasExporter'
 import { cropContentDataUrl } from '../../engine/avatar/avatarBakeService'
 import { AtlasImportModal } from './AtlasImportModal'
 import { AvatarSpritesheetSlicerModal } from './AvatarSpritesheetSlicerModal'
+import { detectAssetCreationSource, resolveAssetSourceImage } from '../../utils/avatarAssetOrigin'
 
 interface Props {
   activeCategory: CategoryKey
@@ -85,10 +86,12 @@ export const OptionSelectorGrid: React.FC<Props> = ({
   const [slicerImageSrc, setSlicerImageSrc] = useState<string>('')
   const [slicerImageName, setSlicerImageName] = useState<string>('')
   const [isDirectSlicerOpen, setIsDirectSlicerOpen] = useState<boolean>(false)
+  const [editingSlicerAsset, setEditingSlicerAsset] = useState<CustomAsset | null>(null)
 
   const handleDirectSlicerFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    setEditingSlicerAsset(null)
     setSlicerImageName(file.name)
     const reader = new FileReader()
     reader.onload = (ev) => {
@@ -97,6 +100,24 @@ export const OptionSelectorGrid: React.FC<Props> = ({
       setIsDirectSlicerOpen(true)
     }
     reader.readAsDataURL(file)
+  }
+
+  // Opens the exact same editor modal that created the asset!
+  const handleEditAsset = (asset: CustomAsset) => {
+    const source = detectAssetCreationSource(asset)
+    if (source === 'slicer' || source === 'atlas') {
+      const resolvedImage = resolveAssetSourceImage(asset)
+      setEditingSlicerAsset(asset)
+      setSlicerImageSrc(resolvedImage)
+      setSlicerImageName(asset.sourceFileName || `${asset.name}.png`)
+      setIsDirectSlicerOpen(true)
+      return
+    }
+
+    // Default to Studio (Pixel Art Editor)
+    if (onEditPreset) {
+      onEditPreset(activeCategory as AvatarComponentSlot, asset.id, asset.name)
+    }
   }
 
   const categoryCustomAssets = customAssets.filter(
@@ -252,9 +273,13 @@ export const OptionSelectorGrid: React.FC<Props> = ({
             <div
               onClick={(e) => {
                 e.stopPropagation()
-                onEditPreset(activeCategory as AvatarComponentSlot, asset.id, asset.name)
+                handleEditAsset(asset)
               }}
-              title={`Editar ${asset.name} no Estúdio Pixel Art`}
+              title={
+                detectAssetCreationSource(asset) === 'slicer' || detectAssetCreationSource(asset) === 'atlas'
+                  ? `Editar ${asset.name} no Fatiador de Imagem`
+                  : `Editar ${asset.name} no Estúdio Pixel Art`
+              }
               className="absolute top-1.5 left-1.5 w-6 h-6 rounded-lg bg-[#2b2d31]/90 hover:bg-[#3b82f6] text-slate-300 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-10 shadow-md cursor-pointer"
             >
               <Pencil className="w-3.5 h-3.5" />
@@ -763,13 +788,28 @@ export const OptionSelectorGrid: React.FC<Props> = ({
           isOpen={isDirectSlicerOpen}
           onClose={() => {
             setIsDirectSlicerOpen(false)
+            setEditingSlicerAsset(null)
             if (directSlicerInputRef.current) {
               directSlicerInputRef.current.value = ''
             }
           }}
+          editingAsset={editingSlicerAsset}
           imageSrc={slicerImageSrc}
           imageFileName={slicerImageName || `${activeCategory}.png`}
           category={activeCategory as AvatarComponentSlot}
+          onSaveComplete={(createdAssets) => {
+            if (createdAssets && createdAssets.length > 0) {
+              const lastAsset = createdAssets[createdAssets.length - 1]
+              onChangeAvatar({
+                ...avatar,
+                customComponents: {
+                  ...avatar.customComponents,
+                  [activeCategory as AvatarComponentSlot]:
+                    lastAsset.directionalFrames || lastAsset.frames[0],
+                },
+              })
+            }
+          }}
         />
       )}
     </div>

@@ -215,6 +215,7 @@ export function importPresetsIntoStore(
       directionalFrames: p.directionalFrames,
       frameRateMs: 160,
       createdAt: Date.now(),
+      creationSource: 'atlas',
     }
 
     store.addCustomAsset(asset)

@@ -32,4 +32,9 @@ export interface CustomAsset {
   frameRateMs: number // default 160ms
   iconColor?: string
   createdAt: number
+  creationSource?: 'slicer' | 'atlas' | 'studio'
+  sourceImageSrc?: string
+  sourceFileName?: string
+  sourceXmlContent?: string
+  slicerPresets?: any[]
 }
