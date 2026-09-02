@@ -182,17 +182,8 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
     selectedAudioOutput,
     participantVolumes,
     setParticipantVolume,
-    liveBufferDelay,
-    setLiveBufferDelay,
   } = useMediaStore()
   const rawVolume = participantVolumes[presenterName] !== undefined ? participantVolumes[presenterName] : 100
-
-  const handleCycleBuffer = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    const presets = [1000, 3000, 5000]
-    const nextIdx = (presets.indexOf(liveBufferDelay) + 1) % presets.length
-    setLiveBufferDelay(presets[nextIdx])
-  }
 
   useEffect(() => {
     const video = videoRef.current
@@ -292,17 +283,6 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
                 />
               </div>
             </div>
-          )}
-
-          {!isLocal && (
-            <button
-              onClick={handleCycleBuffer}
-              className="flex items-center gap-1 bg-[#12151d] hover:bg-slate-800 text-slate-300 hover:text-emerald-400 rounded-lg border border-[#2a3142] px-1.5 py-0.5 text-[9px] font-mono font-bold transition-colors"
-              title={`Buffer da Live: ${(liveBufferDelay / 1000).toFixed(1)}s (Clique para alternar 1.0s, 3.0s 1080p60, 5.0s)`}
-            >
-              <Gauge className="w-2.5 h-2.5 text-emerald-400" />
-              <span>{(liveBufferDelay / 1000).toFixed(1)}s</span>
-            </button>
           )}
 
           <button
