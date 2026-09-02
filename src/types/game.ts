@@ -26,8 +26,22 @@ export type AvatarComponentSlot =
   | 'facialHair'
   | 'eyes'
   | 'skin'
+  | 'pet'
+
+export type PetType = 'none' | 'dog' | 'cat' | 'meowth' | 'slime' | 'chick' | 'custom'
+
+export interface PetConfig {
+  type: PetType
+  name?: string
+  color?: string
+  customAssetId?: string
+  directionalFrames?: Partial<Record<Direction, string | string[]>>
+}
 
 export interface AvatarConfig {
+  // Companion Pet
+  pet?: PetConfig
+
   // Custom Hand-Drawn Avatar Full Skin or Specific Component Layers
   customSkinUrl?: string
   customAvatarId?: string

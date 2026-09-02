@@ -7,6 +7,7 @@ import {
   ParsedAtlasPreset,
 } from '../../engine/avatar/avatarAtlasImporter'
 import { AvatarSpritesheetSlicerModal } from './AvatarSpritesheetSlicerModal'
+import { saveAssetFileToDisk } from '../../utils/diskAssetPersistence'
 
 interface Props {
   isOpen: boolean
@@ -27,6 +28,7 @@ const CATEGORY_NAMES: Record<AvatarComponentSlot, string> = {
   eyes: 'Olhos',
   skin: 'Maquiagem',
   other: 'Personagem',
+  pet: 'Pet / Mascote',
 }
 
 export const AtlasImportModal: React.FC<Props> = ({
@@ -114,6 +116,25 @@ export const AtlasImportModal: React.FC<Props> = ({
   const handleConfirmImport = () => {
     if (parsedPresets.length === 0) return
     const created = importPresetsIntoStore(category, parsedPresets)
+
+    // Save XML and PNG directly to public/assets/pet/ (for pets) or public/assets/avatar/ so they are tracked in Git
+    const subfolder = category === 'pet' ? 'pet' : 'avatar'
+    const baseName = `${category}_imported_${Date.now()}`
+    if (xmlContent) {
+      saveAssetFileToDisk(
+        `public/assets/${subfolder}/${baseName}.xml`,
+        xmlContent,
+        'utf-8'
+      ).catch((e) => console.warn('Could not auto-save imported XML to disk:', e))
+    }
+    if (pngDataUrl) {
+      saveAssetFileToDisk(
+        `public/assets/${subfolder}/${baseName}.png`,
+        pngDataUrl,
+        'base64'
+      ).catch((e) => console.warn('Could not auto-save imported PNG to disk:', e))
+    }
+
     setSuccessCount(created.length)
     if (onImportSuccess) {
       onImportSuccess(created.length)

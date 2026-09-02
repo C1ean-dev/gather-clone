@@ -1,7 +1,9 @@
 import { TILE_SIZE, FURNITURE_CATALOG } from '../Constants'
 import { PixelArtRenderer } from '../PixelArtRenderer'
 import { AvatarRenderer } from '../AvatarRenderer'
-import { Player } from '../../types/game'
+import { PetRenderer } from '../pet/PetRenderer'
+import { PetManager, PetState } from '../pet/PetManager'
+import { Player, PetConfig } from '../../types/game'
 import { useGameStore } from '../../store/useGameStore'
 import { useMapStore } from '../../store/useMapStore'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
@@ -162,16 +164,47 @@ export class WorldRenderer {
         }
       }
 
-      // 5. Sort and Draw Players by Y-depth
-      const allPlayers: { player: Player; isLocal: boolean }[] = [
-        { player: localPlayer, isLocal: true },
-        ...Object.values(remotePlayers).map((p) => ({ player: p, isLocal: false })),
+      // 5. Sort and Draw Players & Companion Pets by Y-depth
+      type RenderableEntity =
+        | { kind: 'player'; y: number; player: Player; isLocal: boolean }
+        | { kind: 'pet'; y: number; pet: PetState; petConfig: PetConfig }
+
+      const allEntities: RenderableEntity[] = [
+        { kind: 'player', y: localPlayer.y, player: localPlayer, isLocal: true },
+        ...Object.values(remotePlayers).map((p) => ({
+          kind: 'player' as const,
+          y: p.y,
+          player: p,
+          isLocal: false,
+        })),
       ]
 
-      allPlayers.sort((a, b) => a.player.y - b.player.y)
+      const petManager = PetManager.getInstance()
+      const allActivePlayers = [localPlayer, ...Object.values(remotePlayers)]
+      for (const p of allActivePlayers) {
+        if (p.avatar?.pet && p.avatar.pet.type !== 'none') {
+          const pet = petManager.getPet(p.id)
+          if (pet) {
+            allEntities.push({
+              kind: 'pet',
+              y: pet.y,
+              pet,
+              petConfig: p.avatar.pet,
+            })
+          }
+        }
+      }
 
-      for (const p of allPlayers) {
-        AvatarRenderer.drawPlayer(ctx, p.player, p.isLocal, currentTime)
+      allEntities.sort((a, b) => a.y - b.y)
+
+      const showNameTags = useSettingsStore.getState().showNameTags ?? true
+
+      for (const entity of allEntities) {
+        if (entity.kind === 'player') {
+          AvatarRenderer.drawPlayer(ctx, entity.player, entity.isLocal, currentTime, TILE_SIZE, showNameTags)
+        } else {
+          PetRenderer.drawPet(ctx, entity.pet, entity.petConfig, currentTime, showNameTags)
+        }
       }
 
       // 6. Draw Floating Reactions

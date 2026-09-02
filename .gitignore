@@ -109,3 +109,20 @@ Thumbs.db
 docs/agents/*.md
 agents.md
 .scratch/*
+
+# ==============================================================================
+# Game Assets, Characters, Atlases, Furniture & Floors (DO NOT IGNORE)
+# Garante que todas as criações de personagens, atlas (XML/PNG), mobílias,
+# pisos, mapas e espaços nativos apareçam e sejam rastreados no Git
+# ==============================================================================
+!public/assets/
+!public/assets/**
+!public/assets/pet/
+!public/assets/pet/**
+!src/data/
+!src/data/**
+!src/assets/
+!src/assets/**
+!assets/
+!assets/**
+!*.xml

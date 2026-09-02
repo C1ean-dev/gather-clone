@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Plus, LayoutGrid, Check, X, Shield, Copy, ArrowRight, Edit2, Trash2, Sparkles } from 'lucide-react'
+import { Plus, LayoutGrid, Check, X, Shield, Copy, ArrowRight, Edit2, Trash2 } from 'lucide-react'
 import { SavedSpace } from '../../store/useSavedSpacesStore'
 import { ConfirmModal } from '../ConfirmModal'
 
@@ -59,7 +59,7 @@ export const SavedSpacesTab: React.FC<Props> = ({
       </div>
 
       {/* List of Saved Spaces */}
-      <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
+      <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-1">
         {savedSpaces.length === 0 ? (
           <div className="text-center py-10 text-slate-400 text-xs bg-[#12151d]/70 rounded-2xl border border-[#2a3142] p-6 space-y-3">
             <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mx-auto flex items-center justify-center">
@@ -83,33 +83,16 @@ export const SavedSpacesTab: React.FC<Props> = ({
         ) : (
           savedSpaces.map((space) => {
             const isEditing = editingSpaceId === space.id
-            const isSelected = selectedSpaceId === space.id
             const totalZones = space.mapData.zones?.length || 0
             const totalFurniture = space.mapData.furniture?.length || 0
 
             return (
               <div
                 key={space.id}
-                onClick={() => !isEditing && setSelectedSpaceId(space.id)}
                 onDoubleClick={() => !isEditing && handleEnterSavedSpace(space.id)}
-                className={`cursor-pointer flex items-center justify-between p-3.5 rounded-2xl border transition-all group ${
-                  isSelected
-                    ? 'bg-indigo-600/20 border-indigo-500 ring-2 ring-indigo-500/40 shadow-lg shadow-indigo-600/10'
-                    : 'bg-[#12151d] border-[#2a3142] hover:border-slate-600 hover:bg-[#161a24]'
-                }`}
+                className="flex items-center justify-between p-3.5 rounded-2xl border border-[#2a3142] bg-[#12151d] hover:border-indigo-500/60 hover:bg-[#161a24] transition-all group"
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0 pr-2">
-                  {/* Radio Checkmark Indicator */}
-                  <div
-                    className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-all ${
-                      isSelected
-                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/40 ring-2 ring-indigo-400/40'
-                        : 'border border-slate-700 bg-slate-900/80 text-transparent'
-                    }`}
-                  >
-                    <Check className="w-3 h-3 stroke-[3]" />
-                  </div>
-
                   {/* Space Color / Icon Indicator */}
                   <div
                     className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm"
@@ -151,14 +134,9 @@ export const SavedSpacesTab: React.FC<Props> = ({
                   ) : (
                     <div className="flex flex-col min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className={`text-xs font-bold truncate ${isSelected ? 'text-white font-black' : 'text-slate-200'}`}>
+                        <span className="text-xs font-bold truncate text-slate-200 group-hover:text-white transition-colors">
                           {space.name}
                         </span>
-                        {isSelected && (
-                          <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
-                            ✓ Selecionado
-                          </span>
-                        )}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[10px] text-slate-400">
@@ -190,11 +168,12 @@ export const SavedSpacesTab: React.FC<Props> = ({
                     <button
                       type="button"
                       onClick={() => handleEnterSavedSpace(space.id)}
-                      className="px-2.5 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all active:scale-95"
+                      disabled={loading}
+                      className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all active:scale-95 cursor-pointer"
                       title="Entrar neste Espaço"
                     >
                       <span>Entrar</span>
-                      <ArrowRight className="w-3 h-3" />
+                      <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                     <button
                       type="button"
@@ -227,26 +206,6 @@ export const SavedSpacesTab: React.FC<Props> = ({
           })
         )}
       </div>
-
-      {/* Quick Enter Space Button (when saved spaces exist) */}
-      {savedSpaces.length > 0 && (() => {
-        const selectedSpace = savedSpaces.find((s) => s.id === selectedSpaceId) || savedSpaces[0]
-        if (!selectedSpace) return null
-        return (
-          <button
-            type="button"
-            onClick={() => handleEnterSavedSpace(selectedSpace.id)}
-            disabled={loading}
-            className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all active:scale-98 flex items-center justify-center gap-2"
-          >
-            <Sparkles className="w-4 h-4 text-amber-300" />
-            <span>
-              Entrar no Espaço: {selectedSpace.name}
-            </span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        )
-      })()}
 
       {/* Custom Styled Confirmation Modal for Delete Space */}
       <ConfirmModal

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="dd563ze-92512660-fb11-4e3e-842f-78b61e7835f6.png">
+  <SubTexture name="other_lass_down_0" x="0" y="0" width="32" height="48"/>
+  <SubTexture name="other_lass_down_1" x="32" y="0" width="32" height="48"/>
+  <SubTexture name="other_lass_down_2" x="64" y="0" width="32" height="48"/>
+  <SubTexture name="other_lass_down_3" x="96" y="0" width="32" height="48"/>
+  <SubTexture name="other_lass_up_0" x="0" y="144" width="32" height="48"/>
+  <SubTexture name="other_lass_up_1" x="32" y="144" width="32" height="48"/>
+  <SubTexture name="other_lass_up_2" x="64" y="144" width="32" height="48"/>
+  <SubTexture name="other_lass_up_3" x="96" y="144" width="32" height="48"/>
+  <SubTexture name="other_lass_left_0" x="0" y="48" width="32" height="48"/>
+  <SubTexture name="other_lass_left_1" x="32" y="48" width="32" height="48"/>
+  <SubTexture name="other_lass_left_2" x="64" y="48" width="32" height="48"/>
+  <SubTexture name="other_lass_left_3" x="96" y="48" width="32" height="48"/>
+  <SubTexture name="other_lass_right_0" x="0" y="96" width="32" height="48"/>
+  <SubTexture name="other_lass_right_1" x="32" y="96" width="32" height="48"/>
+  <SubTexture name="other_lass_right_2" x="64" y="96" width="32" height="48"/>
+  <SubTexture name="other_lass_right_3" x="96" y="96" width="32" height="48"/>
+</TextureAtlas>

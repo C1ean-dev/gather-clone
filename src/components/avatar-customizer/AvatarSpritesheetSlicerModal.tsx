@@ -17,13 +17,28 @@ import {
   Layers,
   Sparkles,
   Maximize2,
+  ChevronLeft,
+  ChevronRight,
+  ArrowRightLeft,
+  GripVertical,
+  Move,
+  Pipette,
+  Wand2,
 } from 'lucide-react'
 import { AvatarComponentSlot, Direction } from '../../types/game'
 import { CustomAsset } from '../../types/customAsset'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 import { generateSparrowXml, downloadFile, PackedSubTexture } from '../../engine/avatar/avatarAtlasExporter'
 import { cropContentDataUrl } from '../../engine/avatar/avatarBakeService'
-import { applyBackgroundRemoval, RGBColor } from '../../utils/imageTransparency'
+import {
+  applyBackgroundRemoval,
+  RGBColor,
+  detectBackgroundColor,
+  rgbToHex,
+  hexToRgb,
+} from '../../utils/imageTransparency'
+import { convertAssetToSlicedPresets } from '../../utils/avatarAssetOrigin'
+import { saveAssetFileToDisk } from '../../utils/diskAssetPersistence'
 
 export interface SlicedFrameSlot {
   x: number
@@ -46,6 +61,7 @@ interface Props {
   imageFileName?: string
   category: AvatarComponentSlot
   onSaveComplete?: (createdAssets: CustomAsset[], xmlContent: string) => void
+  editingAsset?: CustomAsset | null
 }
 
 const CATEGORY_LABELS: Record<AvatarComponentSlot, string> = {
@@ -60,6 +76,7 @@ const CATEGORY_LABELS: Record<AvatarComponentSlot, string> = {
   eyes: 'Olhos',
   skin: 'Maquiagem',
   other: 'Personagem',
+  pet: 'Pet / Mascote',
 }
 
 const DIRECTIONS: { id: Direction; label: string; icon: string }[] = [
@@ -69,25 +86,6 @@ const DIRECTIONS: { id: Direction; label: string; icon: string }[] = [
   { id: 'right', label: 'Direita', icon: '➡️' },
 ]
 
-const BG_COLOR_PRESETS = [
-  { label: 'Escuro', hex: '#21232a' },
-  { label: 'Verde', hex: '#00ff00' },
-  { label: 'Magenta', hex: '#ff00ff' },
-  { label: 'Branco', hex: '#ffffff' },
-  { label: 'Preto', hex: '#000000' },
-  { label: 'Azul Claro', hex: '#00ffff' },
-]
-
-function hexToRgb(hex: string): RGBColor {
-  const clean = hex.replace('#', '')
-  const bigint = parseInt(clean, 16)
-  return {
-    r: (bigint >> 16) & 255,
-    g: (bigint >> 8) & 255,
-    b: bigint & 255,
-  }
-}
-
 export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -95,29 +93,55 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
   imageFileName = 'spritesheet.png',
   category,
   onSaveComplete,
+  editingAsset,
 }) => {
   const [sourceImg, setSourceImg] = useState<HTMLImageElement | null>(null)
-  const [zoom, setZoom] = useState<number>(2)
+  const [zoom, setZoom] = useState<number>(0.5)
   const [showGrid, setShowGrid] = useState<boolean>(true)
   const [gridSnapSize, setGridSnapSize] = useState<number>(16) // Supports 8, 16, 24, 32 or custom sizes
 
-  // Background Removal State
-  const [enableBgRemoval, setEnableBgRemoval] = useState<boolean>(true)
+  // Background Removal State (disabled by default)
+  const [enableBgRemoval, setEnableBgRemoval] = useState<boolean>(false)
   const [targetColorHex, setTargetColorHex] = useState<string>('#21232a')
   const [tolerance, setTolerance] = useState<number>(25)
+  const [isPickingColor, setIsPickingColor] = useState<boolean>(false)
 
   // Selection Box (supports any pixel size, smaller than 32x32)
-  const [selection, setSelection] = useState<{ x: number; y: number; w: number; h: number }>({
-    x: 0,
-    y: 0,
-    w: 16,
-    h: 16,
+  const [selection, setSelection] = useState<{ x: number; y: number; w: number; h: number }>(() => {
+    const firstSlot =
+      editingAsset?.slicerPresets?.[0]?.directions.down[0] ||
+      editingAsset?.slicerPresets?.[0]?.directions.up[0] ||
+      editingAsset?.slicerPresets?.[0]?.directions.left[0] ||
+      editingAsset?.slicerPresets?.[0]?.directions.right[0]
+
+    if (firstSlot && firstSlot.w && firstSlot.h) {
+      return {
+        x: firstSlot.x,
+        y: firstSlot.y,
+        w: firstSlot.w,
+        h: firstSlot.h,
+      }
+    }
+    return {
+      x: 0,
+      y: 0,
+      w: editingAsset ? (editingAsset.width || 1) * 32 : 16,
+      h: editingAsset ? (editingAsset.height || 1) * 32 : 16,
+    }
   })
   const [selectedRegionDataUrl, setSelectedRegionDataUrl] = useState<string>('')
 
   // Drag-Selection State
   const isSelectingRef = useRef<boolean>(false)
   const selectionStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const isMovingSelectionRef = useRef<boolean>(false)
+  const moveOffsetRef = useRef<{ offsetX: number; offsetY: number }>({ offsetX: 0, offsetY: 0 })
+  const [isHoveringSelection, setIsHoveringSelection] = useState<boolean>(false)
+
+  // Frame Drag & Drop and Direction Transfer State
+  const [draggedFrameIndex, setDraggedFrameIndex] = useState<number | null>(null)
+  const [dragOverFrameIndex, setDragOverFrameIndex] = useState<number | null>(null)
+  const [directionMenuIndex, setDirectionMenuIndex] = useState<number | null>(null)
 
   // Panning State
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
@@ -132,18 +156,51 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   // Presets List with Multi-Frame Support per Direction
-  const [presets, setPresets] = useState<SlicedPreset[]>([
-    {
-      id: `preset_${Date.now()}`,
-      name: `${CATEGORY_LABELS[category]} 1`,
-      directions: {
-        down: [],
-        up: [],
-        left: [],
-        right: [],
+  const [presets, setPresets] = useState<SlicedPreset[]>(() => {
+    if (editingAsset) {
+      return convertAssetToSlicedPresets(editingAsset, editingAsset.sourceXmlContent)
+    }
+    return [
+      {
+        id: `preset_${Date.now()}`,
+        name: `${CATEGORY_LABELS[category]} 1`,
+        directions: {
+          down: [],
+          up: [],
+          left: [],
+          right: [],
+        },
       },
-    },
-  ])
+    ]
+  })
+
+  // Sync presets whenever editingAsset changes
+  useEffect(() => {
+    if (editingAsset) {
+      const converted = convertAssetToSlicedPresets(editingAsset, editingAsset.sourceXmlContent)
+      setPresets(converted)
+      setActivePresetIndex(0)
+
+      const firstSlot =
+        converted[0]?.directions.down[0] ||
+        converted[0]?.directions.up[0] ||
+        converted[0]?.directions.left[0] ||
+        converted[0]?.directions.right[0]
+
+      if (firstSlot && firstSlot.w && firstSlot.h) {
+        setSelection({
+          x: firstSlot.x,
+          y: firstSlot.y,
+          w: firstSlot.w,
+          h: firstSlot.h,
+        })
+        if (sourceImg) {
+          sliceRegion(sourceImg, firstSlot.x, firstSlot.y, firstSlot.w, firstSlot.h)
+        }
+      }
+    }
+  }, [editingAsset])
+
   const [activePresetIndex, setActivePresetIndex] = useState<number>(0)
   const [activeDirectionTab, setActiveDirectionTab] = useState<Direction>('down')
   const [showXmlModal, setShowXmlModal] = useState<boolean>(false)
@@ -180,6 +237,14 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
     [enableBgRemoval, targetColorHex, tolerance]
   )
 
+  // Reset zoom and pan on open
+  useEffect(() => {
+    if (isOpen) {
+      setZoom(0.5)
+      setPanOffset({ x: 0, y: 0 })
+    }
+  }, [isOpen])
+
   // Load Source Image
   useEffect(() => {
     if (!imageSrc) return
@@ -187,7 +252,23 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
     img.src = imageSrc
     img.onload = () => {
       setSourceImg(img)
-      sliceRegion(img, 0, 0, 16, 16)
+      const firstSlot =
+        presets[0]?.directions.down[0] ||
+        presets[0]?.directions.up[0] ||
+        presets[0]?.directions.left[0] ||
+        presets[0]?.directions.right[0]
+
+      if (firstSlot && firstSlot.w && firstSlot.h) {
+        setSelection({
+          x: firstSlot.x,
+          y: firstSlot.y,
+          w: firstSlot.w,
+          h: firstSlot.h,
+        })
+        sliceRegion(img, firstSlot.x, firstSlot.y, firstSlot.w, firstSlot.h)
+      } else {
+        sliceRegion(img, selection.x, selection.y, selection.w || 16, selection.h || 16)
+      }
     }
   }, [imageSrc, sliceRegion])
 
@@ -197,6 +278,53 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       sliceRegion(sourceImg, selection.x, selection.y, selection.w, selection.h)
     }
   }, [enableBgRemoval, targetColorHex, tolerance, sourceImg, selection, sliceRegion])
+
+  // Automatically detects the background color and applies removal
+  const handleAutoDetectBg = useCallback(() => {
+    if (!sourceImg) return
+    // 1. Try region around current selection
+    let detected = detectBackgroundColor(sourceImg, selection)
+    // 2. If not found or transparent, sample whole sheet
+    if (!detected) {
+      detected = detectBackgroundColor(sourceImg)
+    }
+    if (detected) {
+      const hex = rgbToHex(detected)
+      setTargetColorHex(hex)
+      setEnableBgRemoval(true)
+      setIsPickingColor(false)
+    }
+  }, [sourceImg, selection])
+
+  // Eyedropper activation: native browser API if supported, or interactive canvas click
+  const handleToggleEyedropper = async () => {
+    if (typeof window !== 'undefined' && (window as any).EyeDropper) {
+      try {
+        const dropper = new (window as any).EyeDropper()
+        const res = await dropper.open()
+        if (res?.sRGBHex) {
+          setTargetColorHex(res.sRGBHex)
+          setEnableBgRemoval(true)
+          setIsPickingColor(false)
+          return
+        }
+      } catch {
+        // Cancelled by user
+      }
+    }
+    setIsPickingColor((prev) => !prev)
+  }
+
+  // Cancel color picker on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isPickingColor) {
+        setIsPickingColor(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isPickingColor])
 
   // Walk Cycle Loop Timer
   useEffect(() => {
@@ -209,6 +337,28 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
     }, 180)
     return () => clearInterval(interval)
   }, [isPlayingWalk])
+
+  // Zoom control with Ctrl + mouse wheel scroll
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+
+    const handleWheel = (e: WheelEvent) => {
+      // Zoom with Ctrl + mouse wheel scroll
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        e.stopPropagation()
+        const zoomDelta = e.deltaY < 0 ? 0.25 : -0.25
+        setZoom((prevZoom) => {
+          const next = Math.round((prevZoom + zoomDelta) * 100) / 100
+          return Math.max(0.5, Math.min(10, next))
+        })
+      }
+    }
+
+    stage.addEventListener('wheel', handleWheel, { passive: false })
+    return () => stage.removeEventListener('wheel', handleWheel)
+  }, [isOpen])
 
   // Render Spritesheet on Canvas
   useEffect(() => {
@@ -312,6 +462,39 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       const clientX = (e.clientX - rect.left) * scaleX
       const clientY = (e.clientY - rect.top) * scaleY
 
+      // If in Eyedropper mode: sample pixel directly from canvas
+      if (isPickingColor) {
+        e.preventDefault()
+        e.stopPropagation()
+        const cx = Math.max(0, Math.min(canvas.width - 1, Math.floor(clientX)))
+        const cy = Math.max(0, Math.min(canvas.height - 1, Math.floor(clientY)))
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          const p = ctx.getImageData(cx, cy, 1, 1).data
+          const hex = rgbToHex({ r: p[0], g: p[1], b: p[2] })
+          setTargetColorHex(hex)
+          setEnableBgRemoval(true)
+        }
+        setIsPickingColor(false)
+        return
+      }
+
+      // Check if clicking inside the existing selection box to drag/move it
+      const isInside =
+        clientX >= selection.x &&
+        clientX <= selection.x + selection.w &&
+        clientY >= selection.y &&
+        clientY <= selection.y + selection.h
+
+      if (isInside && !e.shiftKey) {
+        isMovingSelectionRef.current = true
+        moveOffsetRef.current = {
+          offsetX: clientX - selection.x,
+          offsetY: clientY - selection.y,
+        }
+        return
+      }
+
       const snap = Math.max(1, gridSnapSize)
       const tileX = Math.max(0, Math.min(canvas.width - snap, Math.floor(clientX / snap) * snap))
       const tileY = Math.max(0, Math.min(canvas.height - snap, Math.floor(clientY / snap) * snap))
@@ -338,16 +521,34 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       return
     }
 
-    if (isSelectingRef.current && sourceImg) {
-      const canvas = canvasRef.current
-      if (!canvas) return
-      const rect = canvas.getBoundingClientRect()
-      const scaleX = canvas.width / rect.width
-      const scaleY = canvas.height / rect.height
+    if (!canvasRef.current || !sourceImg) return
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
 
-      const clientX = (e.clientX - rect.left) * scaleX
-      const clientY = (e.clientY - rect.top) * scaleY
+    const clientX = (e.clientX - rect.left) * scaleX
+    const clientY = (e.clientY - rect.top) * scaleY
 
+    // Moving existing selection box
+    if (isMovingSelectionRef.current) {
+      const snap = Math.max(1, gridSnapSize)
+      const rawX = clientX - moveOffsetRef.current.offsetX
+      const rawY = clientY - moveOffsetRef.current.offsetY
+
+      const targetX = Math.max(0, Math.min(canvas.width - selection.w, Math.floor(rawX / snap) * snap))
+      const targetY = Math.max(0, Math.min(canvas.height - selection.h, Math.floor(rawY / snap) * snap))
+
+      setSelection((prev) => ({
+        ...prev,
+        x: targetX,
+        y: targetY,
+      }))
+      return
+    }
+
+    // Creating new drag selection
+    if (isSelectingRef.current) {
       const snap = Math.max(1, gridSnapSize)
       const curTileX = Math.max(0, Math.min(canvas.width - snap, Math.floor(clientX / snap) * snap))
       const curTileY = Math.max(0, Math.min(canvas.height - snap, Math.floor(clientY / snap) * snap))
@@ -361,12 +562,25 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       const newH = maxY - minY
 
       setSelection({ x: minX, y: minY, w: newW, h: newH })
+      return
     }
+
+    // Update hover state for cursor
+    const isInside =
+      clientX >= selection.x &&
+      clientX <= selection.x + selection.w &&
+      clientY >= selection.y &&
+      clientY <= selection.y + selection.h
+    setIsHoveringSelection(isInside)
   }
 
   const handleMouseUp = () => {
     if (isPanning) {
       setIsPanning(false)
+    }
+    if (isMovingSelectionRef.current && sourceImg) {
+      isMovingSelectionRef.current = false
+      sliceRegion(sourceImg, selection.x, selection.y, selection.w, selection.h)
     }
     if (isSelectingRef.current && sourceImg) {
       isSelectingRef.current = false
@@ -374,13 +588,40 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
     }
   }
 
-  // Adjust selection dimensions to exact pixel sizes (smaller than 32x32 supported!)
+  // Keyboard arrow nudge support to move selection box on canvas
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isOpen || !sourceImg) return
+      if ((e.target as HTMLElement)?.tagName === 'INPUT') return
+
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault()
+        const step = Math.max(1, gridSnapSize)
+        setSelection((prev) => {
+          let nx = prev.x
+          let ny = prev.y
+          if (e.key === 'ArrowLeft') nx = Math.max(0, prev.x - step)
+          if (e.key === 'ArrowRight') nx = Math.min(sourceImg.naturalWidth - prev.w, prev.x + step)
+          if (e.key === 'ArrowUp') ny = Math.max(0, prev.y - step)
+          if (e.key === 'ArrowDown') ny = Math.min(sourceImg.naturalHeight - prev.h, prev.y + step)
+          const updated = { ...prev, x: nx, y: ny }
+          sliceRegion(sourceImg, nx, ny, prev.w, prev.h)
+          return updated
+        })
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, sourceImg, gridSnapSize, sliceRegion])
+
+  // Adjust selection dimensions to exact pixel sizes (from 1px up to max image size)
   const setExactDimensions = (w: number, h: number) => {
     if (!sourceImg) return
     const maxW = sourceImg.naturalWidth - selection.x
     const maxH = sourceImg.naturalHeight - selection.y
-    const targetW = Math.max(4, Math.min(w, maxW))
-    const targetH = Math.max(4, Math.min(h, maxH))
+    const targetW = Math.max(1, Math.min(w, maxW))
+    const targetH = Math.max(1, Math.min(h, maxH))
 
     const updated = {
       ...selection,
@@ -391,10 +632,42 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
     sliceRegion(sourceImg, updated.x, updated.y, updated.w, updated.h)
   }
 
+  // Update grid size (1 to 64px) and automatically synchronize selector dimensions!
+  const handleUpdateGridSize = (newGridSize: number) => {
+    const safeSize = Math.max(1, Math.min(64, Math.round(newGridSize)))
+    setGridSnapSize(safeSize)
+
+    if (sourceImg) {
+      const maxW = sourceImg.naturalWidth
+      const maxH = sourceImg.naturalHeight
+      const targetW = Math.min(safeSize, maxW)
+      const targetH = Math.min(safeSize, maxH)
+
+      // Snap current selection coordinates to new grid size
+      const snappedX = Math.max(0, Math.min(maxW - targetW, Math.floor(selection.x / safeSize) * safeSize))
+      const snappedY = Math.max(0, Math.min(maxH - targetH, Math.floor(selection.y / safeSize) * safeSize))
+
+      const updated = {
+        x: snappedX,
+        y: snappedY,
+        w: targetW,
+        h: targetH,
+      }
+      setSelection(updated)
+      sliceRegion(sourceImg, updated.x, updated.y, updated.w, updated.h)
+    } else {
+      setSelection((prev) => ({
+        ...prev,
+        w: safeSize,
+        h: safeSize,
+      }))
+    }
+  }
+
   // Add individual blocks sequentially (Walk Cycle)
   const handleAddSequentialFrames = (dir: Direction) => {
     if (!sourceImg) return
-    const step = Math.max(4, gridSnapSize)
+    const step = Math.max(1, gridSnapSize)
     const cols = Math.max(1, Math.round(selection.w / step))
     const rows = Math.max(1, Math.round(selection.h / step))
 
@@ -468,6 +741,47 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       updated[activePresetIndex] = current
       return updated
     })
+  }
+
+  // Move frame order (left or right in walk animation loop)
+  const handleMoveFrameOrder = (dir: Direction, fromIndex: number, toIndex: number) => {
+    setPresets((prev) => {
+      const updated = [...prev]
+      const current = { ...updated[activePresetIndex] }
+      const list = [...(current.directions[dir] || [])]
+      if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length) {
+        return prev
+      }
+      const [item] = list.splice(fromIndex, 1)
+      list.splice(toIndex, 0, item)
+      current.directions = {
+        ...current.directions,
+        [dir]: list,
+      }
+      updated[activePresetIndex] = current
+      return updated
+    })
+  }
+
+  // Move a frame to another direction (Frente, Costas, Esquerda, Direita)
+  const handleMoveFrameToDirection = (fromDir: Direction, frameIndex: number, targetDir: Direction) => {
+    if (fromDir === targetDir) return
+    setPresets((prev) => {
+      const updated = [...prev]
+      const current = { ...updated[activePresetIndex] }
+      const sourceList = [...(current.directions[fromDir] || [])]
+      if (frameIndex < 0 || frameIndex >= sourceList.length) return prev
+      const [item] = sourceList.splice(frameIndex, 1)
+      const targetList = [...(current.directions[targetDir] || []), item]
+      current.directions = {
+        ...current.directions,
+        [fromDir]: sourceList,
+        [targetDir]: targetList,
+      }
+      updated[activePresetIndex] = current
+      return updated
+    })
+    setDirectionMenuIndex(null)
   }
 
   // Mirror lateral direction (Left <-> Right)
@@ -603,29 +917,77 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
 
       const thumbnail = await cropContentDataUrl(firstDown)
 
-      const asset: CustomAsset = {
-        id: `avatar_${category}_sliced_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        name: p.name.trim() || `Preset ${CATEGORY_LABELS[category]}`,
-        type: 'avatar',
-        category: 'Avatares',
-        avatarSlot: category,
-        thumbnail,
-        width: Math.max(1, Math.ceil(selection.w / 32)),
-        height: Math.max(1, Math.ceil(selection.h / 32)),
-        isObstacle: false,
-        frames: [
-          Array.isArray(directionalFrames.down) ? directionalFrames.down[0] : (directionalFrames.down || ''),
-          Array.isArray(directionalFrames.up) ? directionalFrames.up[0] : (directionalFrames.up || ''),
-          Array.isArray(directionalFrames.left) ? directionalFrames.left[0] : (directionalFrames.left || ''),
-          Array.isArray(directionalFrames.right) ? directionalFrames.right[0] : (directionalFrames.right || ''),
-        ],
-        directionalFrames,
-        frameRateMs: 160,
-        createdAt: Date.now(),
-      }
+      if (editingAsset) {
+        store.updateCustomAsset(editingAsset.id, {
+          name: p.name.trim() || editingAsset.name,
+          thumbnail,
+          width: Math.max(1, Math.ceil(selection.w / 32)),
+          height: Math.max(1, Math.ceil(selection.h / 32)),
+          frames: [
+            Array.isArray(directionalFrames.down) ? directionalFrames.down[0] : (directionalFrames.down || ''),
+            Array.isArray(directionalFrames.up) ? directionalFrames.up[0] : (directionalFrames.up || ''),
+            Array.isArray(directionalFrames.left) ? directionalFrames.left[0] : (directionalFrames.left || ''),
+            Array.isArray(directionalFrames.right) ? directionalFrames.right[0] : (directionalFrames.right || ''),
+          ],
+          directionalFrames,
+          creationSource: 'slicer',
+          sourceImageSrc: imageSrc,
+          sourceFileName: imageFileName,
+          slicerPresets: presets,
+        })
+        const updated = store.customAssets.find((a) => a.id === editingAsset.id) || {
+          ...editingAsset,
+          name: p.name.trim() || editingAsset.name,
+          thumbnail,
+          directionalFrames,
+        }
+        createdAssets.push(updated)
+      } else {
+        const asset: CustomAsset = {
+          id: `avatar_${category}_sliced_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name: p.name.trim() || `Preset ${CATEGORY_LABELS[category]}`,
+          type: 'avatar',
+          category: 'Avatares',
+          avatarSlot: category,
+          thumbnail,
+          width: Math.max(1, Math.ceil(selection.w / 32)),
+          height: Math.max(1, Math.ceil(selection.h / 32)),
+          isObstacle: false,
+          frames: [
+            Array.isArray(directionalFrames.down) ? directionalFrames.down[0] : (directionalFrames.down || ''),
+            Array.isArray(directionalFrames.up) ? directionalFrames.up[0] : (directionalFrames.up || ''),
+            Array.isArray(directionalFrames.left) ? directionalFrames.left[0] : (directionalFrames.left || ''),
+            Array.isArray(directionalFrames.right) ? directionalFrames.right[0] : (directionalFrames.right || ''),
+          ],
+          directionalFrames,
+          frameRateMs: 160,
+          createdAt: Date.now(),
+          creationSource: 'slicer',
+          sourceImageSrc: imageSrc,
+          sourceFileName: imageFileName,
+          slicerPresets: presets,
+        }
 
-      store.addCustomAsset(asset)
-      createdAssets.push(asset)
+        store.addCustomAsset(asset)
+        createdAssets.push(asset)
+      }
+    }
+
+    // Save XML and PNG directly to public/assets/pet/ (for pets) or public/assets/avatar/ so they are tracked in Git
+    const subfolder = category === 'pet' ? 'pet' : 'avatar'
+    const cleanBase = imageFileName.replace(/\.[^/.]+$/, '') || `${category}_atlas`
+    saveAssetFileToDisk(
+      `public/assets/${subfolder}/${cleanBase}.xml`,
+      generateXmlString(),
+      'utf-8'
+    ).catch((e) => console.warn('Could not auto-save atlas XML to disk:', e))
+
+    if (imageSrc) {
+      saveAssetFileToDisk(
+        `public/assets/${subfolder}/${cleanBase}.png`,
+        imageSrc,
+        'base64'
+      ).catch((e) => console.warn('Could not auto-save atlas PNG to disk:', e))
     }
 
     setSavedSuccessCount(createdAssets.length)
@@ -652,7 +1014,7 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       : selectedRegionDataUrl
 
   // Selection step calculations
-  const snapStep = Math.max(4, gridSnapSize)
+  const snapStep = Math.max(1, gridSnapSize)
   const isMultiBlock = selection.w > snapStep || selection.h > snapStep
   const totalBlocks = Math.max(1, Math.round(selection.w / snapStep) * Math.round(selection.h / snapStep))
 
@@ -672,13 +1034,20 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
-                Fatiador com Seletor Livre (Qualquer Tamanho)
+                {editingAsset ? `Editar: ${editingAsset.name}` : 'Fatiador com Seletor Livre (Qualquer Tamanho)'}
                 <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#2b2d31] text-blue-400 border border-[#383a40]">
                   {CATEGORY_LABELS[category]}
                 </span>
+                {editingAsset && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                    Modo Edição
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-slate-400">
-                Selecione regiões menores que 32×32 (ex: 16×16, 8×8, 24×24) ou qualquer dimensão livre para recortar sprites.
+                {editingAsset
+                  ? 'Reorganize frames, recorte novos passos da folha ou ajuste as direções deste personagem.'
+                  : 'Selecione regiões menores que 32×32 (ex: 16×16, 8×8, 24×24) ou qualquer dimensão livre para recortar sprites.'}
               </p>
             </div>
           </div>
@@ -724,7 +1093,7 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
             <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md p-1.5 rounded-2xl shadow-xl">
               <button
                 type="button"
-                onClick={() => setZoom((z) => Math.max(1, z - 0.5))}
+                onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.5) * 10) / 10))}
                 className="w-8 h-8 rounded-xl hover:bg-[#2b2d31] text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
                 title="Diminuir Zoom"
               >
@@ -733,7 +1102,7 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
               <span className="text-xs font-mono font-bold text-slate-300 px-2">{zoom}x</span>
               <button
                 type="button"
-                onClick={() => setZoom((z) => Math.min(8, z + 0.5))}
+                onClick={() => setZoom((z) => Math.min(10, Math.round((z + 0.5) * 10) / 10))}
                 className="w-8 h-8 rounded-xl hover:bg-[#2b2d31] text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
                 title="Aumentar Zoom"
               >
@@ -754,18 +1123,34 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
             </div>
 
             {/* Bottom Status Tips */}
-            <div className="absolute bottom-4 z-10 flex items-center gap-4 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-4 py-2 rounded-2xl text-xs text-slate-400 shadow-lg">
-              <span>
-                Seleção:{' '}
-                <strong className="text-white">
-                  x: {selection.x}, y: {selection.y} ({selection.w}×{selection.h}px)
-                </strong>
-              </span>
-              <div className="w-px h-3 bg-[#383a40]" />
-              <span>🖱️ Clique e arraste para recortar</span>
-              <span>•</span>
-              <span>🖱️ Botão Direito: Mover tela</span>
-            </div>
+            {isPickingColor ? (
+              <div className="absolute bottom-4 z-10 flex items-center gap-2 bg-amber-500 text-slate-950 font-bold px-4 py-2 rounded-2xl text-xs shadow-xl animate-bounce">
+                <Pipette className="w-4 h-4" />
+                <span>Conta-gotas ativo: Clique em qualquer ponto da imagem para selecionar a cor de fundo!</span>
+                <button
+                  type="button"
+                  onClick={() => setIsPickingColor(false)}
+                  className="ml-2 px-2 py-0.5 rounded-lg bg-slate-900/30 hover:bg-slate-900/50 text-slate-950 text-[10px]"
+                >
+                  Cancelar (Esc)
+                </button>
+              </div>
+            ) : (
+              <div className="absolute bottom-4 z-10 flex items-center gap-3 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-4 py-2 rounded-2xl text-xs text-slate-400 shadow-lg">
+                <span>
+                  Seleção:{' '}
+                  <strong className="text-white">
+                    x: {selection.x}, y: {selection.y} ({selection.w}×{selection.h}px)
+                  </strong>
+                </span>
+                <div className="w-px h-3 bg-[#383a40]" />
+                <span>🖱️ Arraste dentro da seleção ou use setas do teclado para movê-la</span>
+                <span>•</span>
+                <span>🔍 Ctrl + Scroll: Zoom</span>
+                <span>•</span>
+                <span>🖱️ Botão Direito: Mover tela</span>
+              </div>
+            )}
 
             {/* Canvas Container with Pan & Zoom */}
             <div
@@ -779,7 +1164,9 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
               <canvas
                 ref={canvasRef}
                 onMouseDown={handleCanvasMouseDown}
-                className="block [image-rendering:pixelated]"
+                className={`block [image-rendering:pixelated] ${
+                  isPickingColor ? 'cursor-crosshair' : isHoveringSelection ? 'cursor-move' : 'cursor-crosshair'
+                }`}
               />
             </div>
           </div>
@@ -807,42 +1194,64 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
               </div>
 
               {enableBgRemoval && (
-                <div className="flex flex-col gap-2 pt-1 border-t border-[#383a40]/60">
-                  <div className="flex items-center gap-1.5">
-                    {BG_COLOR_PRESETS.map((c) => (
-                      <button
-                        key={c.hex}
-                        type="button"
-                        onClick={() => setTargetColorHex(c.hex)}
-                        title={c.label}
-                        style={{ backgroundColor: c.hex }}
-                        className={`w-6 h-6 rounded-lg transition-transform hover:scale-110 ${
-                          targetColorHex.toLowerCase() === c.hex.toLowerCase()
-                            ? 'ring-2 ring-blue-400 scale-105 shadow'
-                            : 'border border-black/30'
-                        }`}
-                      />
-                    ))}
-                    <input
-                      type="color"
-                      value={targetColorHex}
-                      onChange={(e) => setTargetColorHex(e.target.value)}
-                      className="w-6 h-6 rounded-lg bg-transparent border-none cursor-pointer"
-                      title="Cor Personalizada"
-                    />
+                <div className="flex flex-col gap-2.5 pt-1 border-t border-[#383a40]/60">
+                  {/* Conta-gotas, Modo Automático e Amostra de Cor */}
+                  <div className="flex items-center gap-2">
+                    {/* Botão Modo Automático */}
+                    <button
+                      type="button"
+                      onClick={handleAutoDetectBg}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer"
+                      title="Detecta automaticamente a cor de fundo analisando as bordas e cantos da imagem e a remove"
+                    >
+                      <Wand2 className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Modo Automático</span>
+                    </button>
+
+                    {/* Botão Conta-gotas */}
+                    <button
+                      type="button"
+                      onClick={handleToggleEyedropper}
+                      className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer ${
+                        isPickingColor
+                          ? 'bg-amber-500 text-slate-900 border-amber-400 shadow-md shadow-amber-500/20 animate-pulse'
+                          : 'bg-[#1e1f22] hover:bg-[#2b2d31] text-slate-200 border-[#383a40]'
+                      }`}
+                      title="Clique para ativar o conta-gotas e selecionar a cor diretamente na imagem"
+                    >
+                      <Pipette className="w-3.5 h-3.5 text-blue-400" />
+                      <span>{isPickingColor ? 'Clique...' : 'Conta-gotas'}</span>
+                    </button>
+
+                    {/* Preview e ajuste da cor selecionada */}
+                    <div className="relative group/picker shrink-0">
+                      <div
+                        className="w-7 h-7 rounded-xl border border-white/30 shadow-inner flex items-center justify-center cursor-pointer overflow-hidden transition-transform hover:scale-105"
+                        style={{ backgroundColor: targetColorHex }}
+                        title={`Cor de fundo: ${targetColorHex} (Clique para ajustar)`}
+                      >
+                        <input
+                          type="color"
+                          value={targetColorHex}
+                          onChange={(e) => setTargetColorHex(e.target.value)}
+                          className="opacity-0 w-full h-full cursor-pointer"
+                        />
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Tolerância:</span>
+                  {/* Slider de Tolerância */}
+                  <div className="flex items-center justify-between text-xs text-slate-300 bg-[#1e1f22]/60 px-2.5 py-1.5 rounded-xl border border-[#383a40]/40">
+                    <span className="text-[11px] font-semibold text-slate-400">Tolerância:</span>
                     <input
                       type="range"
                       min={0}
-                      max={80}
+                      max={100}
                       value={tolerance}
                       onChange={(e) => setTolerance(parseInt(e.target.value))}
-                      className="w-32 accent-[#3b82f6] cursor-pointer"
+                      className="w-28 accent-[#3b82f6] cursor-pointer"
                     />
-                    <span className="font-mono text-slate-200">{tolerance}%</span>
+                    <span className="font-mono font-bold text-slate-200 w-8 text-right">{tolerance}%</span>
                   </div>
                 </div>
               )}
@@ -911,31 +1320,67 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
               )}
             </div>
 
-            {/* 3. Seletor de Tamanho Livre & Grade (suporte a menores que 32x32) */}
+            {/* 3. Seletor de Tamanho Livre & Grade (1x1 até 64x64) */}
             <div className="bg-[#2b2d31]/70 border border-[#383a40] p-3 rounded-2xl flex flex-col gap-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
                   Tamanho da Seleção
                 </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#1e1f22] text-amber-400 border border-[#383a40]">
-                  {selection.w}×{selection.h}px
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#1e1f22] text-blue-400 border border-[#383a40]">
+                    Grade: {gridSnapSize}px
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#1e1f22] text-amber-400 border border-[#383a40]">
+                    {selection.w}×{selection.h}px
+                  </span>
+                </div>
               </div>
 
-              {/* Snap da Grade */}
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span className="text-[11px] font-semibold">Snap / Grade:</span>
-                <div className="flex items-center gap-1">
-                  {[8, 16, 24, 32].map((s) => (
+              {/* Snap da Grade (1 a 64px) com sincronização automática do seletor */}
+              <div className="flex flex-col gap-1.5 bg-[#1e1f22] p-2 rounded-xl border border-[#383a40]/60">
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span className="text-[10px] font-bold text-slate-300">Grade / Snap (1 a 64px):</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={1}
+                      max={64}
+                      value={gridSnapSize}
+                      onChange={(e) => handleUpdateGridSize(parseInt(e.target.value) || 1)}
+                      className="w-12 bg-[#141517] border border-[#383a40] focus:border-blue-500 text-blue-400 font-mono text-center text-xs px-1 py-0.5 rounded-lg outline-none"
+                    />
+                    <span className="text-[10px] text-slate-500">px</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={1}
+                    max={64}
+                    value={gridSnapSize}
+                    onChange={(e) => handleUpdateGridSize(parseInt(e.target.value) || 1)}
+                    className="flex-1 accent-blue-500 cursor-pointer h-1.5"
+                    title="Ajuste fino da grade (sincroniza o seletor)"
+                  />
+                  <span className="text-[9px] font-mono text-slate-400 min-w-[32px] text-right">
+                    {gridSnapSize}×{gridSnapSize}
+                  </span>
+                </div>
+
+                {/* Botões Rápidos de Grade */}
+                <div className="flex items-center justify-between gap-1 pt-1 border-t border-white/5">
+                  {[1, 8, 16, 24, 32, 48, 64].map((s) => (
                     <button
                       key={s}
                       type="button"
-                      onClick={() => setGridSnapSize(s)}
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                      onClick={() => handleUpdateGridSize(s)}
+                      className={`flex-1 py-0.5 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
                         gridSnapSize === s
                           ? 'bg-blue-600 border-blue-400 text-white shadow'
-                          : 'bg-[#1e1f22] border-[#383a40] text-slate-400 hover:text-white'
+                          : 'bg-[#141517] border-[#383a40] text-slate-400 hover:text-white'
                       }`}
+                      title={`Ajusta a grade para ${s}px e o seletor para ${s}×${s}px`}
                     >
                       {s}px
                     </button>
@@ -943,9 +1388,10 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
                 </div>
               </div>
 
-              {/* Presets Rápidos de Tamanho (incluindo menores que 32x32) */}
+              {/* Presets Rápidos de Tamanho (1x1 até 64x64) */}
               <div className="flex flex-wrap gap-1">
                 {[
+                  { label: '1×1', w: 1, h: 1 },
                   { label: '8×8', w: 8, h: 8 },
                   { label: '16×16', w: 16, h: 16 },
                   { label: '16×32', w: 16, h: 32 },
@@ -958,8 +1404,15 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
                   <button
                     key={s.label}
                     type="button"
-                    onClick={() => setExactDimensions(s.w, s.h)}
-                    className={`flex-1 min-w-[40px] py-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
+                    onClick={() => {
+                      if (s.w === s.h) {
+                        handleUpdateGridSize(s.w)
+                      } else {
+                        setGridSnapSize(s.w)
+                        setExactDimensions(s.w, s.h)
+                      }
+                    }}
+                    className={`flex-1 min-w-[36px] py-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer ${
                       selection.w === s.w && selection.h === s.h
                         ? 'bg-amber-500/20 border-amber-500/60 text-amber-300'
                         : 'bg-[#1e1f22] border-[#383a40] text-slate-400 hover:text-white'
@@ -977,11 +1430,11 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
                   <div className="flex items-center gap-1">
                     <input
                       type="number"
-                      min={4}
+                      min={1}
                       max={512}
-                      step={gridSnapSize > 0 ? gridSnapSize : 4}
+                      step={gridSnapSize > 0 ? gridSnapSize : 1}
                       value={selection.w}
-                      onChange={(e) => setExactDimensions(parseInt(e.target.value) || 16, selection.h)}
+                      onChange={(e) => setExactDimensions(parseInt(e.target.value) || 1, selection.h)}
                       className="w-14 bg-[#141517] border border-[#383a40] text-amber-300 font-mono text-center text-xs px-1 py-0.5 rounded-lg outline-none"
                     />
                     <span className="text-[10px] text-slate-500">px</span>
@@ -993,11 +1446,11 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
                   <div className="flex items-center gap-1">
                     <input
                       type="number"
-                      min={4}
+                      min={1}
                       max={512}
-                      step={gridSnapSize > 0 ? gridSnapSize : 4}
+                      step={gridSnapSize > 0 ? gridSnapSize : 1}
                       value={selection.h}
-                      onChange={(e) => setExactDimensions(selection.w, parseInt(e.target.value) || 16)}
+                      onChange={(e) => setExactDimensions(selection.w, parseInt(e.target.value) || 1)}
                       className="w-14 bg-[#141517] border border-[#383a40] text-amber-300 font-mono text-center text-xs px-1 py-0.5 rounded-lg outline-none"
                     />
                     <span className="text-[10px] text-slate-500">px</span>
@@ -1114,36 +1567,169 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
                     Nenhum frame atribuído ainda. Selecione na imagem para adicionar.
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                    {activeDirectionFrames.map((frame, idx) => (
-                      <div
-                        key={`${frame.x}_${frame.y}_${idx}`}
-                        className="group relative flex flex-col items-center p-1.5 rounded-xl bg-[#141517] border border-slate-700 shrink-0"
-                      >
-                        <div className="w-12 h-12 rounded-lg bg-[#18191c] flex items-center justify-center overflow-hidden">
-                          <img
-                            src={frame.dataUrl}
-                            alt={`Frame ${idx}`}
-                            className="w-10 h-10 object-contain [image-rendering:pixelated]"
-                          />
-                        </div>
-                        <span className="text-[9px] font-bold text-slate-300 mt-1">
-                          {idx === 0 ? '0 (Parado)' : `Passo ${idx}`}
-                        </span>
-                        <span className="text-[8px] text-slate-500 font-mono">
-                          {frame.w || 16}×{frame.h || 16}
-                        </span>
+                  <div className="flex items-center gap-2 overflow-x-auto pb-2 pt-1 px-1">
+                    {activeDirectionFrames.map((frame, idx) => {
+                      const isDragged = draggedFrameIndex === idx
+                      const isDragOver = dragOverFrameIndex === idx
+                      const isMenuOpen = directionMenuIndex === idx
 
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveDirectionFrame(activeDirectionTab, idx)}
-                          className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow cursor-pointer"
-                          title="Remover este frame"
+                      return (
+                        <div
+                          key={`${frame.x}_${frame.y}_${idx}`}
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggedFrameIndex(idx)
+                            e.dataTransfer.effectAllowed = 'move'
+                            e.dataTransfer.setData('text/plain', String(idx))
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
+                            if (dragOverFrameIndex !== idx) {
+                              setDragOverFrameIndex(idx)
+                            }
+                          }}
+                          onDragLeave={() => {
+                            if (dragOverFrameIndex === idx) {
+                              setDragOverFrameIndex(null)
+                            }
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault()
+                            if (draggedFrameIndex !== null && draggedFrameIndex !== idx) {
+                              handleMoveFrameOrder(activeDirectionTab, draggedFrameIndex, idx)
+                            }
+                            setDraggedFrameIndex(null)
+                            setDragOverFrameIndex(null)
+                          }}
+                          onDragEnd={() => {
+                            setDraggedFrameIndex(null)
+                            setDragOverFrameIndex(null)
+                          }}
+                          className={`group relative flex flex-col items-center p-1.5 rounded-xl bg-[#141517] border transition-all shrink-0 ${
+                            isDragOver
+                              ? 'border-indigo-400 bg-indigo-500/20 shadow-lg scale-105'
+                              : isDragged
+                              ? 'opacity-40 border-dashed border-blue-500 scale-95'
+                              : 'border-slate-700 hover:border-slate-500'
+                          }`}
                         >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
+                          {/* Top Drag Grip & Delete */}
+                          <div className="w-full flex items-center justify-between pb-1 cursor-grab active:cursor-grabbing">
+                            <span className="text-slate-600 hover:text-slate-400" title="Arraste para mover de lugar">
+                              <GripVertical className="w-3 h-3" />
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveDirectionFrame(activeDirectionTab, idx)}
+                              className="w-4 h-4 rounded-full bg-rose-500/20 hover:bg-rose-500 text-rose-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                              title="Remover este frame"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+
+                          {/* Thumbnail (Click to Focus / Select Region on Spritesheet) */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const fw = frame.w || 16
+                              const fh = frame.h || 16
+                              setSelection({ x: frame.x, y: frame.y, w: fw, h: fh })
+                              if (sourceImg) {
+                                sliceRegion(sourceImg, frame.x, frame.y, fw, fh)
+                              }
+                            }}
+                            className="w-12 h-12 rounded-lg bg-[#18191c] hover:ring-2 hover:ring-blue-400 flex items-center justify-center overflow-hidden transition-all cursor-pointer"
+                            title="Clique para posicionar a seleção neste frame"
+                          >
+                            <img
+                              src={frame.dataUrl}
+                              alt={`Frame ${idx}`}
+                              className="w-10 h-10 object-contain [image-rendering:pixelated]"
+                            />
+                          </button>
+
+                          <span className="text-[9px] font-bold text-slate-300 mt-1">
+                            {idx === 0 ? '0 (Parado)' : `Passo ${idx}`}
+                          </span>
+                          <span className="text-[8px] text-slate-500 font-mono">
+                            {frame.w || 16}×{frame.h || 16}
+                          </span>
+
+                          {/* Move Controls Strip (Move Left, Move Right, Transfer Direction) */}
+                          <div className="flex items-center gap-1 mt-1.5 pt-1 border-t border-slate-800/80 w-full justify-center">
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => handleMoveFrameOrder(activeDirectionTab, idx, idx - 1)}
+                              className={`p-1 rounded transition-colors ${
+                                idx === 0
+                                  ? 'opacity-30 cursor-not-allowed text-slate-600'
+                                  : 'hover:bg-[#2b2d31] text-slate-400 hover:text-white cursor-pointer'
+                              }`}
+                              title="Mover frame para a esquerda"
+                            >
+                              <ChevronLeft className="w-3 h-3" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setDirectionMenuIndex(isMenuOpen ? null : idx)}
+                              className={`p-1 rounded transition-colors ${
+                                isMenuOpen
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'hover:bg-[#2b2d31] text-indigo-400 hover:text-white cursor-pointer'
+                              }`}
+                              title="Mover para outra direção (Frente, Costas, etc.)"
+                            >
+                              <ArrowRightLeft className="w-3 h-3" />
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={idx === activeDirectionFrames.length - 1}
+                              onClick={() => handleMoveFrameOrder(activeDirectionTab, idx, idx + 1)}
+                              className={`p-1 rounded transition-colors ${
+                                idx === activeDirectionFrames.length - 1
+                                  ? 'opacity-30 cursor-not-allowed text-slate-600'
+                                  : 'hover:bg-[#2b2d31] text-slate-400 hover:text-white cursor-pointer'
+                              }`}
+                              title="Mover frame para a direita"
+                            >
+                              <ChevronRight className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          {/* Move to Direction Popover */}
+                          {isMenuOpen && (
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-30 bg-[#1e1f22] border border-indigo-500/40 rounded-xl p-1.5 shadow-2xl flex flex-col gap-1 w-28 animate-in fade-in zoom-in-95">
+                              <span className="text-[9px] font-bold text-slate-400 px-1 border-b border-white/10 pb-0.5">
+                                Mover para:
+                              </span>
+                              {DIRECTIONS.filter((d) => d.id !== activeDirectionTab).map((d) => (
+                                <button
+                                  key={d.id}
+                                  type="button"
+                                  onClick={() => handleMoveFrameToDirection(activeDirectionTab, idx, d.id)}
+                                  className="text-[10px] font-semibold text-slate-200 hover:text-white hover:bg-indigo-600/30 px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors text-left cursor-pointer"
+                                >
+                                  <span>{d.icon}</span>
+                                  <span>{d.label}</span>
+                                </button>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => setDirectionMenuIndex(null)}
+                                className="text-[9px] text-slate-400 hover:text-white pt-0.5 text-center cursor-pointer"
+                              >
+                                Fechar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -1212,7 +1798,9 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
               <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs animate-in fade-in">
                 <CheckCircle className="w-4 h-4 shrink-0 text-emerald-400" />
                 <span>
-                  <strong>{savedSuccessCount}</strong> presets salvos e prontos para uso!
+                  {editingAsset
+                    ? `Alterações em "${editingAsset.name}" salvas com sucesso!`
+                    : `${savedSuccessCount} presets salvos e prontos para uso!`}
                 </span>
               </div>
             )}
@@ -1225,7 +1813,7 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
                 className="w-full py-3 rounded-2xl text-xs font-extrabold bg-[#3b82f6] hover:bg-blue-500 text-white shadow-lg shadow-blue-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Check className="w-4 h-4" />
-                <span>Salvar Presets no Avatar</span>
+                <span>{editingAsset ? `Salvar Alterações em "${editingAsset.name}"` : 'Salvar Presets no Avatar'}</span>
               </button>
             </div>
           </div>

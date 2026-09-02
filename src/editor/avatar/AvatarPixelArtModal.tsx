@@ -54,6 +54,7 @@ const CATEGORY_LABELS: Record<AvatarComponentSlot, string> = {
   eyes: 'Olhos',
   skin: 'Maquiagem',
   other: 'Personagem',
+  pet: 'Pet / Mascote',
 }
 
 const DIRECTIONS: { id: Direction; label: string; icon: string }[] = [

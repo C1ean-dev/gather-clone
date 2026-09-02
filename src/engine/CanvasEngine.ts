@@ -3,6 +3,7 @@ import { InputHandler } from './input/InputHandler'
 import { checkCollision, checkZonePresence } from './physics/collision'
 import { findPath, hasLineOfSight } from './physics/pathfinding'
 import { WorldRenderer } from './rendering/worldRenderer'
+import { PetManager } from './pet/PetManager'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
 import { useSettingsStore } from '../store/useSettingsStore'
@@ -142,7 +143,7 @@ export class CanvasEngine {
     const mapStore = useMapStore.getState()
     const local = gameStore.localPlayer
     const map = mapStore.mapData
-    const moveSpeed = useSettingsStore.getState().moveSpeed || 4.5
+    const moveSpeed = useSettingsStore.getState().moveSpeed || 8.0
 
     const { dx, dy, nextDirection } = this.input.computeMovement(local.x, local.y, local.direction)
 
@@ -278,6 +279,10 @@ export class CanvasEngine {
       this.camera.followPlayer(local.x, local.y, deltaTime)
       checkZonePresence(local.x, local.y, map)
     }
+
+    // Update companion pets following players
+    const allActivePlayers = [local, ...Object.values(gameStore.remotePlayers)]
+    PetManager.getInstance().update(deltaTime, allActivePlayers)
   }
 
   /**

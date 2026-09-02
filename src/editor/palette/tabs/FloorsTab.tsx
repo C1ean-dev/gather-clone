@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import { Trash2, Pencil, ShieldCheck } from 'lucide-react'
 import { PixelArtThumbnail } from '../../PixelArtThumbnail'
 import { FloorType } from '../../../types/map'
 import { ConfirmModal } from '../../../components/ConfirmModal'
@@ -11,6 +11,8 @@ interface Props {
   activeTool: string
   setActiveTool: (tool: any) => void
   deleteCustomAsset: (id: string) => void
+  openEditModal?: (id: string, mode?: 'crop' | 'compose') => void
+  onDeleteFloor?: (id: string) => void
 }
 
 export const FloorsTab: React.FC<Props> = ({
@@ -20,6 +22,8 @@ export const FloorsTab: React.FC<Props> = ({
   activeTool,
   setActiveTool,
   deleteCustomAsset,
+  openEditModal,
+  onDeleteFloor,
 }) => {
   const [assetToDelete, setAssetToDelete] = useState<{ id: string; name: string } | null>(null)
 
@@ -47,7 +51,7 @@ export const FloorsTab: React.FC<Props> = ({
       <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto p-1">
         {floors.map((floor) => {
           const isSelected = selectedFloor === floor.id && activeTool === 'paint_floor'
-          const isCustom = floor.isCustom
+          const isDefaultFloor = floor.id === 'habbo_parquet'
           return (
             <div
               key={floor.id}
@@ -57,18 +61,43 @@ export const FloorsTab: React.FC<Props> = ({
                   : 'border-[#2a3142] bg-[#12151d]/50 hover:border-slate-500'
               }`}
             >
-              {/* Right Delete Button */}
-              {isCustom && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setAssetToDelete({ id: floor.id, name: floor.name })
-                  }}
-                  className="absolute top-1.5 right-1.5 p-1 rounded-md bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 hover:text-rose-200 opacity-80 hover:opacity-100 transition-all z-10"
-                  title="Excluir piso customizado"
+              {/* If default floor: show protected badge. Otherwise show Edit and Delete buttons */}
+              {isDefaultFloor ? (
+                <div
+                  className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 z-10 flex items-center gap-1 shadow-sm"
+                  title="Piso padrão protegido (não pode ser editado ou excluído)"
                 >
-                  <Trash2 className="w-3 h-3" />
-                </button>
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  <span>Padrão</span>
+                </div>
+              ) : (
+                <div className="absolute top-1.5 right-1.5 flex items-center gap-1 z-10">
+                  {openEditModal && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openEditModal(floor.id, 'compose')
+                      }}
+                      className="p-1 rounded-md bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 hover:text-blue-200 opacity-80 hover:opacity-100 transition-all shadow-sm"
+                      title={`Editar piso "${floor.name}"`}
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setAssetToDelete({ id: floor.id, name: floor.name })
+                    }}
+                    className="p-1 rounded-md bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 hover:text-rose-200 opacity-80 hover:opacity-100 transition-all shadow-sm"
+                    title={`Excluir piso "${floor.name}"`}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
               )}
 
               <button
@@ -84,7 +113,7 @@ export const FloorsTab: React.FC<Props> = ({
                 <div className="w-full">
                   <div className="text-xs font-semibold text-slate-200 truncate">{floor.name}</div>
                   <div className="text-[10px] text-slate-400">
-                    {floor.isCustom ? 'Piso Customizado • Livre' : 'Piso Padrão • Chão'}
+                    {isDefaultFloor ? 'Piso Padrão • Chão' : 'Piso Customizado • Livre'}
                   </div>
                 </div>
               </button>
@@ -93,16 +122,22 @@ export const FloorsTab: React.FC<Props> = ({
         })}
       </div>
 
-      {/* Confirm Delete Custom Floor Modal */}
+      {/* Confirm Delete Floor Modal */}
       <ConfirmModal
         isOpen={!!assetToDelete}
-        title="Excluir Piso Customizado"
-        message={`Deseja realmente excluir o piso "${assetToDelete?.name}"? Esta ação não pode ser desfeita.`}
+        title="Excluir Piso"
+        message={`Deseja realmente excluir o piso "${assetToDelete?.name}"? Áreas com este piso serão restauradas para o Piso Padrão.`}
         confirmText="Excluir Piso"
         confirmVariant="danger"
         onConfirm={() => {
           if (assetToDelete) {
             deleteCustomAsset(assetToDelete.id)
+            if (onDeleteFloor) {
+              onDeleteFloor(assetToDelete.id)
+            }
+            if (selectedFloor === assetToDelete.id) {
+              setSelectedFloor('habbo_parquet')
+            }
             setAssetToDelete(null)
           }
         }}

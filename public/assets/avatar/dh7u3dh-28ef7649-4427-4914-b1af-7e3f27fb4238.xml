@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="dh7u3dh-28ef7649-4427-4914-b1af-7e3f27fb4238.png">
+  <SubTexture name="other_sinnoh_maid_down_0" x="0" y="0" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_down_1" x="32" y="0" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_down_2" x="64" y="0" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_down_3" x="96" y="0" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_up_0" x="0" y="144" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_up_1" x="32" y="144" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_up_2" x="64" y="144" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_up_3" x="96" y="144" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_left_0" x="0" y="48" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_left_1" x="32" y="48" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_left_2" x="64" y="48" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_left_3" x="96" y="48" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_right_0" x="0" y="96" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_right_1" x="32" y="96" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_right_2" x="64" y="96" width="32" height="48"/>
+  <SubTexture name="other_sinnoh_maid_right_3" x="96" y="96" width="32" height="48"/>
+</TextureAtlas>

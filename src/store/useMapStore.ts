@@ -126,9 +126,11 @@ interface MapStore {
    * in sync.
    */
   paintFloorInZone: (zoneId: string, floor: FloorType) => void
+  replaceFloorGlobally: (oldFloorId: string, replacementFloorId?: string) => void
   setWallTile: (x: number, y: number, wall: WallType | null) => void
   addFurniture: (furniture: PlacedFurniture) => void
   removeFurnitureAt: (tileX: number, tileY: number) => boolean
+  removeFurnitureByDefId: (defId: string) => void
   removeZoneAt: (tileX: number, tileY: number) => boolean
   addOrUpdateZone: (zone: PrivateZone) => void
   updateZone: (id: string, partial: Partial<PrivateZone>) => void
@@ -335,6 +337,47 @@ export const useMapStore = create<MapStore>((set, get) => ({
       return state
     })
     return removedAny
+  },
+
+  removeFurnitureByDefId: (defId) => {
+    set((state) => {
+      const remaining = state.mapData.furniture.filter((f) => f.defId !== defId)
+      if (remaining.length !== state.mapData.furniture.length) {
+        const updatedMap = {
+          ...state.mapData,
+          furniture: remaining,
+        }
+        saveMap(updatedMap)
+        PeerManager.getInstance().sendMapEdit('sync_map', { mapData: updatedMap })
+        return { mapData: updatedMap }
+      }
+      return state
+    })
+  },
+
+  replaceFloorGlobally: (oldFloorId, replacementFloorId = 'habbo_parquet') => {
+    set((state) => {
+      let changed = false
+      const floors = state.mapData.floors.map((row) =>
+        row.map((col) => {
+          if (col === oldFloorId) {
+            changed = true
+            return replacementFloorId as FloorType
+          }
+          return col
+        })
+      )
+      if (changed) {
+        const updatedMap = {
+          ...state.mapData,
+          floors,
+        }
+        saveMap(updatedMap)
+        PeerManager.getInstance().sendMapEdit('sync_map', { mapData: updatedMap })
+        return { mapData: updatedMap }
+      }
+      return state
+    })
   },
 
   removeZoneAt: (tileX, tileY) => {

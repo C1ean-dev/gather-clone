@@ -1,5 +1,5 @@
 import React from 'react'
-import { Zap, Gauge, Monitor, Eye, FastForward } from 'lucide-react'
+import { Zap, Gauge, Monitor, Eye } from 'lucide-react'
 import { useSettingsStore } from '../../store/useSettingsStore'
 
 export const GraphicsSettingsTab: React.FC = () => {
@@ -7,12 +7,10 @@ export const GraphicsSettingsTab: React.FC = () => {
     targetFps,
     showFpsCounter,
     enableCulling,
-    moveSpeed,
     currentFps,
     setTargetFps,
     setShowFpsCounter,
     setEnableCulling,
-    setMoveSpeed,
   } = useSettingsStore()
 
   return (
@@ -49,67 +47,66 @@ export const GraphicsSettingsTab: React.FC = () => {
           onClick={() => setShowFpsCounter(!showFpsCounter)}
           className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
             showFpsCounter
-              ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30'
-              : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-700'
+              ? 'bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-600/30'
+              : 'bg-slate-800/80 border-[#383a40] text-slate-300 hover:text-white hover:bg-slate-800'
           }`}
         >
           <Eye className="w-3.5 h-3.5" />
-          <span>{showFpsCounter ? 'HUD na Tela: Ativado' : 'Exibir HUD na Tela'}</span>
+          <span>{showFpsCounter ? 'Ocultar HUD' : 'Exibir HUD na Tela'}</span>
         </button>
       </div>
 
-      {/* Target FPS Selector */}
+      {/* Frame Rate Limit Selector */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
             <Zap className="w-4 h-4 text-amber-400" />
             <span>Limite de Taxa de Quadros (Target FPS)</span>
           </label>
-          <span className="text-[11px] text-slate-400 font-mono">
+          <span className="text-[11px] font-mono text-slate-400">
             {targetFps === 0 ? 'V-Sync (Taxa do Monitor)' : `${targetFps} FPS`}
           </span>
         </div>
 
-        <div className="grid grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-3 gap-3">
           {[
-            { fps: 30, label: '30 FPS', desc: 'Bateria / Economia' },
-            { fps: 60, label: '60 FPS', desc: 'Padrão Recomendado' },
-            { fps: 0, label: 'V-Sync', desc: 'Taxa Nativa do Monitor' },
-          ].map((item) => {
-            const isSelected = targetFps === item.fps
+            { fps: 30, label: '30 FPS', sub: 'Bateria / Economia' },
+            { fps: 60, label: '60 FPS', sub: 'Padrão Recomendado' },
+            { fps: 0, label: 'V-Sync', sub: 'Taxa Nativa do Monitor' },
+          ].map((opt) => {
+            const isSelected = targetFps === opt.fps
             return (
               <button
-                key={item.fps}
+                key={opt.fps}
                 type="button"
-                onClick={() => setTargetFps(item.fps)}
-                className={`p-3.5 rounded-2xl border text-center transition-all flex flex-col items-center justify-center gap-1 ${
+                onClick={() => setTargetFps(opt.fps)}
+                className={`p-4 rounded-2xl border text-center transition-all cursor-pointer ${
                   isSelected
-                    ? 'bg-indigo-600/25 border-indigo-500 ring-2 ring-indigo-500/40 text-white shadow-lg'
-                    : 'bg-slate-900/60 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-800/60'
+                    ? 'bg-indigo-600/20 border-indigo-500 ring-2 ring-indigo-500/40 shadow-lg shadow-indigo-600/20'
+                    : 'bg-slate-950/40 border-[#2a3142] hover:border-slate-600 hover:bg-slate-900/60'
                 }`}
               >
-                <div className={`text-base font-black font-mono ${isSelected ? 'text-indigo-400' : 'text-slate-200'}`}>
-                  {item.label}
+                <div className={`text-base font-black ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                  {opt.label}
                 </div>
-                <div className="text-[10px] text-slate-400 font-medium leading-tight">{item.desc}</div>
+                <div className="text-[11px] text-slate-500 mt-1 font-medium">{opt.sub}</div>
               </button>
             )
           })}
         </div>
       </div>
 
-      {/* Performance Switches & Viewport Culling */}
+      {/* Graphics Toggles */}
       <div className="p-4 bg-slate-950/40 rounded-2xl border border-[#2a3142] space-y-4">
-        <div className="text-xs font-bold text-slate-300 flex items-center gap-2">
+        <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
           <Monitor className="w-4 h-4 text-indigo-400" />
           <span>Otimizações Gráficas do Canvas</span>
         </div>
 
-        {/* Viewport Culling Toggle */}
-        <div className="flex items-center justify-between py-1">
+        <div className="flex items-center justify-between">
           <div>
             <div className="text-xs font-semibold text-slate-200">Culling de Câmera (Renderização Inteligente)</div>
-            <div className="text-[10px] text-slate-400">
+            <div className="text-[11px] text-slate-400 mt-0.5">
               Renderiza apenas pisos e blocos visíveis no visor da câmera. Aumenta os FPS em até 5x a 15x.
             </div>
           </div>
@@ -124,11 +121,10 @@ export const GraphicsSettingsTab: React.FC = () => {
           </label>
         </div>
 
-        {/* Show FPS HUD Toggle */}
-        <div className="flex items-center justify-between py-1 border-t border-slate-800/80">
+        <div className="flex items-center justify-between border-t border-[#2a3142]/60 pt-3">
           <div>
             <div className="text-xs font-semibold text-slate-200">Contador de FPS Flutuante na Tela</div>
-            <div className="text-[10px] text-slate-400">
+            <div className="text-[11px] text-slate-400 mt-0.5">
               Exibe um selo HUD compacto no canto superior direito com a taxa de FPS atual.
             </div>
           </div>
@@ -141,43 +137,6 @@ export const GraphicsSettingsTab: React.FC = () => {
             />
             <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
           </label>
-        </div>
-      </div>
-
-      {/* Avatar Walk Speed Slider */}
-      <div className="p-4 bg-slate-950/40 rounded-2xl border border-[#2a3142] space-y-2.5">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-            <FastForward className="w-4 h-4 text-emerald-400" />
-            <span>Velocidade de Deslocamento do Avatar</span>
-          </label>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold font-mono text-emerald-400">{moveSpeed.toFixed(1)} tiles/s</span>
-            {moveSpeed !== 4.5 && (
-              <button
-                type="button"
-                onClick={() => setMoveSpeed(4.5)}
-                className="text-[10px] text-slate-400 hover:text-slate-200 underline"
-              >
-                Restaurar (4.5)
-              </button>
-            )}
-          </div>
-        </div>
-        <input
-          type="range"
-          min={3.0}
-          max={8.0}
-          step={0.5}
-          value={moveSpeed}
-          onChange={(e) => setMoveSpeed(parseFloat(e.target.value))}
-          className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-        />
-        <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-          <span>Lento (3.0)</span>
-          <span>Normal (4.5)</span>
-          <span>Rápido (6.0)</span>
-          <span>Turbo (8.0)</span>
         </div>
       </div>
     </div>

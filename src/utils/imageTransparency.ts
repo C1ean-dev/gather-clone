@@ -130,3 +130,120 @@ export function trimTransparentBorders(sourceCanvas: HTMLCanvasElement): HTMLCan
 
   return cropImage(sourceCanvas, minX, minY, trimW, trimH)
 }
+
+/**
+ * Converts RGBColor to hex string #rrggbb
+ */
+export function rgbToHex(color: RGBColor): string {
+  const toHex = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')
+  return `#${toHex(color.r)}${toHex(color.g)}${toHex(color.b)}`
+}
+
+/**
+ * Converts hex string to RGBColor
+ */
+export function hexToRgb(hex: string): RGBColor {
+  let clean = hex.replace('#', '')
+  if (clean.length === 3) {
+    clean = clean.split('').map((c) => c + c).join('')
+  }
+  const num = parseInt(clean, 16) || 0
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255,
+  }
+}
+
+/**
+ * Automatically detects the background color of an image or cropped region
+ * by analyzing corner pixels and outer perimeter borders.
+ */
+export function detectBackgroundColor(
+  source: HTMLImageElement | HTMLCanvasElement,
+  region?: { x: number; y: number; w: number; h: number }
+): RGBColor | null {
+  if (typeof document === 'undefined') return null
+
+  const canvas = document.createElement('canvas')
+  const imgW = (source as HTMLImageElement).naturalWidth || source.width
+  const imgH = (source as HTMLImageElement).naturalHeight || source.height
+
+  if (!imgW || !imgH) return null
+
+  const sx = region ? Math.max(0, Math.min(imgW - 1, region.x)) : 0
+  const sy = region ? Math.max(0, Math.min(imgH - 1, region.y)) : 0
+  const sw = region ? Math.max(1, Math.min(imgW - sx, region.w)) : imgW
+  const sh = region ? Math.max(1, Math.min(imgH - sy, region.h)) : imgH
+
+  canvas.width = sw
+  canvas.height = sh
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh)
+  const imgData = ctx.getImageData(0, 0, sw, sh)
+  const data = imgData.data
+
+  const colorCounts = new Map<string, { count: number; r: number; g: number; b: number }>()
+
+  const sample = (px: number, py: number) => {
+    const clampedX = Math.max(0, Math.min(sw - 1, px))
+    const clampedY = Math.max(0, Math.min(sh - 1, py))
+    const idx = (clampedY * sw + clampedX) * 4
+    const a = data[idx + 3]
+    if (a < 30) return // Already transparent
+
+    const r = data[idx]
+    const g = data[idx + 1]
+    const b = data[idx + 2]
+
+    // Quantize slightly (step of 4) to group minor compression artifacts
+    const qr = Math.round(r / 4) * 4
+    const qg = Math.round(g / 4) * 4
+    const qb = Math.round(b / 4) * 4
+    const key = `${qr},${qg},${qb}`
+
+    const existing = colorCounts.get(key)
+    if (existing) {
+      existing.count++
+    } else {
+      colorCounts.set(key, { count: 1, r, g, b })
+    }
+  }
+
+  // 1. Four corners
+  sample(0, 0)
+  sample(sw - 1, 0)
+  sample(0, sh - 1)
+  sample(sw - 1, sh - 1)
+
+  // 2. Perimeter steps (top, bottom, left, right edges)
+  const stepX = Math.max(1, Math.floor(sw / 30))
+  const stepY = Math.max(1, Math.floor(sh / 30))
+
+  for (let x = 0; x < sw; x += stepX) {
+    sample(x, 0)
+    sample(x, sh - 1)
+  }
+  for (let y = 0; y < sh; y += stepY) {
+    sample(0, y)
+    sample(sw - 1, y)
+  }
+
+  if (colorCounts.size === 0) return null
+
+  let dominant: { r: number; g: number; b: number } | null = null
+  let maxCount = -1
+
+  for (const item of colorCounts.values()) {
+    if (item.count > maxCount) {
+      maxCount = item.count
+      dominant = { r: item.r, g: item.g, b: item.b }
+    }
+  }
+
+  return dominant
+}
+
