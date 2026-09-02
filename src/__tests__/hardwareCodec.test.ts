@@ -4,6 +4,7 @@ import { prioritizeH264HardwareCodec } from '../media/hardwareCodec'
 describe('WebRTC Hardware Codec Acceleration (H.264 Priority)', () => {
   afterEach(() => {
     delete (globalThis as any).RTCRtpSender
+    delete (globalThis as any).RTCRtpReceiver
   })
 
   it('should safely do nothing if peerConnection is null or missing transceivers', () => {
@@ -31,8 +32,8 @@ describe('WebRTC Hardware Codec Acceleration (H.264 Priority)', () => {
       getTransceivers: vi.fn().mockReturnValue([mockTransceiver]),
     } as unknown as RTCPeerConnection
 
-    // Mock global RTCRtpSender.getCapabilities
-    ;(globalThis as any).RTCRtpSender = {
+    // Mock global RTCRtpReceiver.getCapabilities
+    ;(globalThis as any).RTCRtpReceiver = {
       getCapabilities: vi.fn().mockReturnValue({
         codecs: mockCodecs,
       }),
@@ -46,5 +47,37 @@ describe('WebRTC Hardware Codec Acceleration (H.264 Priority)', () => {
     // Verify H264 is at index 0 (first in preference list)
     expect(passedCodecs[0].mimeType).toBe('video/H264')
     expect(passedCodecs.length).toBe(4)
+  })
+
+  it('should strictly only apply setCodecPreferences to video transceivers and ignore audio transceivers', () => {
+    const mockCodecs = [
+      { mimeType: 'video/VP8', clockRate: 90000 },
+      { mimeType: 'video/H264', clockRate: 90000 },
+    ]
+
+    const audioMock = vi.fn()
+    const videoMock = vi.fn()
+
+    const audioTransceiver = {
+      receiver: { track: { kind: 'audio' } },
+      setCodecPreferences: audioMock,
+    }
+    const videoTransceiver = {
+      receiver: { track: { kind: 'video' } },
+      setCodecPreferences: videoMock,
+    }
+
+    const mockPc = {
+      getTransceivers: vi.fn().mockReturnValue([audioTransceiver, videoTransceiver]),
+    } as unknown as RTCPeerConnection
+
+    ;(globalThis as any).RTCRtpReceiver = {
+      getCapabilities: vi.fn().mockReturnValue({ codecs: mockCodecs }),
+    }
+
+    prioritizeH264HardwareCodec(mockPc)
+
+    expect(audioMock).not.toHaveBeenCalled()
+    expect(videoMock).toHaveBeenCalledTimes(1)
   })
 })
