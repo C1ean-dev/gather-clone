@@ -61,7 +61,7 @@ export const FullScreenGrid: React.FC = () => {
       id: p.id,
       name: p.name,
       stream: peerStreams[p.id] || null,
-      screenStream: peerScreenStreams[p.id] || null,
+      screenStream: peerScreenStreams[p.id] || (p.isScreenSharing ? peerStreams[p.id] : null),
       isMuted: p.isMuted,
       isCameraOff: p.isCameraOff,
       isLocal: false,

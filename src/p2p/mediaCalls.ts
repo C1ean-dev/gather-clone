@@ -39,7 +39,38 @@ export class MediaCallHandler {
 
         const call = peer.call(remotePlayer.id, streamToSend)
         if (call) {
+          // Configure receiver jitter buffer to eliminate stutter / frame dropping
+          const applyBuffer = () => {
+            const delayMs = useMediaStore.getState().liveBufferDelay || 300
+            const delaySec = Math.max(0.05, Math.min(1.5, delayMs / 1000))
+            try {
+              const pc = (call as any).peerConnection as RTCPeerConnection
+              if (pc && pc.getReceivers) {
+                pc.getReceivers().forEach((receiver) => {
+                  try {
+                    (receiver as any).playoutDelayHint = delaySec
+                  } catch (e) {}
+                  try {
+                    if ('jitterBufferTarget' in receiver) {
+                      (receiver as any).jitterBufferTarget = delayMs
+                    }
+                  } catch (e) {}
+                })
+              }
+            } catch (e) {}
+          }
+
+          try {
+            const pc = (call as any).peerConnection as RTCPeerConnection
+            if (pc && pc.addEventListener) {
+              pc.addEventListener('track', () => {
+                setTimeout(applyBuffer, 50)
+              })
+            }
+          } catch (e) {}
+
           call.on('stream', (remoteStream) => {
+            applyBuffer()
             useMediaStore.getState().setPeerStream(remotePlayer.id, remoteStream)
           })
           call.on('close', () => {
@@ -60,15 +91,50 @@ export class MediaCallHandler {
   }
 
   /**
+   * Apply Jitter Buffer (playoutDelayHint & jitterBufferTarget) to all active peer connections
+   * Smooths packet timing variance and prevents frozen / choppy live video
+   */
+  static applyJitterBuffer(mediaCalls: Map<string, MediaConnection>, bufferDelayMs: number = 300) {
+    const delaySec = Math.max(0.05, Math.min(1.5, bufferDelayMs / 1000))
+    mediaCalls.forEach((call) => {
+      try {
+        const pc = (call as any).peerConnection as RTCPeerConnection
+        if (pc && pc.getReceivers) {
+          pc.getReceivers().forEach((receiver) => {
+            try {
+              (receiver as any).playoutDelayHint = delaySec
+            } catch (e) {}
+            try {
+              if ('jitterBufferTarget' in receiver) {
+                (receiver as any).jitterBufferTarget = bufferDelayMs
+              }
+            } catch (e) {}
+          })
+        }
+      } catch (err) {
+        console.warn('Error configuring receiver jitter buffer on call:', err)
+      }
+    })
+  }
+
+  /**
    * Replace active video track (Switching between Camera & Screen Share with High Bitrate)
    */
   static replaceVideoTrack(
     mediaCalls: Map<string, MediaConnection>,
     newTrack: MediaStreamTrack | null,
     isScreenShare: boolean = false,
-    maxBitrate: number = 8_000_000,
+    maxBitrate: number = 3_500_000,
     maxFramerate: number = 60
   ) {
+    if (newTrack) {
+      newTrack.enabled = true
+      // 'motion' prioritizes fluid framerate delivery without stalling frames
+      if (isScreenShare && 'contentHint' in newTrack) {
+        newTrack.contentHint = 'motion'
+      }
+    }
+
     mediaCalls.forEach((call) => {
       try {
         const pc = (call as any).peerConnection as RTCPeerConnection
@@ -95,16 +161,11 @@ export class MediaCallHandler {
                   try {
                     const params = videoSender.getParameters()
                     if (params && params.encodings && params.encodings.length > 0) {
-                      if (isScreenShare) {
-                        params.encodings[0].maxBitrate = maxBitrate // 5000kbps, 6000kbps, 7000kbps, 8000kbps
-                        params.encodings[0].maxFramerate = maxFramerate
-                        params.encodings[0].scaleResolutionDownBy = 1.0
-                        ;(params as any).degradationPreference = 'maintain-resolution'
-                      } else {
-                        params.encodings[0].maxBitrate = 2_000_000
-                        params.encodings[0].maxFramerate = 30
-                        delete (params as any).degradationPreference
-                      }
+                      params.encodings[0].maxBitrate = isScreenShare ? Math.min(maxBitrate, 3_500_000) : 1_800_000
+                      params.encodings[0].maxFramerate = isScreenShare ? maxFramerate : 30
+                      params.encodings[0].scaleResolutionDownBy = 1.0
+                      ;(params.encodings[0] as any).networkPriority = 'high'
+                      ;(params.encodings[0] as any).priority = 'high'
                       videoSender.setParameters(params).catch(() => {})
                     }
                   } catch (paramErr) {
@@ -112,7 +173,7 @@ export class MediaCallHandler {
                   }
                 }
               })
-              .catch((err) => console.warn('Could not replace video track:', err))
+              .catch((err) => console.warn('Could not replace video track on sender:', err))
           } else if (newTrack) {
             try {
               const localStream = useMediaStore.getState().localStream || new MediaStream()

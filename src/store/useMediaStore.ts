@@ -84,6 +84,11 @@ interface MediaStore {
   // Remote Streams map: peerId -> MediaStream
   peerStreams: Record<string, MediaStream>
   peerScreenStreams: Record<string, MediaStream>
+  participantVolumes: Record<string, number> // peerId or streamId -> 0 to 100
+  setParticipantVolume: (id: string, volume: number) => void
+  getEffectiveParticipantVolume: (id: string) => number
+  liveBufferDelay: number // in ms, default 300 (range: 50 to 1500)
+  setLiveBufferDelay: (ms: number) => void
   setPeerStream: (peerId: string, stream: MediaStream) => void
   removePeerStream: (peerId: string) => void
   setPeerScreenStream: (peerId: string, stream: MediaStream) => void
@@ -274,6 +279,31 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
 
   peerStreams: {},
   peerScreenStreams: {},
+  participantVolumes: saved.participantVolumes || {},
+
+  setParticipantVolume: (id, volume) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(volume)))
+    const next = { ...get().participantVolumes, [id]: clamped }
+    saveAudioSettings({ participantVolumes: next })
+    set({ participantVolumes: next })
+  },
+
+  getEffectiveParticipantVolume: (id) => {
+    const pVol = get().participantVolumes[id] !== undefined ? get().participantVolumes[id] : 100
+    const master = (get().outputVolume !== undefined ? get().outputVolume : 100) / 100
+    return Math.max(0, Math.min(1, master * (pVol / 100)))
+  },
+
+  liveBufferDelay: typeof saved.liveBufferDelay === 'number' ? saved.liveBufferDelay : 300,
+
+  setLiveBufferDelay: (ms) => {
+    const clamped = Math.max(50, Math.min(1500, Math.round(ms)))
+    saveAudioSettings({ liveBufferDelay: clamped })
+    set({ liveBufferDelay: clamped })
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('gather:live-buffer-changed', { detail: clamped }))
+    }
+  },
 
   setPeerStream: (peerId, stream) =>
     set((state) => ({

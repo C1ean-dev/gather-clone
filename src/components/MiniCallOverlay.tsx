@@ -14,6 +14,10 @@ import {
   Monitor,
   Sparkles,
   MessageSquare,
+  Volume2,
+  Volume1,
+  VolumeX,
+  Gauge,
 } from 'lucide-react'
 import { useMediaStore } from '../store/useMediaStore'
 import { useGameStore } from '../store/useGameStore'
@@ -46,22 +50,54 @@ const VideoTile: React.FC<VideoTileProps> = ({
   onClick,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const { outputVolume, selectedAudioOutput } = useMediaStore()
+  const { outputVolume, selectedAudioOutput, participantVolumes, setParticipantVolume } = useMediaStore()
+  const rawVolume = participantVolumes[name] !== undefined ? participantVolumes[name] : 100
 
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream
+    const video = videoRef.current
+    if (!video || !stream) return
+
+    video.srcObject = stream
+    const playPromise = video.play()
+    if (playPromise !== undefined) {
+      playPromise.catch(() => {})
+    }
+
+    const handleTrackEvent = () => {
+      if (video.srcObject !== stream) {
+        video.srcObject = stream
+      }
+      video.play().catch(() => {})
+    }
+
+    stream.addEventListener('addtrack', handleTrackEvent)
+    stream.addEventListener('removetrack', handleTrackEvent)
+
+    const tracks = stream.getVideoTracks()
+    tracks.forEach((t) => {
+      t.addEventListener('unmute', handleTrackEvent)
+    })
+
+    return () => {
+      stream.removeEventListener('addtrack', handleTrackEvent)
+      stream.removeEventListener('removetrack', handleTrackEvent)
+      tracks.forEach((t) => {
+        t.removeEventListener('unmute', handleTrackEvent)
+      })
     }
   }, [stream])
 
   useEffect(() => {
     if (videoRef.current && !isLocal) {
-      videoRef.current.volume = Math.max(0, Math.min(1, outputVolume / 100))
+      const effectiveVol = Math.max(0, Math.min(1, (outputVolume / 100) * (rawVolume / 100)))
+      videoRef.current.volume = effectiveVol
       if (typeof (videoRef.current as any).setSinkId === 'function' && selectedAudioOutput) {
-        ;(videoRef.current as any).setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput).catch(() => {})
+        ;(videoRef.current as any)
+          .setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput)
+          .catch(() => {})
       }
     }
-  }, [outputVolume, selectedAudioOutput, isLocal])
+  }, [rawVolume, outputVolume, selectedAudioOutput, isLocal])
 
   return (
     <div
@@ -79,6 +115,8 @@ const VideoTile: React.FC<VideoTileProps> = ({
         autoPlay
         playsInline
         muted={isLocal} // Avoid local echo
+        onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
+        onCanPlay={() => videoRef.current?.play().catch(() => {})}
         className={`w-full h-full ${isScreenTrack ? 'object-contain bg-black' : 'object-cover'} ${
           isCameraOff && !isScreenSharing && !isScreenTrack ? 'hidden' : 'block'
         } ${isLocal && !isScreenSharing && !isScreenTrack ? '-scale-x-100' : ''}`}
@@ -107,7 +145,14 @@ const VideoTile: React.FC<VideoTileProps> = ({
         <span className="truncate font-medium">
           {isScreenTrack ? `Tela (${name})` : isLocal ? `${name} (Você)` : name}
         </span>
-        {isMuted && !isScreenTrack && <MicOff className="w-2.5 h-2.5 text-rose-400 shrink-0" />}
+        <div className="flex items-center gap-1 shrink-0">
+          {!isLocal && rawVolume === 0 && (
+            <span title="Mutado para você" className="flex items-center">
+              <VolumeX className="w-2.5 h-2.5 text-rose-400" />
+            </span>
+          )}
+          {isMuted && !isScreenTrack && <MicOff className="w-2.5 h-2.5 text-rose-400 shrink-0" />}
+        </div>
       </div>
     </div>
   )
@@ -132,22 +177,68 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
   onClose,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const { outputVolume, selectedAudioOutput } = useMediaStore()
+  const {
+    outputVolume,
+    selectedAudioOutput,
+    participantVolumes,
+    setParticipantVolume,
+    liveBufferDelay,
+    setLiveBufferDelay,
+  } = useMediaStore()
+  const rawVolume = participantVolumes[presenterName] !== undefined ? participantVolumes[presenterName] : 100
+
+  const handleCycleBuffer = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const presets = [100, 300, 600, 1000]
+    const nextIdx = (presets.indexOf(liveBufferDelay) + 1) % presets.length
+    setLiveBufferDelay(presets[nextIdx])
+  }
 
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream
+    const video = videoRef.current
+    if (!video || !stream) return
+
+    video.srcObject = stream
+    const playPromise = video.play()
+    if (playPromise !== undefined) {
+      playPromise.catch(() => {})
+    }
+
+    const handleTrackEvent = () => {
+      if (video.srcObject !== stream) {
+        video.srcObject = stream
+      }
+      video.play().catch(() => {})
+    }
+
+    stream.addEventListener('addtrack', handleTrackEvent)
+    stream.addEventListener('removetrack', handleTrackEvent)
+
+    const tracks = stream.getVideoTracks()
+    tracks.forEach((t) => {
+      t.addEventListener('unmute', handleTrackEvent)
+    })
+
+    return () => {
+      stream.removeEventListener('addtrack', handleTrackEvent)
+      stream.removeEventListener('removetrack', handleTrackEvent)
+      tracks.forEach((t) => {
+        t.removeEventListener('unmute', handleTrackEvent)
+      })
     }
   }, [stream])
 
   useEffect(() => {
     if (videoRef.current && !isLocal) {
-      videoRef.current.volume = Math.max(0, Math.min(1, outputVolume / 100))
+      const effectiveVol = Math.max(0, Math.min(1, (outputVolume / 100) * (rawVolume / 100)))
+      videoRef.current.volume = effectiveVol
       if (typeof (videoRef.current as any).setSinkId === 'function' && selectedAudioOutput) {
-        ;(videoRef.current as any).setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput).catch(() => {})
+        ;(videoRef.current as any)
+          .setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput)
+          .catch(() => {})
       }
     }
-  }, [outputVolume, selectedAudioOutput, isLocal])
+  }, [rawVolume, outputVolume, selectedAudioOutput, isLocal])
 
   return (
     <div className="mb-2 w-72 sm:w-80 bg-[#12151d] rounded-2xl overflow-hidden border-2 border-indigo-500/80 shadow-2xl animate-in slide-in-from-bottom-2 duration-200">
@@ -158,12 +249,62 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
             <Radio className="w-2.5 h-2.5" />
             <span>AO VIVO</span>
           </div>
-          <span className="text-[11px] font-bold text-slate-200 truncate max-w-[140px]">
+          <span className="text-[11px] font-bold text-slate-200 truncate max-w-[120px]">
             {isLocal ? 'Sua Apresentação' : `Tela de ${presenterName}`}
           </span>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
+          {!isLocal && (
+            <div
+              className="relative group/vol flex items-center bg-[#12151d] rounded-lg border border-[#2a3142] px-1.5 py-0.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (rawVolume === 0) {
+                    setParticipantVolume(presenterName, 100)
+                  } else {
+                    setParticipantVolume(presenterName, 0)
+                  }
+                }}
+                className="text-slate-300 hover:text-white transition-colors p-0.5"
+                title={rawVolume === 0 ? 'Desmutar Transmissão' : 'Mutar Transmissão'}
+              >
+                {rawVolume === 0 ? (
+                  <VolumeX className="w-3 h-3 text-rose-400" />
+                ) : rawVolume < 50 ? (
+                  <Volume1 className="w-3 h-3 text-indigo-400" />
+                ) : (
+                  <Volume2 className="w-3 h-3 text-indigo-400" />
+                )}
+              </button>
+              <div className="w-0 group-hover/vol:w-16 transition-all duration-200 overflow-hidden flex items-center pl-1">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={rawVolume}
+                  onChange={(e) => setParticipantVolume(presenterName, Number(e.target.value))}
+                  className="w-14 h-1 bg-slate-700 rounded appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400"
+                  title={`Volume: ${rawVolume}%`}
+                />
+              </div>
+            </div>
+          )}
+
+          {!isLocal && (
+            <button
+              onClick={handleCycleBuffer}
+              className="flex items-center gap-1 bg-[#12151d] hover:bg-slate-800 text-slate-300 hover:text-emerald-400 rounded-lg border border-[#2a3142] px-1.5 py-0.5 text-[9px] font-mono font-bold transition-colors"
+              title={`Buffer Anti-Lag: ${liveBufferDelay}ms (Clique para alternar 100ms, 300ms, 600ms, 1.0s)`}
+            >
+              <Gauge className="w-2.5 h-2.5 text-emerald-400" />
+              <span>{liveBufferDelay}ms</span>
+            </button>
+          )}
+
           <button
             onClick={onExpand}
             className="p-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
@@ -192,6 +333,8 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
           autoPlay
           playsInline
           muted={isLocal}
+          onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
+          onCanPlay={() => videoRef.current?.play().catch(() => {})}
           className="w-full h-full object-contain bg-black"
         />
 

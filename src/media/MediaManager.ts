@@ -195,30 +195,94 @@ export class MediaManager {
   }
 
   /**
-    * Start User Webcam & Microphone with selected constraints and device IDs
-    */
-  public async startMedia(video: boolean = true, audio: boolean = true): Promise<MediaStream | null> {
+   * Generates a minimal 16x16 black canvas video track when no webcam is available or camera is disabled.
+   * This ensures WebRTC always negotiates a video transceiver so screen sharing can immediately swap tracks.
+   */
+  public createDummyVideoTrack(): MediaStreamTrack {
     try {
-      const state = useMediaStore.getState()
+      const canvas = document.createElement('canvas')
+      canvas.width = 16
+      canvas.height = 16
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.fillStyle = '#0c0e14'
+        ctx.fillRect(0, 0, 16, 16)
+      }
+      const stream = canvas.captureStream(5)
+      const track = stream.getVideoTracks()[0]
+      if (track) {
+        track.enabled = false
+        return track
+      }
+    } catch (e) {
+      console.warn('[MediaManager] Failed to create canvas video track:', e)
+    }
+    return null as any
+  }
+
+  /**
+   * Start User Webcam & Microphone with selected constraints and device IDs
+   * Always guarantees that localStream has both audio and video tracks (using dummy canvas if no camera)
+   */
+  public async startMedia(video: boolean = true, audio: boolean = true): Promise<MediaStream | null> {
+    const state = useMediaStore.getState()
 
     const audioConstraints: any = audio
       ? {
-        deviceId:
-          state.selectedAudioInput && state.selectedAudioInput !== 'default'
-            ? { exact: state.selectedAudioInput }
-            : undefined,
-        echoCancellation: state.echoCancellation,
-        autoGainControl: state.autoGainControl,
-        noiseSuppression: false, // We use our own dynamic DSP / RNNoise
+          deviceId:
+            state.selectedAudioInput && state.selectedAudioInput !== 'default'
+              ? { exact: state.selectedAudioInput }
+              : undefined,
+          echoCancellation: state.echoCancellation,
+          autoGainControl: state.autoGainControl,
+          noiseSuppression: false, // We use our own dynamic DSP / RNNoise
         }
       : false
 
-    const constraints: MediaStreamConstraints = {
-      video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } } : false,
-      audio: audioConstraints,
+    let stream: MediaStream | null = null
+
+    // 1. Try with Camera + Mic
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } } : false,
+        audio: audioConstraints,
+      })
+    } catch (err) {
+      console.warn('Could not access camera/mic with selected constraints, trying mic-only fallback:', err)
+      // 2. Fallback without camera constraint (Audio only if user has no webcam or camera in use)
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: audioConstraints,
+        })
+      } catch (micErr) {
+        console.warn('Could not access mic with constraints, trying generic audio:', micErr)
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: audio,
+          })
+        } catch (totalErr) {
+          console.error('Failed to access physical camera/mic:', totalErr)
+        }
+      }
     }
 
-    this.rawUserStream = await navigator.mediaDevices.getUserMedia(constraints)
+    // 3. If no stream could be captured, create empty MediaStream with fallback tracks
+    if (!stream) {
+      stream = new MediaStream()
+    }
+
+    // 4. Ensure there is ALWAYS a video track in the stream (using canvas dummy if no camera)
+    // This is CRITICAL for WebRTC P2P mesh so the video transceiver is created from the start
+    if (stream.getVideoTracks().length === 0) {
+      const dummyVideo = this.createDummyVideoTrack()
+      if (dummyVideo) {
+        stream.addTrack(dummyVideo)
+      }
+    }
+
+    this.rawUserStream = stream
 
     const processedStream = await this.runEngine(
       this.rawUserStream,
@@ -226,6 +290,11 @@ export class MediaManager {
         useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
       }
     )
+
+    // Ensure video track is preserved in processedStream
+    if (processedStream.getVideoTracks().length === 0 && this.rawUserStream.getVideoTracks().length > 0) {
+      processedStream.addTrack(this.rawUserStream.getVideoTracks()[0])
+    }
 
     // Apply initial mute and camera off state
     const isMuted = useMediaStore.getState().isMuted
@@ -239,37 +308,6 @@ export class MediaManager {
 
     useMediaStore.getState().setLocalStream(processedStream)
     return processedStream
-    } catch (err) {
-      console.warn('Could not access camera/mic with selected constraints, trying fallback:', err)
-      try {
-        // Fallback without deviceId constraint
-        this.rawUserStream = await navigator.mediaDevices.getUserMedia({
-          video: video,
-          audio: audio,
-        })
-        const processedStream = await this.runEngine(
-          this.rawUserStream,
-          (level, isGateOpen) => {
-            useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
-          }
-        )
-
-        const isMuted = useMediaStore.getState().isMuted
-        const isCameraOff = useMediaStore.getState().isCameraOff
-        processedStream.getAudioTracks().forEach((track) => {
-          track.enabled = !isMuted
-        })
-        processedStream.getVideoTracks().forEach((track) => {
-          track.enabled = !isCameraOff
-        })
-
-        useMediaStore.getState().setLocalStream(processedStream)
-        return processedStream
-      } catch (fallbackErr) {
-        console.error('Failed to access camera/mic entirely:', fallbackErr)
-        return null
-      }
-    }
   }
 
   /**
@@ -377,9 +415,7 @@ export class MediaManager {
           mandatory: {
             chromeMediaSource: 'desktop',
             chromeMediaSourceId: sourceId,
-            minWidth: width,
             maxWidth: width,
-            minHeight: height,
             maxHeight: height,
             maxFrameRate: fps,
           },
@@ -402,11 +438,28 @@ export class MediaManager {
             })
           }
         } catch (audioErr) {
-          console.warn('Desktop capture with audio failed, retrying video only:', audioErr)
-          screenStream = await (navigator.mediaDevices as any).getUserMedia({
-            video: videoConstraints,
-            audio: false,
-          })
+          console.warn('Desktop capture with audio/constraints failed, trying fallback:', audioErr)
+          try {
+            screenStream = await (navigator.mediaDevices as any).getUserMedia({
+              video: {
+                mandatory: {
+                  chromeMediaSource: 'desktop',
+                  chromeMediaSourceId: sourceId,
+                },
+              },
+              audio: false,
+            })
+          } catch (relaxedErr) {
+            console.warn('Falling back to getDisplayMedia:', relaxedErr)
+            screenStream = await navigator.mediaDevices.getDisplayMedia({
+              video: {
+                width: { ideal: width, max: width },
+                height: { ideal: height, max: height },
+                frameRate: { ideal: fps, max: fps },
+              },
+              audio: includeAudio,
+            })
+          }
         }
       } else {
         screenStream = await navigator.mediaDevices.getDisplayMedia({
@@ -414,7 +467,6 @@ export class MediaManager {
             width: { ideal: width, max: width },
             height: { ideal: height, max: height },
             frameRate: { ideal: fps, max: fps },
-            displaySurface: 'monitor',
           },
           audio: includeAudio,
         })
@@ -495,17 +547,19 @@ export class MediaManager {
 
       const screenVideoTrack = screenStream.getVideoTracks()[0]
       if (screenVideoTrack) {
+        screenVideoTrack.enabled = true
+        // 'motion' prioritizes steady frame rate over heavy intra-frame compression
         if ('contentHint' in screenVideoTrack) {
-          screenVideoTrack.contentHint = 'detail'
+          screenVideoTrack.contentHint = 'motion'
         }
 
-        let targetBitrate = 8_000_000
+        let targetBitrate = 3_000_000
         if (resolution === '720p') {
-          targetBitrate = fps === 60 ? 6_000_000 : 5_000_000
+          targetBitrate = fps === 60 ? 2_500_000 : 1_800_000
         } else if (resolution === '1080p') {
-          targetBitrate = fps === 60 ? 8_000_000 : 7_000_000
-        } else if (resolution === '480p') {
           targetBitrate = fps === 60 ? 3_500_000 : 2_500_000
+        } else if (resolution === '480p') {
+          targetBitrate = fps === 60 ? 1_500_000 : 1_000_000
         }
 
         PeerManager.getInstance().replaceVideoTrack(screenVideoTrack, true, targetBitrate, fps)
@@ -544,8 +598,15 @@ export class MediaManager {
     }
 
     const localStream = useMediaStore.getState().localStream
-    const camTrack = localStream?.getVideoTracks()[0] || null
+    let camTrack = localStream?.getVideoTracks()[0] || null
     const micTrack = localStream?.getAudioTracks()[0] || null
+
+    if (!camTrack) {
+      camTrack = this.createDummyVideoTrack()
+      if (localStream && camTrack) {
+        localStream.addTrack(camTrack)
+      }
+    }
 
     if (camTrack && 'contentHint' in camTrack) {
       camTrack.contentHint = ''

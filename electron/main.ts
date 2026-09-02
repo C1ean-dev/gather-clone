@@ -46,11 +46,19 @@ function createWindow() {
 
   // Handle getDisplayMedia natively in Electron
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-    desktopCapturer.getSources({ types: ['screen', 'window'] }).then((sources) => {
-      if (sources && sources.length > 0) {
-        callback({ video: sources[0] })
-      }
-    })
+    desktopCapturer
+      .getSources({ types: ['screen', 'window'] })
+      .then((sources) => {
+        if (sources && sources.length > 0) {
+          callback({ video: sources[0] })
+        } else {
+          callback({})
+        }
+      })
+      .catch((err) => {
+        console.warn('[Electron] setDisplayMediaRequestHandler error:', err)
+        callback({})
+      })
   })
 
   // Enable F12 or Ctrl+Shift+I for DevTools
@@ -67,7 +75,7 @@ function createWindow() {
   }
 }
 
-// Compare semantic versions (e.g., "v1.0.2" vs "1.0.0")
+// Compare semantic versions (v1 > v2 => true)
 function isNewerVersion(latestTag: string, currentVer: string): boolean {
   const clean = (v: string) => v.replace(/^v/i, '').trim().split('.').map(Number)
   const l = clean(latestTag)
@@ -81,23 +89,38 @@ function isNewerVersion(latestTag: string, currentVer: string): boolean {
   return false
 }
 
-// 1. IPC handler for Screen Sharing sources
+// 1. IPC handler for Screen Sharing sources with resilient fallbacks
 ipcMain.handle('get-sources', async () => {
   try {
     const sources = await desktopCapturer.getSources({
       types: ['screen', 'window'],
-      thumbnailSize: { width: 400, height: 225 },
+      thumbnailSize: { width: 320, height: 180 },
       fetchWindowIcons: true,
     })
     return sources.map((source) => ({
       id: source.id,
       name: source.name,
-      thumbnail: source.thumbnail.toDataURL(),
-      appIcon: source.appIcon ? source.appIcon.toDataURL() : null,
+      thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : '',
+      appIcon: source.appIcon && !source.appIcon.isEmpty() ? source.appIcon.toDataURL() : null,
     }))
   } catch (err) {
-    console.error('Error fetching desktop sources:', err)
-    return []
+    console.warn('[Electron] getSources with icons failed, trying fallback without icons:', err)
+    try {
+      const fallbackSources = await desktopCapturer.getSources({
+        types: ['screen', 'window'],
+        thumbnailSize: { width: 320, height: 180 },
+        fetchWindowIcons: false,
+      })
+      return fallbackSources.map((source) => ({
+        id: source.id,
+        name: source.name,
+        thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : '',
+        appIcon: null,
+      }))
+    } catch (fallbackErr) {
+      console.error('[Electron] desktopCapturer.getSources completely failed:', fallbackErr)
+      return []
+    }
   }
 })
 
@@ -105,13 +128,18 @@ ipcMain.handle('get-sources', async () => {
 ipcMain.handle('check-update', async () => {
   const currentVersion = app.getVersion() || '1.0.0'
   try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 4000)
+
     const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
     const res = await fetch(url, {
+      signal: controller.signal,
       headers: {
         'User-Agent': 'gather-v2-clone-updater',
         Accept: 'application/vnd.github.v3+json',
       },
     })
+    clearTimeout(timeoutId)
 
     if (!res.ok) {
       return {
@@ -148,8 +176,10 @@ ipcMain.handle('check-update', async () => {
       downloadUrl,
       releaseUrl: data.html_url || `https://github.com/${GITHUB_REPO}/releases`,
     }
-  } catch (err) {
-    console.error('Error checking for updates:', err)
+  } catch (err: any) {
+    if (err?.name !== 'AbortError') {
+      console.warn('[Updater] Could not check for updates (offline or timed out):', err?.message || err)
+    }
     return {
       hasUpdate: false,
       currentVersion,

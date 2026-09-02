@@ -185,4 +185,44 @@ describe('Audio & Media Store - Expected Behaviors', () => {
     clearAllPeerStreams()
     expect(Object.keys(useMediaStore.getState().peerStreams).length).toBe(0)
   })
+
+  it('should adjust and calculate individual participant volumes for viewers', () => {
+    const { setParticipantVolume, getEffectiveParticipantVolume, setOutputVolume } = useMediaStore.getState()
+
+    // Default 100% volume
+    expect(getEffectiveParticipantVolume('presenter-1')).toBe(1)
+
+    // Set presenter volume to 60%
+    setParticipantVolume('presenter-1', 60)
+    expect(useMediaStore.getState().participantVolumes['presenter-1']).toBe(60)
+    expect(getEffectiveParticipantVolume('presenter-1')).toBeCloseTo(0.6, 2)
+
+    // Mute presenter (0%)
+    setParticipantVolume('presenter-1', 0)
+    expect(getEffectiveParticipantVolume('presenter-1')).toBe(0)
+
+    // Unmute to 80% with master output at 50%
+    setOutputVolume(50)
+    setParticipantVolume('presenter-1', 80)
+    // 0.5 * 0.8 = 0.4
+    expect(getEffectiveParticipantVolume('presenter-1')).toBeCloseTo(0.4, 2)
+  })
+
+  it('should manage live buffer delay settings', () => {
+    const { setLiveBufferDelay } = useMediaStore.getState()
+
+    // Default 300ms
+    expect(useMediaStore.getState().liveBufferDelay).toBe(300)
+
+    // Set to 600ms
+    setLiveBufferDelay(600)
+    expect(useMediaStore.getState().liveBufferDelay).toBe(600)
+
+    // Clamps to min 50ms and max 1500ms
+    setLiveBufferDelay(10)
+    expect(useMediaStore.getState().liveBufferDelay).toBe(50)
+
+    setLiveBufferDelay(3000)
+    expect(useMediaStore.getState().liveBufferDelay).toBe(1500)
+  })
 })

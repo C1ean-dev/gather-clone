@@ -194,13 +194,33 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                           : 'border-[#2a3142] bg-[#12151d]/60 hover:border-slate-600'
                       }`}
                     >
-                      {/* Thumbnail Image */}
-                      <div className="h-28 bg-black/50 overflow-hidden flex items-center justify-center p-1.5">
-                        <img
-                          src={source.thumbnail}
-                          alt={source.name}
-                          className="w-full h-full object-contain rounded-lg"
-                        />
+                      {/* Thumbnail Image or Monitor/Window Icon Fallback */}
+                      <div className="h-28 bg-black/60 overflow-hidden flex items-center justify-center p-2 relative">
+                        {source.thumbnail && source.thumbnail.length > 30 ? (
+                          <img
+                            src={source.thumbnail}
+                            alt={source.name}
+                            className="w-full h-full object-contain rounded-lg"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center gap-2 text-slate-400">
+                            {source.id.startsWith('screen:') ? (
+                              <Monitor className="w-10 h-10 text-indigo-400/80" />
+                            ) : (
+                              <AppWindow className="w-10 h-10 text-indigo-400/80" />
+                            )}
+                            <span className="text-[10px] text-slate-400 font-medium text-center px-1 truncate max-w-[150px]">
+                              {source.name}
+                            </span>
+                          </div>
+                        )}
+                        {source.appIcon && (
+                          <img
+                            src={source.appIcon}
+                            alt="App Icon"
+                            className="absolute bottom-1.5 right-1.5 w-4 h-4 rounded shadow bg-black/50 p-0.5"
+                          />
+                        )}
                       </div>
 
                       {/* Label */}

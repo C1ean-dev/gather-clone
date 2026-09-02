@@ -21,7 +21,14 @@ export class PeerManager {
   private roomCode: string | null = null
   private isHost: boolean = false
 
-  private constructor() {}
+  private constructor() {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('gather:live-buffer-changed', (e: any) => {
+        const ms = e.detail || 300
+        MediaCallHandler.applyJitterBuffer(this.mediaCalls, ms)
+      })
+    }
+  }
 
   public static getInstance(): PeerManager {
     if (!PeerManager.instance) {
@@ -220,8 +227,39 @@ export class PeerManager {
 
       call.answer(streamToAnswer)
 
+      // Configure receiver jitter buffer to eliminate stutter / frame dropping
+      const applyBuffer = () => {
+        const delayMs = useMediaStore.getState().liveBufferDelay || 300
+        const delaySec = Math.max(0.05, Math.min(1.5, delayMs / 1000))
+        try {
+          const pc = (call as any).peerConnection as RTCPeerConnection
+          if (pc && pc.getReceivers) {
+            pc.getReceivers().forEach((receiver) => {
+              try {
+                (receiver as any).playoutDelayHint = delaySec
+              } catch (e) {}
+              try {
+                if ('jitterBufferTarget' in receiver) {
+                  (receiver as any).jitterBufferTarget = delayMs
+                }
+              } catch (e) {}
+            })
+          }
+        } catch (e) {}
+      }
+
+      try {
+        const pc = (call as any).peerConnection as RTCPeerConnection
+        if (pc && pc.addEventListener) {
+          pc.addEventListener('track', () => {
+            setTimeout(applyBuffer, 50)
+          })
+        }
+      } catch (e) {}
+
       call.on('stream', (remoteStream) => {
         console.log('[P2P Media] Received remote stream from:', call.peer)
+        applyBuffer()
         useMediaStore.getState().setPeerStream(call.peer, remoteStream)
       })
 

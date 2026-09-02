@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react'
-import { Radio, MicOff, Maximize, Pin, Maximize2 } from 'lucide-react'
+import { Radio, MicOff, Maximize, Pin, Maximize2, Volume2, Volume1, VolumeX } from 'lucide-react'
+import { useMediaStore } from '../../store/useMediaStore'
 
 export interface ParticipantData {
   id: string
@@ -34,9 +35,53 @@ export const GridParticipantTile: React.FC<Props> = ({
   const isLive = Boolean(user.screenStream || user.isScreenSharing)
   const activeStream = user.screenStream || user.stream
 
+  const { participantVolumes, setParticipantVolume, outputVolume, selectedAudioOutput } = useMediaStore()
+  const rawVolume = participantVolumes[user.id] !== undefined ? participantVolumes[user.id] : 100
+
+  // Apply viewer's volume preference & audio output sink
   useEffect(() => {
-    if (videoRef.current && activeStream) {
-      videoRef.current.srcObject = activeStream
+    if (videoRef.current && !user.isLocal) {
+      const effectiveVol = Math.max(0, Math.min(1, (outputVolume / 100) * (rawVolume / 100)))
+      videoRef.current.volume = effectiveVol
+      if (typeof (videoRef.current as any).setSinkId === 'function' && selectedAudioOutput) {
+        ;(videoRef.current as any)
+          .setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput)
+          .catch(() => {})
+      }
+    }
+  }, [rawVolume, outputVolume, selectedAudioOutput, user.isLocal])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !activeStream) return
+
+    video.srcObject = activeStream
+    const playPromise = video.play()
+    if (playPromise !== undefined) {
+      playPromise.catch(() => {})
+    }
+
+    const handleTrackEvent = () => {
+      if (video.srcObject !== activeStream) {
+        video.srcObject = activeStream
+      }
+      video.play().catch(() => {})
+    }
+
+    activeStream.addEventListener('addtrack', handleTrackEvent)
+    activeStream.addEventListener('removetrack', handleTrackEvent)
+
+    const tracks = activeStream.getVideoTracks()
+    tracks.forEach((t) => {
+      t.addEventListener('unmute', handleTrackEvent)
+    })
+
+    return () => {
+      activeStream.removeEventListener('addtrack', handleTrackEvent)
+      activeStream.removeEventListener('removetrack', handleTrackEvent)
+      tracks.forEach((t) => {
+        t.removeEventListener('unmute', handleTrackEvent)
+      })
     }
   }, [activeStream, isLive])
 
@@ -66,6 +111,8 @@ export const GridParticipantTile: React.FC<Props> = ({
             autoPlay
             playsInline
             muted={user.isLocal}
+            onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
+            onCanPlay={() => videoRef.current?.play().catch(() => {})}
             className="w-full h-full object-cover bg-black"
           />
         ) : (
@@ -75,6 +122,8 @@ export const GridParticipantTile: React.FC<Props> = ({
               autoPlay
               playsInline
               muted={user.isLocal}
+              onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
+              onCanPlay={() => videoRef.current?.play().catch(() => {})}
               className={`w-full h-full object-cover ${user.isCameraOff ? 'hidden' : 'block'} ${
                 user.isLocal ? '-scale-x-100' : ''
               }`}
@@ -103,7 +152,14 @@ export const GridParticipantTile: React.FC<Props> = ({
           <span className="truncate font-semibold">
             {isLive ? `Tela (${user.name})` : user.isLocal ? `${user.name} (Você)` : user.name}
           </span>
-          {user.isMuted && !isLive && <MicOff className="w-2.5 h-2.5 text-rose-400 shrink-0" />}
+          <div className="flex items-center gap-1 shrink-0">
+            {!user.isLocal && rawVolume === 0 && (
+              <span title="Você mutou este áudio" className="flex items-center">
+                <VolumeX className="w-2.5 h-2.5 text-rose-400" />
+              </span>
+            )}
+            {user.isMuted && !isLive && <MicOff className="w-2.5 h-2.5 text-rose-400 shrink-0" />}
+          </div>
         </div>
       </div>
     )
@@ -129,6 +185,8 @@ export const GridParticipantTile: React.FC<Props> = ({
           autoPlay
           playsInline
           muted={user.isLocal}
+          onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
+          onCanPlay={() => videoRef.current?.play().catch(() => {})}
           className="w-full h-full object-contain bg-black"
         />
       ) : (
@@ -139,6 +197,8 @@ export const GridParticipantTile: React.FC<Props> = ({
             autoPlay
             playsInline
             muted={user.isLocal}
+            onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
+            onCanPlay={() => videoRef.current?.play().catch(() => {})}
             className={`w-full h-full object-cover ${user.isCameraOff ? 'hidden' : 'block'} ${
               user.isLocal ? '-scale-x-100' : ''
             }`}
@@ -162,7 +222,7 @@ export const GridParticipantTile: React.FC<Props> = ({
         </>
       )}
 
-      {/* Top Badges: LIVE indicator + Expand Fullscreen Button */}
+      {/* Top Badges: LIVE indicator + Action Buttons */}
       <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none z-10">
         {isLive ? (
           <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-600/95 text-white rounded-xl text-xs font-bold shadow-lg flex-shrink-0 animate-pulse pointer-events-auto">
@@ -175,6 +235,51 @@ export const GridParticipantTile: React.FC<Props> = ({
 
         {/* Action buttons on hover */}
         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-auto">
+          {/* Viewer Volume Control for Remote User */}
+          {!user.isLocal && (
+            <div
+              className="relative group/vol flex items-center bg-black/80 hover:bg-black/95 rounded-xl border border-white/15 px-2 py-1.5 backdrop-blur-md shadow-md gap-1.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (rawVolume === 0) {
+                    setParticipantVolume(user.id, 100)
+                  } else {
+                    setParticipantVolume(user.id, 0)
+                  }
+                }}
+                className="p-0.5 rounded text-slate-300 hover:text-white transition-colors"
+                title={rawVolume === 0 ? 'Desmutar este participante' : 'Mutar este participante'}
+              >
+                {rawVolume === 0 ? (
+                  <VolumeX className="w-3.5 h-3.5 text-rose-400" />
+                ) : rawVolume < 50 ? (
+                  <Volume1 className="w-3.5 h-3.5 text-indigo-400" />
+                ) : (
+                  <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
+                )}
+              </button>
+
+              {/* Slider expands smoothly on hover */}
+              <div className="w-0 group-hover/vol:w-28 transition-all duration-200 overflow-hidden flex items-center gap-1.5">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={rawVolume}
+                  onChange={(e) => setParticipantVolume(user.id, Number(e.target.value))}
+                  className="w-16 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:accent-indigo-400"
+                  title={`Volume: ${rawVolume}%`}
+                />
+                <span className="text-[10px] font-mono text-slate-200 min-w-[28px]">
+                  {rawVolume}%
+                </span>
+              </div>
+            </div>
+          )}
+
           <button
             onClick={handleFullscreenClick}
             className="px-3 py-1.5 rounded-xl bg-black/80 hover:bg-indigo-600 text-white backdrop-blur-md transition-all shadow-md flex items-center gap-1.5 text-xs font-bold"
@@ -205,6 +310,12 @@ export const GridParticipantTile: React.FC<Props> = ({
       <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none z-10">
         <div className="bg-black/80 backdrop-blur-md px-3.5 py-1.5 rounded-xl flex items-center gap-2 border border-white/10 text-xs font-semibold text-white pointer-events-auto">
           <span>{isLive ? `Tela de ${user.name}` : user.isLocal ? `${user.name} (Você)` : user.name}</span>
+          {!user.isLocal && rawVolume === 0 && (
+            <span className="flex items-center gap-1 text-[10px] text-rose-400 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-800/40">
+              <VolumeX className="w-3 h-3" />
+              <span>Mutado para você</span>
+            </span>
+          )}
           {user.isMuted && !isLive && <MicOff className="w-3.5 h-3.5 text-rose-400" />}
         </div>
 
