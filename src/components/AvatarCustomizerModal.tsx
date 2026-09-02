@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import { X, Check } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
-import { AvatarConfig, AvatarComponentSlot, PresenceStatus, Direction } from '../types/game'
+import { AvatarConfig, AvatarComponentSlot, PresenceStatus, Direction, PetType } from '../types/game'
 import { PeerManager } from '../p2p/PeerManager'
+import { PetRenderer } from '../engine/pet/PetRenderer'
 import { CategoryKey, CategoryTabs } from './avatar-customizer/CategoryTabs'
 import {
   ColorPalettePicker,
@@ -13,6 +14,7 @@ import {
   SHOE_COLORS,
 } from './avatar-customizer/ColorPalettePicker'
 import { OptionSelectorGrid } from './avatar-customizer/OptionSelectorGrid'
+import { PetSelectorPanel } from './avatar-customizer/PetSelectorPanel'
 import { AvatarPreviewCanvas } from './avatar-customizer/AvatarPreviewCanvas'
 import { AvatarPixelArtModal } from '../editor/avatar/AvatarPixelArtModal'
 import { bakeAllAvatarDirections, cropContentDataUrl } from '../engine/avatar/avatarBakeService'
@@ -31,6 +33,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [name, setName] = useState(localPlayer.name || 'Player')
   const [status, setStatus] = useState<PresenceStatus>(localPlayer.status || 'available')
   const [avatar, setAvatar] = useState<AvatarConfig>({
+    pet: localPlayer.avatar?.pet || { type: 'none' },
     skinTone: localPlayer.avatar?.skinTone || localPlayer.avatar?.skinColor || '#ffd1a4',
     skinDetail: localPlayer.avatar?.skinDetail || 'smooth',
     eyeType: localPlayer.avatar?.eyeType || 'normal',
@@ -69,6 +72,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
       setName(localPlayer.name || 'Player')
       setStatus(localPlayer.status || 'available')
       setAvatar({
+        pet: localPlayer.avatar?.pet || { type: 'none' },
         customSkinUrl: localPlayer.avatar?.customSkinUrl,
         customAvatarId: localPlayer.avatar?.customAvatarId,
         customComponents: localPlayer.avatar?.customComponents,
@@ -123,6 +127,8 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
         left: customAsset.frames[2] || '',
         right: customAsset.frames[3] || '',
       }
+    } else if (category === 'pet') {
+      directionalFrames = PetRenderer.bakeBuiltinPetFrames(presetId as PetType, avatar.pet?.color)
     } else {
       directionalFrames = bakeAllAvatarDirections(category, presetId, avatar)
     }
@@ -164,7 +170,10 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
       ? store.customAssets.find((a) => a.id === editingPreset.presetId)
       : null
 
+    let savedAssetId = ''
+
     if (existingAsset) {
+      savedAssetId = existingAsset.id
       store.updateCustomAsset(existingAsset.id, {
         name: customName,
         thumbnail,
@@ -182,7 +191,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
         id: `avatar_${category}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         name: customName,
         type: 'avatar' as const,
-        category: 'Avatares',
+        category: category === 'pet' ? 'Mascotes' : 'Avatares',
         avatarSlot: category,
         thumbnail,
         width: 1,
@@ -199,16 +208,47 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
         createdAt: Date.now(),
         creationSource: 'studio',
       }
+      savedAssetId = newAsset.id
       store.addCustomAsset(newAsset)
     }
 
+    // Save PNG directly to public/assets/pet/ (for pets) or public/assets/avatar/ so they are tracked in Git
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.saveAssetFile) {
+      try {
+        const subfolder = category === 'pet' ? 'pet' : 'avatar'
+        const cleanBase = customName.toLowerCase().replace(/[^a-z0-9]/g, '_') || `${category}_${Date.now()}`
+        if (thumbnail) {
+          ;(window as any).electronAPI.saveAssetFile(
+            `public/assets/${subfolder}/${cleanBase}.png`,
+            thumbnail,
+            'base64'
+          )
+        }
+      } catch (e) {
+        console.warn('Could not auto-save asset file to disk:', e)
+      }
+    }
+
     // 2. Equip immediately onto player avatar
-    const updatedAvatar: AvatarConfig = {
-      ...avatar,
-      customComponents: {
-        ...avatar.customComponents,
-        [category]: directionalFrames,
-      },
+    let updatedAvatar: AvatarConfig
+    if (category === 'pet') {
+      updatedAvatar = {
+        ...avatar,
+        pet: {
+          type: 'custom',
+          customAssetId: savedAssetId,
+          name: customName,
+          directionalFrames,
+        },
+      }
+    } else {
+      updatedAvatar = {
+        ...avatar,
+        customComponents: {
+          ...avatar.customComponents,
+          [category]: directionalFrames,
+        },
+      }
     }
     setAvatar(updatedAvatar)
     setEditingPreset(null)
@@ -231,6 +271,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
     const r = (arr: any[]) => arr[Math.floor(Math.random() * arr.length)]
 
     const newAvatar: AvatarConfig = {
+      pet: avatar.pet,
       skinTone: r(SKIN_TONES),
       skinDetail: r(['smooth', 'vitiligo1', 'vitiligo2', 'freckles', 'blush']),
       eyeType: r(['normal', 'anime', 'focused', 'happy', 'wink', 'closed']),
@@ -321,19 +362,30 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
           {/* 2. MIDDLE COLUMN: OPTIONS GRID & PALETTE */}
           <div className="flex-1 bg-[#2b2d31] flex flex-col justify-between p-5 overflow-hidden">
-            <OptionSelectorGrid
-              activeCategory={activeCategory}
-              avatar={avatar}
-              onChangeAvatar={setAvatar}
-              onEditPreset={handleOpenEditPreset}
-              onCreatePreset={handleOpenCreatePreset}
-            />
+            {activeCategory === 'pet' ? (
+              <PetSelectorPanel
+                avatar={avatar}
+                onChangeAvatar={setAvatar}
+                onEditPreset={handleOpenEditPreset}
+                onCreatePreset={handleOpenCreatePreset}
+              />
+            ) : (
+              <>
+                <OptionSelectorGrid
+                  activeCategory={activeCategory}
+                  avatar={avatar}
+                  onChangeAvatar={setAvatar}
+                  onEditPreset={handleOpenEditPreset}
+                  onCreatePreset={handleOpenCreatePreset}
+                />
 
-            <ColorPalettePicker
-              activeCategory={activeCategory}
-              avatar={avatar}
-              onChangeAvatar={setAvatar}
-            />
+                <ColorPalettePicker
+                  activeCategory={activeCategory}
+                  avatar={avatar}
+                  onChangeAvatar={setAvatar}
+                />
+              </>
+            )}
           </div>
 
           {/* 3. RIGHT COLUMN: 2D ROOM LIVE PREVIEW */}

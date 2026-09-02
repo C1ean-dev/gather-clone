@@ -117,6 +117,8 @@ agents.md
 # ==============================================================================
 !public/assets/
 !public/assets/**
+!public/assets/pet/
+!public/assets/pet/**
 !src/data/
 !src/data/**
 !src/assets/

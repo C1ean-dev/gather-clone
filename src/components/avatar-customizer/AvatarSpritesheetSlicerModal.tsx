@@ -75,6 +75,7 @@ const CATEGORY_LABELS: Record<AvatarComponentSlot, string> = {
   eyes: 'Olhos',
   skin: 'Maquiagem',
   other: 'Personagem',
+  pet: 'Pet / Mascote',
 }
 
 const DIRECTIONS: { id: Direction; label: string; icon: string }[] = [
@@ -971,24 +972,25 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       }
     }
 
-    // Save XML and PNG directly to public/assets/avatar/ so they are tracked in Git
+    // Save XML and PNG directly to public/assets/pet/ (for pets) or public/assets/avatar/ so they are tracked in Git
     if (typeof window !== 'undefined' && (window as any).electronAPI?.saveAssetFile) {
       try {
+        const subfolder = category === 'pet' ? 'pet' : 'avatar'
         const cleanBase = imageFileName.replace(/\.[^/.]+$/, '') || `${category}_atlas`
         ;(window as any).electronAPI.saveAssetFile(
-          `public/assets/avatar/${cleanBase}.xml`,
+          `public/assets/${subfolder}/${cleanBase}.xml`,
           generateXmlString(),
           'utf-8'
         )
         if (imageSrc) {
           ;(window as any).electronAPI.saveAssetFile(
-            `public/assets/avatar/${cleanBase}.png`,
+            `public/assets/${subfolder}/${cleanBase}.png`,
             imageSrc,
             'base64'
           )
         }
       } catch (e) {
-        console.warn('Could not auto-save avatar atlas file to disk:', e)
+        console.warn('Could not auto-save avatar/pet atlas file to disk:', e)
       }
     }
 

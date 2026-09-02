@@ -2,6 +2,8 @@ import React, { useEffect, useRef } from 'react'
 import { Download, Dices } from 'lucide-react'
 import { AvatarConfig, Player, PresenceStatus } from '../../types/game'
 import { AvatarRenderer } from '../../engine/AvatarRenderer'
+import { PetRenderer } from '../../engine/pet/PetRenderer'
+import { PetState } from '../../engine/pet/PetManager'
 
 interface Props {
   isOpen: boolean
@@ -86,6 +88,23 @@ export const AvatarPreviewCanvas: React.FC<Props> = ({
       }
 
       AvatarRenderer.drawPlayer(ctx, tempPlayer, true, tick, 32, true)
+
+      // Draw companion pet beside avatar if equipped
+      if (avatar.pet && avatar.pet.type !== 'none') {
+        const previewPet: PetState = {
+          playerId: 'preview',
+          x: 0.85,
+          y: 0.15,
+          direction: 'down',
+          isMoving: true,
+          walkFrame: Math.floor(tick / 140) % 4,
+          walkTick: tick / 140,
+          history: [],
+          idleTime: 0,
+        }
+        PetRenderer.drawPet(ctx, previewPet, avatar.pet, tick)
+      }
+
       ctx.restore()
 
       frameId = requestAnimationFrame(render)

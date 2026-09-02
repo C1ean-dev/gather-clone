@@ -10,6 +10,7 @@ import {
   Crown,
   Glasses,
   UserCircle,
+  Cat,
 } from 'lucide-react'
 
 export type CategoryKey =
@@ -24,6 +25,7 @@ export type CategoryKey =
   | 'hat'
   | 'glasses'
   | 'other'
+  | 'pet'
 
 interface Props {
   activeCategory: CategoryKey
@@ -42,6 +44,7 @@ export const CATEGORIES = [
   { id: 'hat', label: 'Chapéu', icon: Crown },
   { id: 'glasses', label: 'Óculos', icon: Glasses },
   { id: 'other', label: 'Personagem', icon: UserCircle },
+  { id: 'pet', label: 'Pet / Mascote', icon: Cat },
 ]
 
 export const CategoryTabs: React.FC<Props> = ({ activeCategory, onSelectCategory }) => {

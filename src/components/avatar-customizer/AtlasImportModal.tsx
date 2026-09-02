@@ -27,6 +27,7 @@ const CATEGORY_NAMES: Record<AvatarComponentSlot, string> = {
   eyes: 'Olhos',
   skin: 'Maquiagem',
   other: 'Personagem',
+  pet: 'Pet / Mascote',
 }
 
 export const AtlasImportModal: React.FC<Props> = ({
@@ -115,20 +116,21 @@ export const AtlasImportModal: React.FC<Props> = ({
     if (parsedPresets.length === 0) return
     const created = importPresetsIntoStore(category, parsedPresets)
 
-    // Save XML and PNG directly to public/assets/avatar/ so they are tracked in Git
+    // Save XML and PNG directly to public/assets/pet/ (for pets) or public/assets/avatar/ so they are tracked in Git
     if (typeof window !== 'undefined' && (window as any).electronAPI?.saveAssetFile) {
       try {
+        const subfolder = category === 'pet' ? 'pet' : 'avatar'
         const baseName = `${category}_imported_${Date.now()}`
         if (xmlContent) {
           ;(window as any).electronAPI.saveAssetFile(
-            `public/assets/avatar/${baseName}.xml`,
+            `public/assets/${subfolder}/${baseName}.xml`,
             xmlContent,
             'utf-8'
           )
         }
         if (pngDataUrl) {
           ;(window as any).electronAPI.saveAssetFile(
-            `public/assets/avatar/${baseName}.png`,
+            `public/assets/${subfolder}/${baseName}.png`,
             pngDataUrl,
             'base64'
           )

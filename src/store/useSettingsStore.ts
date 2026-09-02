@@ -6,7 +6,7 @@ export interface GraphicsSettings {
   targetFps: number // 30, 60, 120, 144, 0 (0 = uncapped / monitor refresh)
   showFpsCounter: boolean
   enableCulling: boolean
-  moveSpeed: number // tiles per second, default 4.5
+  moveSpeed: number // tiles per second, fixed at 8.0
   currentFps: number
 }
 
@@ -36,7 +36,7 @@ export const useSettingsStore = create<SettingsStore>((set) => ({
   targetFps: saved.targetFps ?? 0, // Default: native monitor V-Sync
   showFpsCounter: saved.showFpsCounter ?? false,
   enableCulling: saved.enableCulling ?? true,
-  moveSpeed: saved.moveSpeed ?? 4.5,
+  moveSpeed: 8.0, // Fixed at 8.0 tiles/s
   currentFps: 60,
 
   setTargetFps: (fps: number) => {

@@ -58,10 +58,6 @@ export const KNOWN_ASSET_MAP: Record<string, KnownAssetInfo> = {
     png: '/assets/avatar/team_magma_boss_maxie_by_purplezaffre_dec9k7r.png',
     xml: '/assets/avatar/team_magma_boss_maxie_by_purplezaffre_dec9k7r.xml',
   },
-  meowth: {
-    png: '/assets/avatar/5660688_738696_lazy91_meowth-sprite-sheet.fff89e386a74ef7fd067b8f49695f124.png',
-    xml: '/assets/avatar/5660688_738696_lazy91_meowth-sprite-sheet.fff89e386a74ef7fd067b8f49695f124.xml',
-  },
   cynthia: {
     png: '/assets/avatar/pokemon_d2p2_sprites__overworld_cynthia_by_cynthiacelestic_d8h8pjl-fullview.png',
     xml: '/assets/avatar/pokemon_d2p2_sprites__overworld_cynthia_by_cynthiacelestic_d8h8pjl-fullview.xml',
