@@ -9,6 +9,7 @@ import { CustomAsset } from '../types/customAsset'
 import { PublicRoomsService } from '../services/publicRoomsService'
 import { processNetworkMessage } from './messageHandlers'
 import { MediaCallHandler } from './mediaCalls'
+import { prioritizeH264HardwareCodec } from '../media/hardwareCodec'
 
 export class PeerManager {
   private static instance: PeerManager
@@ -231,12 +232,21 @@ export class PeerManager {
 
       call.answer(streamToAnswer)
 
+      const pc = (call as any).peerConnection as RTCPeerConnection
+      if (pc) {
+        prioritizeH264HardwareCodec(pc)
+        if (pc.addEventListener) {
+          pc.addEventListener('negotiationneeded', () => {
+            prioritizeH264HardwareCodec(pc)
+          })
+        }
+      }
+
       // Configure receiver jitter buffer to eliminate stutter / frame dropping (up to 5.0s max)
       const applyBuffer = () => {
         const delayMs = useMediaStore.getState().liveBufferDelay || 3000
         const delaySec = Math.max(0.1, Math.min(5.0, delayMs / 1000))
         try {
-          const pc = (call as any).peerConnection as RTCPeerConnection
           if (pc && pc.getReceivers) {
             pc.getReceivers().forEach((receiver) => {
               try {

@@ -2,6 +2,7 @@ import Peer, { MediaConnection } from 'peerjs'
 import { Player } from '../types/game'
 import { useGameStore } from '../store/useGameStore'
 import { useMediaStore } from '../store/useMediaStore'
+import { prioritizeH264HardwareCodec } from '../media/hardwareCodec'
 
 export class MediaCallHandler {
   /**
@@ -39,12 +40,21 @@ export class MediaCallHandler {
 
         const call = peer.call(remotePlayer.id, streamToSend)
         if (call) {
+          const pc = (call as any).peerConnection as RTCPeerConnection
+          if (pc) {
+            prioritizeH264HardwareCodec(pc)
+            if (pc.addEventListener) {
+              pc.addEventListener('negotiationneeded', () => {
+                prioritizeH264HardwareCodec(pc)
+              })
+            }
+          }
+
           // Configure receiver jitter buffer to eliminate stutter / frame dropping (up to 5.0s max)
           const applyBuffer = () => {
             const delayMs = useMediaStore.getState().liveBufferDelay || 3000
             const delaySec = Math.max(0.1, Math.min(5.0, delayMs / 1000))
             try {
-              const pc = (call as any).peerConnection as RTCPeerConnection
               if (pc && pc.getReceivers) {
                 pc.getReceivers().forEach((receiver) => {
                   try {
@@ -61,7 +71,6 @@ export class MediaCallHandler {
           }
 
           try {
-            const pc = (call as any).peerConnection as RTCPeerConnection
             if (pc && pc.addEventListener) {
               pc.addEventListener('track', () => {
                 setTimeout(applyBuffer, 50)
@@ -139,6 +148,7 @@ export class MediaCallHandler {
       try {
         const pc = (call as any).peerConnection as RTCPeerConnection
         if (pc) {
+          prioritizeH264HardwareCodec(pc)
           const senders = pc.getSenders()
           let videoSender = senders.find((s) => s.track && s.track.kind === 'video')
           if (!videoSender) {

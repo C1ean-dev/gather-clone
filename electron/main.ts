@@ -18,6 +18,13 @@ const CURRENT_VERSION = app.getVersion() || '1.0.0'
 // Prevent AMD GPU DirectComposition video overlay driver warning on Windows
 app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
 
+// Enable full GPU hardware video acceleration (NVENC, AMD AMF, Intel QuickSync)
+app.commandLine.appendSwitch('ignore-gpu-blocklist')
+app.commandLine.appendSwitch('enable-gpu-rasterization')
+app.commandLine.appendSwitch('enable-zero-copy')
+app.commandLine.appendSwitch('enable-accelerated-video-decode')
+app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport,VaapiVideoDecoder,VaapiVideoEncoder,CanvasOopRasterization')
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
