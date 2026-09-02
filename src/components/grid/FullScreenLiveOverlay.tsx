@@ -83,35 +83,63 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
     }
   }
 
-  // Keyboard shortcut handlers (ESC, Mute, Volume Up/Down)
+  const rawVolumeRef = useRef(rawVolume)
+  rawVolumeRef.current = rawVolume
+  const prevVolumeRef = useRef(prevVolume)
+  prevVolumeRef.current = prevVolume
+
+  // Safe Fullscreen Request: Executed strictly ONCE on mount, and cleaned up on unmount
   useEffect(() => {
     const el = theaterContainerRef.current
     if (el && !document.fullscreenElement) {
-      el.requestFullscreen().catch(() => {})
+      el.requestFullscreen().catch(() => {
+        // Fallback silently: CSS fixed inset-0 already covers the entire screen perfectly
+      })
     }
 
+    const handleFullscreenChange = () => {
+      // If user pressed ESC or exited fullscreen through browser/OS gesture, close overlay
+      if (!document.fullscreenElement) {
+        onClose()
+      }
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {})
+      }
+    }
+  }, [onClose])
+
+  // Keyboard shortcut handlers (ESC, Mute, Volume Up/Down)
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose()
       } else if (e.key === 'm' || e.key === 'M') {
-        handleToggleMute()
+        if (rawVolumeRef.current > 0) {
+          setPrevVolume(rawVolumeRef.current)
+          handleVolumeChange(0)
+        } else {
+          handleVolumeChange(prevVolumeRef.current || 100)
+        }
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        handleVolumeChange(rawVolume + 5)
+        handleVolumeChange(rawVolumeRef.current + 5)
       } else if (e.key === 'ArrowDown') {
         e.preventDefault()
-        handleVolumeChange(rawVolume - 5)
+        handleVolumeChange(rawVolumeRef.current - 5)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {})
-      }
     }
-  }, [onClose, rawVolume, prevVolume])
+  }, [onClose])
 
   // Auto hide floating controls after 3.5 seconds of inactivity
   const handleMouseMove = () => {
