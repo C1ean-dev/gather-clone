@@ -21,7 +21,6 @@ app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
 // Enable full GPU hardware video acceleration (NVENC, AMD AMF, Intel QuickSync)
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
-app.commandLine.appendSwitch('enable-zero-copy')
 app.commandLine.appendSwitch('enable-accelerated-video-decode')
 app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport,VaapiVideoDecoder,VaapiVideoEncoder,CanvasOopRasterization')
 
