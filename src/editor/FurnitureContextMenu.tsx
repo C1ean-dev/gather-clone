@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Move, Trash2, Palette, X, Check } from 'lucide-react'
+import { Move, Trash2, Palette, X, Check, Pencil } from 'lucide-react'
 import { useMapStore } from '../store/useMapStore'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { FURNITURE_CATALOG } from '../engine/Constants'
@@ -152,6 +152,21 @@ export const FurnitureContextMenu: React.FC = () => {
           <Palette className="w-3.5 h-3.5 text-emerald-400" />
           <span>Trocar de Cor</span>
         </button>
+
+        {/* Edit in Studio */}
+        {customAsset && (
+          <button
+            type="button"
+            onClick={() => {
+              useCustomAssetsStore.getState().openEditModal(selectedFurn.defId, 'compose')
+            }}
+            className="px-3 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/40 text-xs font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+            title="Editar esta mobília no Estúdio de Criação"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+            <span>Editar</span>
+          </button>
+        )}
 
         {/* Delete Action */}
         <button

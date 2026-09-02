@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TextureAtlas imagePath="other.png">
+  <SubTexture name="other_retro_2__down_0" x="56" y="0" width="56" height="72"/>
+  <SubTexture name="other_retro_2__down_1" x="0" y="0" width="56" height="72"/>
+  <SubTexture name="other_retro_2__down_2" x="168" y="0" width="56" height="72"/>
+  <SubTexture name="other_retro_2__down_3" x="112" y="0" width="56" height="72"/>
+  <SubTexture name="other_retro_2__up_0" x="56" y="224" width="56" height="68"/>
+  <SubTexture name="other_retro_2__up_1" x="0" y="224" width="56" height="68"/>
+  <SubTexture name="other_retro_2__up_2" x="168" y="224" width="56" height="68"/>
+  <SubTexture name="other_retro_2__up_3" x="112" y="224" width="56" height="68"/>
+  <SubTexture name="other_retro_2__left_0" x="0" y="144" width="56" height="80"/>
+  <SubTexture name="other_retro_2__left_1" x="56" y="144" width="56" height="80"/>
+  <SubTexture name="other_retro_2__left_2" x="112" y="144" width="56" height="80"/>
+  <SubTexture name="other_retro_2__left_3" x="168" y="144" width="56" height="80"/>
+  <SubTexture name="other_retro_2__right_0" x="56" y="72" width="56" height="72"/>
+  <SubTexture name="other_retro_2__right_1" x="0" y="72" width="56" height="72"/>
+  <SubTexture name="other_retro_2__right_2" x="112" y="72" width="56" height="72"/>
+  <SubTexture name="other_retro_2__right_3" x="168" y="72" width="56" height="72"/>
+</TextureAtlas>

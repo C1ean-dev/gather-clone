@@ -17,6 +17,11 @@ import {
   Layers,
   Sparkles,
   Maximize2,
+  ChevronLeft,
+  ChevronRight,
+  ArrowRightLeft,
+  GripVertical,
+  Move,
 } from 'lucide-react'
 import { AvatarComponentSlot, Direction } from '../../types/game'
 import { CustomAsset } from '../../types/customAsset'
@@ -118,6 +123,14 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
   // Drag-Selection State
   const isSelectingRef = useRef<boolean>(false)
   const selectionStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const isMovingSelectionRef = useRef<boolean>(false)
+  const moveOffsetRef = useRef<{ offsetX: number; offsetY: number }>({ offsetX: 0, offsetY: 0 })
+  const [isHoveringSelection, setIsHoveringSelection] = useState<boolean>(false)
+
+  // Frame Drag & Drop and Direction Transfer State
+  const [draggedFrameIndex, setDraggedFrameIndex] = useState<number | null>(null)
+  const [dragOverFrameIndex, setDragOverFrameIndex] = useState<number | null>(null)
+  const [directionMenuIndex, setDirectionMenuIndex] = useState<number | null>(null)
 
   // Panning State
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
@@ -312,6 +325,22 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       const clientX = (e.clientX - rect.left) * scaleX
       const clientY = (e.clientY - rect.top) * scaleY
 
+      // Check if clicking inside the existing selection box to drag/move it
+      const isInside =
+        clientX >= selection.x &&
+        clientX <= selection.x + selection.w &&
+        clientY >= selection.y &&
+        clientY <= selection.y + selection.h
+
+      if (isInside && !e.shiftKey) {
+        isMovingSelectionRef.current = true
+        moveOffsetRef.current = {
+          offsetX: clientX - selection.x,
+          offsetY: clientY - selection.y,
+        }
+        return
+      }
+
       const snap = Math.max(1, gridSnapSize)
       const tileX = Math.max(0, Math.min(canvas.width - snap, Math.floor(clientX / snap) * snap))
       const tileY = Math.max(0, Math.min(canvas.height - snap, Math.floor(clientY / snap) * snap))
@@ -338,16 +367,34 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       return
     }
 
-    if (isSelectingRef.current && sourceImg) {
-      const canvas = canvasRef.current
-      if (!canvas) return
-      const rect = canvas.getBoundingClientRect()
-      const scaleX = canvas.width / rect.width
-      const scaleY = canvas.height / rect.height
+    if (!canvasRef.current || !sourceImg) return
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
 
-      const clientX = (e.clientX - rect.left) * scaleX
-      const clientY = (e.clientY - rect.top) * scaleY
+    const clientX = (e.clientX - rect.left) * scaleX
+    const clientY = (e.clientY - rect.top) * scaleY
 
+    // Moving existing selection box
+    if (isMovingSelectionRef.current) {
+      const snap = Math.max(1, gridSnapSize)
+      const rawX = clientX - moveOffsetRef.current.offsetX
+      const rawY = clientY - moveOffsetRef.current.offsetY
+
+      const targetX = Math.max(0, Math.min(canvas.width - selection.w, Math.floor(rawX / snap) * snap))
+      const targetY = Math.max(0, Math.min(canvas.height - selection.h, Math.floor(rawY / snap) * snap))
+
+      setSelection((prev) => ({
+        ...prev,
+        x: targetX,
+        y: targetY,
+      }))
+      return
+    }
+
+    // Creating new drag selection
+    if (isSelectingRef.current) {
       const snap = Math.max(1, gridSnapSize)
       const curTileX = Math.max(0, Math.min(canvas.width - snap, Math.floor(clientX / snap) * snap))
       const curTileY = Math.max(0, Math.min(canvas.height - snap, Math.floor(clientY / snap) * snap))
@@ -361,18 +408,58 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       const newH = maxY - minY
 
       setSelection({ x: minX, y: minY, w: newW, h: newH })
+      return
     }
+
+    // Update hover state for cursor
+    const isInside =
+      clientX >= selection.x &&
+      clientX <= selection.x + selection.w &&
+      clientY >= selection.y &&
+      clientY <= selection.y + selection.h
+    setIsHoveringSelection(isInside)
   }
 
   const handleMouseUp = () => {
     if (isPanning) {
       setIsPanning(false)
     }
+    if (isMovingSelectionRef.current && sourceImg) {
+      isMovingSelectionRef.current = false
+      sliceRegion(sourceImg, selection.x, selection.y, selection.w, selection.h)
+    }
     if (isSelectingRef.current && sourceImg) {
       isSelectingRef.current = false
       sliceRegion(sourceImg, selection.x, selection.y, selection.w, selection.h)
     }
   }
+
+  // Keyboard arrow nudge support to move selection box on canvas
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isOpen || !sourceImg) return
+      if ((e.target as HTMLElement)?.tagName === 'INPUT') return
+
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault()
+        const step = Math.max(1, gridSnapSize)
+        setSelection((prev) => {
+          let nx = prev.x
+          let ny = prev.y
+          if (e.key === 'ArrowLeft') nx = Math.max(0, prev.x - step)
+          if (e.key === 'ArrowRight') nx = Math.min(sourceImg.naturalWidth - prev.w, prev.x + step)
+          if (e.key === 'ArrowUp') ny = Math.max(0, prev.y - step)
+          if (e.key === 'ArrowDown') ny = Math.min(sourceImg.naturalHeight - prev.h, prev.y + step)
+          const updated = { ...prev, x: nx, y: ny }
+          sliceRegion(sourceImg, nx, ny, prev.w, prev.h)
+          return updated
+        })
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, sourceImg, gridSnapSize, sliceRegion])
 
   // Adjust selection dimensions to exact pixel sizes (smaller than 32x32 supported!)
   const setExactDimensions = (w: number, h: number) => {
@@ -468,6 +555,47 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       updated[activePresetIndex] = current
       return updated
     })
+  }
+
+  // Move frame order (left or right in walk animation loop)
+  const handleMoveFrameOrder = (dir: Direction, fromIndex: number, toIndex: number) => {
+    setPresets((prev) => {
+      const updated = [...prev]
+      const current = { ...updated[activePresetIndex] }
+      const list = [...(current.directions[dir] || [])]
+      if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length) {
+        return prev
+      }
+      const [item] = list.splice(fromIndex, 1)
+      list.splice(toIndex, 0, item)
+      current.directions = {
+        ...current.directions,
+        [dir]: list,
+      }
+      updated[activePresetIndex] = current
+      return updated
+    })
+  }
+
+  // Move a frame to another direction (Frente, Costas, Esquerda, Direita)
+  const handleMoveFrameToDirection = (fromDir: Direction, frameIndex: number, targetDir: Direction) => {
+    if (fromDir === targetDir) return
+    setPresets((prev) => {
+      const updated = [...prev]
+      const current = { ...updated[activePresetIndex] }
+      const sourceList = [...(current.directions[fromDir] || [])]
+      if (frameIndex < 0 || frameIndex >= sourceList.length) return prev
+      const [item] = sourceList.splice(frameIndex, 1)
+      const targetList = [...(current.directions[targetDir] || []), item]
+      current.directions = {
+        ...current.directions,
+        [fromDir]: sourceList,
+        [targetDir]: targetList,
+      }
+      updated[activePresetIndex] = current
+      return updated
+    })
+    setDirectionMenuIndex(null)
   }
 
   // Mirror lateral direction (Left <-> Right)
@@ -628,6 +756,27 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       createdAssets.push(asset)
     }
 
+    // Save XML and PNG directly to public/assets/avatar/ so they are tracked in Git
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.saveAssetFile) {
+      try {
+        const cleanBase = imageFileName.replace(/\.[^/.]+$/, '') || `${category}_atlas`
+        ;(window as any).electronAPI.saveAssetFile(
+          `public/assets/avatar/${cleanBase}.xml`,
+          generateXmlString(),
+          'utf-8'
+        )
+        if (imageSrc) {
+          ;(window as any).electronAPI.saveAssetFile(
+            `public/assets/avatar/${cleanBase}.png`,
+            imageSrc,
+            'base64'
+          )
+        }
+      } catch (e) {
+        console.warn('Could not auto-save avatar atlas file to disk:', e)
+      }
+    }
+
     setSavedSuccessCount(createdAssets.length)
     if (onSaveComplete) {
       onSaveComplete(createdAssets, generateXmlString())
@@ -754,7 +903,7 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
             </div>
 
             {/* Bottom Status Tips */}
-            <div className="absolute bottom-4 z-10 flex items-center gap-4 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-4 py-2 rounded-2xl text-xs text-slate-400 shadow-lg">
+            <div className="absolute bottom-4 z-10 flex items-center gap-3 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-4 py-2 rounded-2xl text-xs text-slate-400 shadow-lg">
               <span>
                 Seleção:{' '}
                 <strong className="text-white">
@@ -762,9 +911,9 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
                 </strong>
               </span>
               <div className="w-px h-3 bg-[#383a40]" />
-              <span>🖱️ Clique e arraste para recortar</span>
+              <span>🖱️ Arraste dentro da seleção ou use setas do teclado para movê-la</span>
               <span>•</span>
-              <span>🖱️ Botão Direito: Mover tela</span>
+              <span>Arraste fora para recortar</span>
             </div>
 
             {/* Canvas Container with Pan & Zoom */}
@@ -779,7 +928,7 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
               <canvas
                 ref={canvasRef}
                 onMouseDown={handleCanvasMouseDown}
-                className="block [image-rendering:pixelated]"
+                className={`block [image-rendering:pixelated] ${isHoveringSelection ? 'cursor-move' : 'cursor-crosshair'}`}
               />
             </div>
           </div>
@@ -1114,36 +1263,169 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
                     Nenhum frame atribuído ainda. Selecione na imagem para adicionar.
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                    {activeDirectionFrames.map((frame, idx) => (
-                      <div
-                        key={`${frame.x}_${frame.y}_${idx}`}
-                        className="group relative flex flex-col items-center p-1.5 rounded-xl bg-[#141517] border border-slate-700 shrink-0"
-                      >
-                        <div className="w-12 h-12 rounded-lg bg-[#18191c] flex items-center justify-center overflow-hidden">
-                          <img
-                            src={frame.dataUrl}
-                            alt={`Frame ${idx}`}
-                            className="w-10 h-10 object-contain [image-rendering:pixelated]"
-                          />
-                        </div>
-                        <span className="text-[9px] font-bold text-slate-300 mt-1">
-                          {idx === 0 ? '0 (Parado)' : `Passo ${idx}`}
-                        </span>
-                        <span className="text-[8px] text-slate-500 font-mono">
-                          {frame.w || 16}×{frame.h || 16}
-                        </span>
+                  <div className="flex items-center gap-2 overflow-x-auto pb-2 pt-1 px-1">
+                    {activeDirectionFrames.map((frame, idx) => {
+                      const isDragged = draggedFrameIndex === idx
+                      const isDragOver = dragOverFrameIndex === idx
+                      const isMenuOpen = directionMenuIndex === idx
 
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveDirectionFrame(activeDirectionTab, idx)}
-                          className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow cursor-pointer"
-                          title="Remover este frame"
+                      return (
+                        <div
+                          key={`${frame.x}_${frame.y}_${idx}`}
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggedFrameIndex(idx)
+                            e.dataTransfer.effectAllowed = 'move'
+                            e.dataTransfer.setData('text/plain', String(idx))
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
+                            if (dragOverFrameIndex !== idx) {
+                              setDragOverFrameIndex(idx)
+                            }
+                          }}
+                          onDragLeave={() => {
+                            if (dragOverFrameIndex === idx) {
+                              setDragOverFrameIndex(null)
+                            }
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault()
+                            if (draggedFrameIndex !== null && draggedFrameIndex !== idx) {
+                              handleMoveFrameOrder(activeDirectionTab, draggedFrameIndex, idx)
+                            }
+                            setDraggedFrameIndex(null)
+                            setDragOverFrameIndex(null)
+                          }}
+                          onDragEnd={() => {
+                            setDraggedFrameIndex(null)
+                            setDragOverFrameIndex(null)
+                          }}
+                          className={`group relative flex flex-col items-center p-1.5 rounded-xl bg-[#141517] border transition-all shrink-0 ${
+                            isDragOver
+                              ? 'border-indigo-400 bg-indigo-500/20 shadow-lg scale-105'
+                              : isDragged
+                              ? 'opacity-40 border-dashed border-blue-500 scale-95'
+                              : 'border-slate-700 hover:border-slate-500'
+                          }`}
                         >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
+                          {/* Top Drag Grip & Delete */}
+                          <div className="w-full flex items-center justify-between pb-1 cursor-grab active:cursor-grabbing">
+                            <span className="text-slate-600 hover:text-slate-400" title="Arraste para mover de lugar">
+                              <GripVertical className="w-3 h-3" />
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveDirectionFrame(activeDirectionTab, idx)}
+                              className="w-4 h-4 rounded-full bg-rose-500/20 hover:bg-rose-500 text-rose-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                              title="Remover este frame"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+
+                          {/* Thumbnail (Click to Focus / Select Region on Spritesheet) */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const fw = frame.w || 16
+                              const fh = frame.h || 16
+                              setSelection({ x: frame.x, y: frame.y, w: fw, h: fh })
+                              if (sourceImg) {
+                                sliceRegion(sourceImg, frame.x, frame.y, fw, fh)
+                              }
+                            }}
+                            className="w-12 h-12 rounded-lg bg-[#18191c] hover:ring-2 hover:ring-blue-400 flex items-center justify-center overflow-hidden transition-all cursor-pointer"
+                            title="Clique para posicionar a seleção neste frame"
+                          >
+                            <img
+                              src={frame.dataUrl}
+                              alt={`Frame ${idx}`}
+                              className="w-10 h-10 object-contain [image-rendering:pixelated]"
+                            />
+                          </button>
+
+                          <span className="text-[9px] font-bold text-slate-300 mt-1">
+                            {idx === 0 ? '0 (Parado)' : `Passo ${idx}`}
+                          </span>
+                          <span className="text-[8px] text-slate-500 font-mono">
+                            {frame.w || 16}×{frame.h || 16}
+                          </span>
+
+                          {/* Move Controls Strip (Move Left, Move Right, Transfer Direction) */}
+                          <div className="flex items-center gap-1 mt-1.5 pt-1 border-t border-slate-800/80 w-full justify-center">
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => handleMoveFrameOrder(activeDirectionTab, idx, idx - 1)}
+                              className={`p-1 rounded transition-colors ${
+                                idx === 0
+                                  ? 'opacity-30 cursor-not-allowed text-slate-600'
+                                  : 'hover:bg-[#2b2d31] text-slate-400 hover:text-white cursor-pointer'
+                              }`}
+                              title="Mover frame para a esquerda"
+                            >
+                              <ChevronLeft className="w-3 h-3" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setDirectionMenuIndex(isMenuOpen ? null : idx)}
+                              className={`p-1 rounded transition-colors ${
+                                isMenuOpen
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'hover:bg-[#2b2d31] text-indigo-400 hover:text-white cursor-pointer'
+                              }`}
+                              title="Mover para outra direção (Frente, Costas, etc.)"
+                            >
+                              <ArrowRightLeft className="w-3 h-3" />
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={idx === activeDirectionFrames.length - 1}
+                              onClick={() => handleMoveFrameOrder(activeDirectionTab, idx, idx + 1)}
+                              className={`p-1 rounded transition-colors ${
+                                idx === activeDirectionFrames.length - 1
+                                  ? 'opacity-30 cursor-not-allowed text-slate-600'
+                                  : 'hover:bg-[#2b2d31] text-slate-400 hover:text-white cursor-pointer'
+                              }`}
+                              title="Mover frame para a direita"
+                            >
+                              <ChevronRight className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          {/* Move to Direction Popover */}
+                          {isMenuOpen && (
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-30 bg-[#1e1f22] border border-indigo-500/40 rounded-xl p-1.5 shadow-2xl flex flex-col gap-1 w-28 animate-in fade-in zoom-in-95">
+                              <span className="text-[9px] font-bold text-slate-400 px-1 border-b border-white/10 pb-0.5">
+                                Mover para:
+                              </span>
+                              {DIRECTIONS.filter((d) => d.id !== activeDirectionTab).map((d) => (
+                                <button
+                                  key={d.id}
+                                  type="button"
+                                  onClick={() => handleMoveFrameToDirection(activeDirectionTab, idx, d.id)}
+                                  className="text-[10px] font-semibold text-slate-200 hover:text-white hover:bg-indigo-600/30 px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors text-left cursor-pointer"
+                                >
+                                  <span>{d.icon}</span>
+                                  <span>{d.label}</span>
+                                </button>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => setDirectionMenuIndex(null)}
+                                className="text-[9px] text-slate-400 hover:text-white pt-0.5 text-center cursor-pointer"
+                              >
+                                Fechar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </div>

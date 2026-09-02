@@ -36,6 +36,8 @@ export const AssetPalette: React.FC = () => {
     zoneDraft,
     setZoneDraft,
     removeZone,
+    removeFurnitureByDefId,
+    replaceFloorGlobally,
   } = useMapStore()
 
   const {
@@ -225,6 +227,10 @@ export const AssetPalette: React.FC = () => {
               activeTool={activeTool}
               setActiveTool={setActiveTool}
               deleteCustomAsset={deleteCustomAsset}
+              openEditModal={openEditModal}
+              onDeleteFurniture={(defId) => {
+                removeFurnitureByDefId(defId)
+              }}
             />
           )}
 
@@ -236,6 +242,10 @@ export const AssetPalette: React.FC = () => {
               activeTool={activeTool}
               setActiveTool={setActiveTool}
               deleteCustomAsset={deleteCustomAsset}
+              openEditModal={openEditModal}
+              onDeleteFloor={(floorId) => {
+                replaceFloorGlobally(floorId, 'habbo_parquet')
+              }}
             />
           )}
 

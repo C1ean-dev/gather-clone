@@ -114,6 +114,30 @@ export const AtlasImportModal: React.FC<Props> = ({
   const handleConfirmImport = () => {
     if (parsedPresets.length === 0) return
     const created = importPresetsIntoStore(category, parsedPresets)
+
+    // Save XML and PNG directly to public/assets/avatar/ so they are tracked in Git
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.saveAssetFile) {
+      try {
+        const baseName = `${category}_imported_${Date.now()}`
+        if (xmlContent) {
+          ;(window as any).electronAPI.saveAssetFile(
+            `public/assets/avatar/${baseName}.xml`,
+            xmlContent,
+            'utf-8'
+          )
+        }
+        if (pngDataUrl) {
+          ;(window as any).electronAPI.saveAssetFile(
+            `public/assets/avatar/${baseName}.png`,
+            pngDataUrl,
+            'base64'
+          )
+        }
+      } catch (e) {
+        console.warn('Could not auto-save imported atlas to disk:', e)
+      }
+    }
+
     setSuccessCount(created.length)
     if (onImportSuccess) {
       onImportSuccess(created.length)

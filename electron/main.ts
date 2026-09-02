@@ -343,6 +343,31 @@ ipcMain.handle('load-native-spaces', async () => {
   return null
 })
 
+// 7. IPC handler to save binary or text asset files directly to disk (e.g. public/assets/avatar/*.xml or *.png)
+ipcMain.handle(
+  'save-asset-file',
+  async (_event, relativePath: string, content: string, encoding: 'utf-8' | 'base64' = 'utf-8') => {
+    try {
+      const targetPath = path.join(process.cwd(), relativePath)
+      const dir = path.dirname(targetPath)
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+      }
+      if (encoding === 'base64') {
+        const base64Data = content.replace(/^data:image\/\w+;base64,/, '')
+        fs.writeFileSync(targetPath, Buffer.from(base64Data, 'base64'))
+      } else {
+        fs.writeFileSync(targetPath, content, 'utf-8')
+      }
+      console.log('[AssetFile] Saved to', targetPath)
+      return true
+    } catch (err) {
+      console.error('[AssetFile] Save error:', err)
+      return false
+    }
+  }
+)
+
 // Socket UDP para descoberta local e disparo da janela nativa do Windows Defender Firewall
 let lanSocket: dgram.Socket | null = null
 

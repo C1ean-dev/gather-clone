@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Pencil } from 'lucide-react'
 import { PixelArtThumbnail } from '../../PixelArtThumbnail'
 import { ConfirmModal } from '../../../components/ConfirmModal'
 
@@ -26,6 +26,8 @@ interface Props {
   activeTool: string
   setActiveTool: (tool: any) => void
   deleteCustomAsset: (id: string) => void
+  openEditModal?: (id: string, mode?: 'crop' | 'compose') => void
+  onDeleteFurniture?: (id: string) => void
 }
 
 export const FurnitureTab: React.FC<Props> = ({
@@ -40,6 +42,8 @@ export const FurnitureTab: React.FC<Props> = ({
   activeTool,
   setActiveTool,
   deleteCustomAsset,
+  openEditModal,
+  onDeleteFurniture,
 }) => {
   const [isAddingCategory, setIsAddingCategory] = useState(false)
   const [newCategoryText, setNewCategoryText] = useState('')
@@ -134,19 +138,34 @@ export const FurnitureTab: React.FC<Props> = ({
                     : 'border-[#2a3142] bg-[#12151d]/50 hover:border-slate-500'
                 }`}
               >
-                {/* Right Delete Button for custom items */}
-                {isCustom && (
+                {/* Top Action Buttons (Edit & Delete) */}
+                <div className="absolute top-1.5 right-1.5 flex items-center gap-1 z-10">
+                  {openEditModal && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openEditModal(item.id, 'compose')
+                      }}
+                      className="p-1 rounded-md bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 hover:text-blue-200 opacity-80 hover:opacity-100 transition-all shadow-sm"
+                      title={`Editar mobília "${item.name}"`}
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+
                   <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation()
                       setAssetToDelete({ id: item.id, name: item.name })
                     }}
-                    className="absolute top-1.5 right-1.5 p-1 rounded-md bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 hover:text-rose-200 opacity-80 hover:opacity-100 transition-all z-10"
-                    title="Excluir elemento customizado"
+                    className="p-1 rounded-md bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 hover:text-rose-200 opacity-80 hover:opacity-100 transition-all shadow-sm"
+                    title={`Excluir mobília "${item.name}"`}
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
-                )}
+                </div>
 
                 <button
                   onClick={() => {
@@ -175,16 +194,22 @@ export const FurnitureTab: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Confirm Delete Custom Element Modal */}
+      {/* Confirm Delete Furniture Modal */}
       <ConfirmModal
         isOpen={!!assetToDelete}
-        title="Excluir Elemento Customizado"
-        message={`Deseja realmente excluir o elemento "${assetToDelete?.name}"? Esta ação não pode ser desfeita.`}
-        confirmText="Excluir Elemento"
+        title="Excluir Mobília"
+        message={`Deseja realmente excluir a mobília "${assetToDelete?.name}"? Esta ação removerá a mobília do catálogo e do mapa.`}
+        confirmText="Excluir Mobília"
         confirmVariant="danger"
         onConfirm={() => {
           if (assetToDelete) {
             deleteCustomAsset(assetToDelete.id)
+            if (onDeleteFurniture) {
+              onDeleteFurniture(assetToDelete.id)
+            }
+            if (selectedFurnitureDefId === assetToDelete.id) {
+              setSelectedFurnitureDefId('')
+            }
             setAssetToDelete(null)
           }
         }}
