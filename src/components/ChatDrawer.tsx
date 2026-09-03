@@ -17,7 +17,17 @@ import { useMediaStore } from '../store/useMediaStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { ChatMessage } from '../types/chat'
 
+/**
+ * Outer gate: subscribes ONLY to isChatOpen so 60Hz position updates don't
+ * re-render the chat drawer while it's closed (the common case).
+ */
 export const ChatDrawer: React.FC = () => {
+  const isChatOpen = useChatStore((s) => s.isChatOpen)
+  if (!isChatOpen) return null
+  return <ChatDrawerInner />
+}
+
+const ChatDrawerInner: React.FC = () => {
   const {
     channels,
     activeChannelId,
@@ -30,7 +40,8 @@ export const ChatDrawer: React.FC = () => {
   } = useChatStore()
 
   const { localPlayer, remotePlayers } = useGameStore()
-  const { peerStreams, isGridCallOpen } = useMediaStore()
+  const peerStreams = useMediaStore((s) => s.peerStreams)
+  const isGridCallOpen = useMediaStore((s) => s.isGridCallOpen)
 
   const [inputMessage, setInputMessage] = useState('')
   const [showEmojiMenu, setShowEmojiMenu] = useState<string | null>(null)
@@ -44,8 +55,6 @@ export const ChatDrawer: React.FC = () => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [filteredMessages.length])
-
-  if (!isChatOpen) return null
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
@@ -74,7 +83,10 @@ export const ChatDrawer: React.FC = () => {
   return (
     <div
       className={`fixed left-0 bottom-0 w-[420px] max-w-[90vw] bg-[#12151d]/98 backdrop-blur-xl border-r border-[#2a3142] flex flex-col shadow-2xl animate-in slide-in-from-left duration-200 ${
-        isGridCallOpen ? 'top-0 z-[60]' : 'top-14 z-40'
+        // Mini call overlay sits at z-40 and mounts after the chat in DOM
+        // order, so the drawer needs z-50 to stay interactive above it.
+        // (Grid view is z-50 but mounts later, so it still wins when open.)
+        isGridCallOpen ? 'top-0 z-[60]' : 'top-14 z-50'
       }`}
     >
       {/* Top Header */}

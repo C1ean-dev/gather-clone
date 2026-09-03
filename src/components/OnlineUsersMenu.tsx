@@ -32,7 +32,17 @@ import { useMediaStore } from '../store/useMediaStore'
 import { ConfirmModal } from './ConfirmModal'
 import { Player, UserRole } from '../types/game'
 
+/**
+ * Outer gate: subscribes ONLY to isOnlineUsersOpen so 60Hz position updates
+ * don't re-render this drawer while it's closed (the common case).
+ */
 export const OnlineUsersMenu: React.FC = () => {
+  const isOnlineUsersOpen = useGameStore((s) => s.isOnlineUsersOpen)
+  if (!isOnlineUsersOpen) return null
+  return <OnlineUsersMenuInner />
+}
+
+const OnlineUsersMenuInner: React.FC = () => {
   const {
     isOnlineUsersOpen,
     setOnlineUsersOpen,
@@ -53,15 +63,13 @@ export const OnlineUsersMenu: React.FC = () => {
 
   const { mapData } = useMapStore()
   const { toggleChat } = useChatStore()
-  const { peerStreams } = useMediaStore()
+  const peerStreams = useMediaStore((s) => s.peerStreams)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [filterTab, setFilterTab] = useState<'all' | 'friends' | 'roles'>('all')
   const [selectedUserMenuId, setSelectedUserMenuId] = useState<string | null>(null)
   const [copiedLink, setCopiedLink] = useState(false)
   const [kickConfirmPlayer, setKickConfirmPlayer] = useState<{ id: string; name: string } | null>(null)
-
-  if (!isOnlineUsersOpen) return null
 
   const remoteList = Object.values(remotePlayers)
   const allPlayers: { player: Player; isLocal: boolean }[] = [

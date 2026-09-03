@@ -318,16 +318,30 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   setLocalPosition: (x, y, direction, isMoving) =>
-    set((state) => ({
-      localPlayer: {
-        ...state.localPlayer,
-        x,
-        y,
-        direction,
-        isMoving,
-        lastUpdated: Date.now(),
-      },
-    })),
+    set((state) => {
+      const p = state.localPlayer
+      // Guard: CanvasEngine calls this every frame while moving. Skip the
+      // zustand notify (which re-renders every subscribed React component)
+      // when nothing actually changed.
+      if (
+        p.x === x &&
+        p.y === y &&
+        p.direction === direction &&
+        p.isMoving === isMoving
+      ) {
+        return state
+      }
+      return {
+        localPlayer: {
+          ...state.localPlayer,
+          x,
+          y,
+          direction,
+          isMoving,
+          lastUpdated: Date.now(),
+        },
+      }
+    }),
 
   setLocalStatus: (status, statusText, statusEmoji) => {
     saveProfile({
@@ -369,6 +383,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set((state) => {
       const existing = state.remotePlayers[id]
       if (!existing) return state
+      if (
+        existing.x === x &&
+        existing.y === y &&
+        existing.direction === direction &&
+        existing.isMoving === isMoving
+      ) {
+        return state
+      }
       return {
         remotePlayers: {
           ...state.remotePlayers,

@@ -1,4 +1,4 @@
-import { MapData } from '../../types/map'
+import { MapData, PrivateZone } from '../../types/map'
 import { FURNITURE_CATALOG } from '../Constants'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 import { useGameStore } from '../../store/useGameStore'
@@ -6,6 +6,52 @@ import { useChatStore } from '../../store/useChatStore'
 import { useMediaStore } from '../../store/useMediaStore'
 import { MediaManager } from '../../media/MediaManager'
 import { PeerManager } from '../../p2p/PeerManager'
+
+/**
+ * Cached adjacent-zone relations. checkCollision runs up to ~6× per frame
+ * (sub-stepping + midpoint + wall-slide axes) and used to .find() both
+ * neighbors per zone per call — O(Z²) per call. Relations only change when
+ * the zones array identity changes, so memoize them here.
+ */
+let neighborCacheMap: MapData | null = null
+let neighborCacheZones: PrivateZone[] | null = null
+const leftNeighborCache = new Map<string, PrivateZone | undefined>()
+const rightNeighborCache = new Map<string, PrivateZone | undefined>()
+
+function getCachedNeighbors(
+  map: MapData,
+  zone: PrivateZone
+): { left: PrivateZone | undefined; right: PrivateZone | undefined } {
+  const zones = map.zones || []
+  if (neighborCacheMap !== map || neighborCacheZones !== zones) {
+    neighborCacheMap = map
+    neighborCacheZones = zones
+    leftNeighborCache.clear()
+    rightNeighborCache.clear()
+    for (const z of zones) {
+      if (z.hasWalls === false) continue
+      const zMinX = z.x
+      const zMaxX = z.x + z.width
+      let left: PrivateZone | undefined
+      let right: PrivateZone | undefined
+      for (const o of zones) {
+        if (o.id === z.id || o.hasWalls === false) continue
+        if (!left && Math.abs(o.x + o.width - zMinX) <= 0.15 &&
+            Math.max(o.y, z.y) < Math.min(o.y + o.height, z.y + z.height)) {
+          left = o
+        }
+        if (!right && Math.abs(zMaxX - o.x) <= 0.15 &&
+            Math.max(o.y, z.y) < Math.min(o.y + o.height, z.y + z.height)) {
+          right = o
+        }
+        if (left && right) break
+      }
+      leftNeighborCache.set(z.id, left)
+      rightNeighborCache.set(z.id, right)
+    }
+  }
+  return { left: leftNeighborCache.get(zone.id), right: rightNeighborCache.get(zone.id) }
+}
 
 /**
  * Precise Thin-Wall & Furniture Collision Checking
@@ -56,22 +102,8 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
     const doorStartX = minX + (w - doorW) / 2
     const doorEndX = doorStartX + doorW
 
-    // Helper to find adjacent neighbor zones
-    const leftNeighbor = (map.zones || []).find(
-      (z) =>
-        z.id !== zone.id &&
-        z.hasWalls !== false &&
-        Math.abs(z.x + z.width - minX) <= 0.15 &&
-        Math.max(z.y, zone.y) < Math.min(z.y + z.height, zone.y + zone.height)
-    )
-
-    const rightNeighbor = (map.zones || []).find(
-      (z) =>
-        z.id !== zone.id &&
-        z.hasWalls !== false &&
-        Math.abs(maxX - z.x) <= 0.15 &&
-        Math.max(z.y, zone.y) < Math.min(z.y + z.height, zone.y + zone.height)
-    )
+    // Helper to find adjacent neighbor zones (memoized per map — see above).
+    const { left: leftNeighbor, right: rightNeighbor } = getCachedNeighbors(map, zone)
 
     // A. Back Wall Collision (Top block)
     if (pMaxX > minX && pMinX < maxX && pMaxY > minY && pMinY < minY + backWallH) {

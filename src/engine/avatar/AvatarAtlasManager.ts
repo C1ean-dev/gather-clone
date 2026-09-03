@@ -23,6 +23,13 @@ export class AvatarAtlasManager {
   private static atlases: Map<string, TextureAtlasData> = new Map()
   private static imageCache: Map<string, HTMLImageElement> = new Map()
   private static loadingPromises: Map<string, Promise<boolean>> = new Map()
+  /** Incremented on register/load/clear so renderers can invalidate memoized lookups. */
+  private static version: number = 0
+
+  /** Monotonic version of the atlas registry (for render-side memo invalidation). */
+  static getVersion(): number {
+    return AvatarAtlasManager.version
+  }
 
   /**
    * Parse Sparrow/TexturePacker XML string into structured TextureAtlasData
@@ -160,6 +167,7 @@ export class AvatarAtlasManager {
   static registerAtlasXml(category: string, xmlString: string, imageSrc?: string): TextureAtlasData {
     const atlas = this.parseAtlasXml(xmlString)
     this.atlases.set(category, atlas)
+    AvatarAtlasManager.version++
 
     if (imageSrc && typeof Image !== 'undefined') {
       const img = new Image()
@@ -193,6 +201,7 @@ export class AvatarAtlasManager {
         const xmlText = await res.text()
         const atlas = this.parseAtlasXml(xmlText)
         this.atlases.set(category, atlas)
+        AvatarAtlasManager.version++
 
         const finalImgUrl = imageUrl || atlas.imagePath || xmlUrl.replace(/\.xml$/i, '.png')
         if (typeof Image !== 'undefined' && finalImgUrl) {
@@ -267,6 +276,7 @@ export class AvatarAtlasManager {
     this.atlases.clear()
     this.imageCache.clear()
     this.loadingPromises.clear()
+    AvatarAtlasManager.version++
   }
 
   /**

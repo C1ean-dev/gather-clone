@@ -171,7 +171,9 @@ export class NoiseSuppressor {
       // Normalized level for UI VU Meter (0.0 to 1.0)
       const normalizedLevel = Math.min(1, rms * 6)
 
-      // Gate Logic
+      // Gate Logic with hysteresis: open at 1.0× threshold, close at 0.6×.
+      // Without this the gate flutters on borderline signals (open/close
+      // every frame), which is heard as chatter/crackle over the voice.
       if (this.gateGain && this.isSuppressionActive) {
         const now = this.audioCtx.currentTime
         if (rms > this.currentThreshold) {
@@ -181,7 +183,7 @@ export class NoiseSuppressor {
             this.gateGain.gain.setTargetAtTime(1.0, now, 0.01) // 10ms fast attack
             this.isGateOpen = true
           }
-        } else {
+        } else if (rms < this.currentThreshold * 0.6) {
           // Below threshold: Smoothly mute background noise
           if (this.isGateOpen) {
             this.gateGain.gain.cancelScheduledValues(now)
@@ -189,6 +191,7 @@ export class NoiseSuppressor {
             this.isGateOpen = false
           }
         }
+        // Between 0.6× and 1.0×: hold current state (no flutter).
       } else {
         this.isGateOpen = true
       }

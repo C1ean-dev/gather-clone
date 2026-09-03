@@ -107,6 +107,13 @@ export interface PlayerPermissions {
 
 export interface Player {
   id: string
+  /**
+   * Stable game-level identity (the profile id from localStorage), preserved
+   * across reconnects. The entry key `id` is the P2P connection id, which
+   * CHANGES on every reconnect — `gameId` is how we recognize the same human
+   * behind a new connection and drop their stale frozen entry (ghost avatar).
+   */
+  gameId?: string
   name: string
   x: number // grid or pixel coords
   y: number

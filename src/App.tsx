@@ -27,10 +27,14 @@ export const App: React.FC = () => {
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false)
   const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false)
 
-  const { isConnected } = useGameStore()
-  const { toggleMute, toggleCamera } = useMediaStore()
+  // Selectors (not whole-store) so 60Hz position updates don't re-render App.
+  const isConnected = useGameStore((s) => s.isConnected)
+  // Stable action refs only — whole-store here would re-render the entire
+  // tree on every VU-meter tick (~10Hz) during calls.
+  const toggleMute = useMediaStore((s) => s.toggleMute)
+  const toggleCamera = useMediaStore((s) => s.toggleCamera)
   const { toggleChat } = useChatStore()
-  const { toggleEditor } = useMapStore()
+  const toggleEditor = useMapStore((s) => s.toggleEditor)
 
   // 1. Check for updates on startup automatically (only if not dismissed in this session)
   useEffect(() => {

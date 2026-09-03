@@ -15,7 +15,18 @@ export interface ZoneWallTheme {
   isStone?: boolean
 }
 
+const wallThemeCache = new Map<string, ZoneWallTheme>()
+
 export function getZoneWallTheme(wallType: WallType | string = 'drywall_white'): ZoneWallTheme {
+  const key = wallType || 'drywall_white'
+  const cached = wallThemeCache.get(key)
+  if (cached) return cached
+  const theme = buildZoneWallTheme(key)
+  wallThemeCache.set(key, theme)
+  return theme
+}
+
+function buildZoneWallTheme(wallType: WallType | string = 'drywall_white'): ZoneWallTheme {
   switch (wallType) {
     case 'habbo_hotel_gold':
       return {

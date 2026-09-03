@@ -33,15 +33,15 @@ export const CallControlsBar: React.FC<Props> = ({
   onToggleScreenShare,
   onLeaveCall,
 }) => {
-  const {
-    isMuted,
-    isCameraOff,
-    isScreenSharing,
-    isNoiseSuppressionEnabled,
-    toggleMute,
-    toggleCamera,
-    toggleNoiseSuppression,
-  } = useMediaStore()
+  // Granular selectors — booleans/toggles only change on user action, but
+  // whole-store would also re-render this bar on every VU-meter tick.
+  const isMuted = useMediaStore((s) => s.isMuted)
+  const isCameraOff = useMediaStore((s) => s.isCameraOff)
+  const isScreenSharing = useMediaStore((s) => s.isScreenSharing)
+  const isNoiseSuppressionEnabled = useMediaStore((s) => s.isNoiseSuppressionEnabled)
+  const toggleMute = useMediaStore((s) => s.toggleMute)
+  const toggleCamera = useMediaStore((s) => s.toggleCamera)
+  const toggleNoiseSuppression = useMediaStore((s) => s.toggleNoiseSuppression)
 
   const isChatOpen = useChatStore((state) => state.isChatOpen)
   const activeChannelId = useChatStore((state) => state.activeChannelId)

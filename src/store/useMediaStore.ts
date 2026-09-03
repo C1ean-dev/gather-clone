@@ -67,6 +67,16 @@ interface MediaStore {
   setScreenShareAudioVolume: (vol: number) => void
   setDuckingEnabled: (enabled: boolean) => void
 
+  // RNNoise engine lifecycle (surfaced so the UI can show ground truth —
+  // previously a failed init was silent and the user got raw mic audio).
+  rnnoiseStatus: 'idle' | 'loading' | 'ready' | 'fallback' | 'error'
+  rnnoiseError: string | null
+  setRnnoiseStatus: (status: 'idle' | 'loading' | 'ready' | 'fallback' | 'error', error?: string | null) => void
+  // Last init stage reached (blob → addModule → node → waiting ready).
+  // Narrows the next failure to an exact step.
+  rnnoiseStage: string
+  setRnnoiseStage: (stage: string) => void
+
   // Mic calibration per deviceId
   micCalibrations: Record<string, MicCalibration>
   isCalibrating: boolean
@@ -139,6 +149,23 @@ const saveAudioSettings = (settings: Record<string, any>) => {
   }
 }
 
+// Trailing-debounce for localStorage persistence. Volume sliders fire
+// setState per pixel while dragging — a synchronous read+parse+stringify+write
+// per tick janks the drag. State updates stay immediate; only the disk write
+// is debounced.
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+let pendingPersist: Record<string, any> = {}
+const saveAudioSettingsDebounced = (settings: Record<string, any>, delayMs: number = 300) => {
+  pendingPersist = { ...pendingPersist, ...settings }
+  if (persistTimer) return
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    const batch = pendingPersist
+    pendingPersist = {}
+    saveAudioSettings(batch)
+  }, delayMs)
+}
+
 const isValidMode = (m: any): m is AudioProcessorMode =>
   m === 'classic' || m === 'soft' || m === 'rnnoise'
 
@@ -175,6 +202,19 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   micCalibrations: (saved.micCalibrations as Record<string, MicCalibration>) || {},
   isCalibrating: false,
 
+  rnnoiseStatus: 'idle',
+  rnnoiseError: null,
+  setRnnoiseStatus: (rnnoiseStatus, rnnoiseError = null) => {
+    const prev = get()
+    if (prev.rnnoiseStatus === rnnoiseStatus && prev.rnnoiseError === rnnoiseError) return
+    set({ rnnoiseStatus, rnnoiseError })
+  },
+  rnnoiseStage: '',
+  setRnnoiseStage: (rnnoiseStage) => {
+    if (get().rnnoiseStage === rnnoiseStage) return
+    set({ rnnoiseStage })
+  },
+
   setSelectedAudioInput: (selectedAudioInput) => {
     saveAudioSettings({ selectedAudioInput })
     set({ selectedAudioInput })
@@ -184,11 +224,11 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
     set({ selectedAudioOutput })
   },
   setInputVolume: (inputVolume) => {
-    saveAudioSettings({ inputVolume })
+    saveAudioSettingsDebounced({ inputVolume })
     set({ inputVolume })
   },
   setOutputVolume: (outputVolume) => {
-    saveAudioSettings({ outputVolume })
+    saveAudioSettingsDebounced({ outputVolume })
     set({ outputVolume })
   },
   setSensitivityMode: (sensitivityMode) => {
@@ -215,7 +255,7 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
     set({ audioProcessorMode, hasUserChosenProcessorMode: true })
   },
   setScreenShareAudioVolume: (screenShareAudioVolume) => {
-    saveAudioSettings({ screenShareAudioVolume })
+    saveAudioSettingsDebounced({ screenShareAudioVolume })
     set({ screenShareAudioVolume })
   },
   setDuckingEnabled: (duckingEnabled) => {
@@ -298,8 +338,9 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   setParticipantVolume: (id, volume) => {
     const clamped = Math.max(0, Math.min(100, Math.round(volume)))
     const current = get().participantVolumes || {}
+    if (current[id] === clamped) return
     const next = { ...current, [id]: clamped }
-    saveAudioSettings({ participantVolumes: next })
+    saveAudioSettingsDebounced({ participantVolumes: next })
     set({ participantVolumes: next })
   },
 
@@ -307,7 +348,7 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
     const clamped = Math.max(0, Math.min(100, Math.round(volume)))
     const current = get().participantVolumes || {}
     const nextVolumes = { ...current, live: clamped }
-    saveAudioSettings({ liveStreamVolume: clamped, participantVolumes: nextVolumes })
+    saveAudioSettingsDebounced({ liveStreamVolume: clamped, participantVolumes: nextVolumes })
     set({ liveStreamVolume: clamped, participantVolumes: nextVolumes })
   },
 
@@ -342,9 +383,22 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   },
 
   setDynamicBufferMetrics: (metrics) =>
-    set((state) => ({
-      dynamicBufferMetrics: { ...state.dynamicBufferMetrics, ...metrics },
-    })),
+    set((state) => {
+      // Guard: DynamicBufferManager evaluates every 2s during calls. Skip the
+      // notify when nothing changed so subscribers don't re-render on a timer.
+      const prev = state.dynamicBufferMetrics
+      if (
+        (metrics.calculatedMs === undefined || metrics.calculatedMs === prev.calculatedMs) &&
+        (metrics.jitterMs === undefined || metrics.jitterMs === prev.jitterMs) &&
+        (metrics.frameDropRate === undefined || metrics.frameDropRate === prev.frameDropRate) &&
+        (metrics.statusText === undefined || metrics.statusText === prev.statusText)
+      ) {
+        return state
+      }
+      return {
+        dynamicBufferMetrics: { ...prev, ...metrics },
+      }
+    }),
 
   setPeerStream: (peerId, stream) =>
     set((state) => ({
@@ -392,7 +446,16 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   localAudioLevel: 0,
   isGateOpen: false,
   isTestingMic: false,
-  setLocalAudioLevel: (localAudioLevel, isGateOpen = false) =>
-    set({ localAudioLevel, isGateOpen: isGateOpen ?? get().isGateOpen }),
+  setLocalAudioLevel: (localAudioLevel, isGateOpen = false) => {
+    const prev = get()
+    // Guard: DSP engines report the level at ~60Hz (rAF). Skip the zustand
+    // notify when nothing perceptible changed — every set() re-renders all
+    // media-store subscribers (grid, tiles, overlays).
+    const gate = isGateOpen ?? prev.isGateOpen
+    if (gate === prev.isGateOpen && Math.abs(localAudioLevel - prev.localAudioLevel) < 0.005) {
+      return
+    }
+    set({ localAudioLevel, isGateOpen: gate })
+  },
   setIsTestingMic: (isTestingMic) => set({ isTestingMic }),
 }))

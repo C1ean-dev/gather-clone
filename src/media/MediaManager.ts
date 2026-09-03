@@ -46,6 +46,32 @@ export class MediaManager {
   private screenDuckInterval: number | null = null
   private currentProcessorMode: AudioProcessorMode = 'classic'
 
+  // Throttle state for VU-meter forwarding. DSP engines invoke the level
+  // callback every rAF (~60Hz); pushing every sample into zustand re-renders
+  // all media subscribers 60×/s. Forward at ~10Hz, immediately on gate
+  // open/close transitions (speaker aura stays responsive).
+  private levelForwardLastSent: number = 0
+  private levelForwardLastGate: boolean = false
+  private static readonly LEVEL_FORWARD_INTERVAL_MS = 100
+
+  /**
+   * Shared level forwarder for all engines (startMedia / changeAudioInput /
+   * reprocessStream). Throttled — see field comment above.
+   */
+  private handleEngineLevel = (level: number, isGateOpen: boolean) => {
+    const now = performance.now()
+    const gateChanged = isGateOpen !== this.levelForwardLastGate
+    if (
+      !gateChanged &&
+      now - this.levelForwardLastSent < MediaManager.LEVEL_FORWARD_INTERVAL_MS
+    ) {
+      return
+    }
+    this.levelForwardLastSent = now
+    this.levelForwardLastGate = isGateOpen
+    useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
+  }
+
   private constructor() {
     this.classicEngine = new NoiseSuppressor()
     this.softEngine = new SoftDspProcessor()
@@ -143,7 +169,29 @@ export class MediaManager {
     * (RNNoise) engines, and falls back to the soft DSP if the user
     * picked RNNoise but the WASM module failed to load.
     */
+  /**
+   * Serializes engine (re)starts. Without this, two rapid swaps (e.g. double
+   * retry clicks) run concurrently: both dispose/create contexts and the
+   * loser overwrites the winner's status with a stale failure.
+   */
+  private runQueue: Promise<void> = Promise.resolve()
+
   private async runEngine(
+    inputStream: MediaStream,
+    levelCallback: (level: number, isGateOpen: boolean) => void
+  ): Promise<MediaStream> {
+    const prev = this.runQueue
+    let release!: () => void
+    this.runQueue = new Promise<void>((r) => (release = r))
+    await prev
+    try {
+      return await this.doRunEngine(inputStream, levelCallback)
+    } finally {
+      release()
+    }
+  }
+
+  private async doRunEngine(
     inputStream: MediaStream,
     levelCallback: (level: number, isGateOpen: boolean) => void
   ): Promise<MediaStream> {
@@ -161,6 +209,12 @@ export class MediaManager {
       }
     }
     this.activeEngine = nextEngine
+    // Force the next level sample through immediately (fresh engine / mic).
+    this.levelForwardLastSent = 0
+    // Keep the RNNoise status badge truthful when another engine is active.
+    if (nextEngine !== this.rnnoiseEngine) {
+      useMediaStore.getState().setRnnoiseStatus('idle')
+    }
 
     const result = nextEngine.processStream(
       inputStream,
@@ -177,6 +231,14 @@ export class MediaManager {
       console.warn(
         '[MediaManager] RNNoise failed to initialise, falling back to soft DSP'
       )
+      // Preserve the underlying cause set by the processor (don't clobber
+      // 'error' detail — it's the only pointer to the real failure).
+      const st = useMediaStore.getState()
+      const cause =
+        st.rnnoiseStatus === 'error' && st.rnnoiseError
+          ? st.rnnoiseError
+          : 'init failed — using Soft DSP'
+      st.setRnnoiseStatus('fallback', cause)
       try {
         this.activeEngine.dispose()
       } catch {}
@@ -286,9 +348,7 @@ export class MediaManager {
 
     const processedStream = await this.runEngine(
       this.rawUserStream,
-      (level, isGateOpen) => {
-        useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
-      }
+      this.handleEngineLevel
     )
 
     // Ensure video track is preserved in processedStream
@@ -340,9 +400,7 @@ export class MediaManager {
 
       const processedStream = await this.runEngine(
         this.rawUserStream,
-        (level, isGateOpen) => {
-          useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
-        }
+        this.handleEngineLevel
       )
 
       useMediaStore.getState().setLocalStream(processedStream)
@@ -673,9 +731,7 @@ export class MediaManager {
       try {
         const processed = await this.runEngine(
           this.rawUserStream,
-          (level, isGateOpen) => {
-            useMediaStore.getState().setLocalAudioLevel(level, isGateOpen)
-          }
+          this.handleEngineLevel
         )
         // Preserve current mute/cameraOff state on the new track.
         const isMuted = useMediaStore.getState().isMuted

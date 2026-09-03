@@ -50,7 +50,12 @@ const VideoTile: React.FC<VideoTileProps> = ({
   onClick,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const { outputVolume, selectedAudioOutput, participantVolumes, setParticipantVolume } = useMediaStore()
+  // Granular selectors — whole-store here re-rendered every tile on each
+  // VU-meter tick (~10Hz) and every peer-stream change.
+  const outputVolume = useMediaStore((s) => s.outputVolume)
+  const selectedAudioOutput = useMediaStore((s) => s.selectedAudioOutput)
+  const participantVolumes = useMediaStore((s) => s.participantVolumes)
+  const setParticipantVolume = useMediaStore((s) => s.setParticipantVolume)
   const rawVolume = participantVolumes[name] !== undefined ? participantVolumes[name] : 100
 
   useEffect(() => {
@@ -140,6 +145,43 @@ const VideoTile: React.FC<VideoTileProps> = ({
         </div>
       )}
 
+      {/* Live viewer volume control (hover, top-right) */}
+      {isScreenTrack && !isLocal && (
+        <div
+          className="absolute top-1.5 right-1.5 group/vol flex items-center bg-black/70 hover:bg-black/90 backdrop-blur-md border border-white/15 rounded-lg px-1 py-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setParticipantVolume(name, rawVolume === 0 ? 100 : 0)
+            }}
+            className="text-slate-200 hover:text-white transition-colors p-0.5"
+            title={rawVolume === 0 ? 'Desmutar transmissão' : 'Mutar transmissão'}
+          >
+            {rawVolume === 0 ? (
+              <VolumeX className="w-3 h-3 text-rose-400" />
+            ) : rawVolume < 50 ? (
+              <Volume1 className="w-3 h-3 text-indigo-300" />
+            ) : (
+              <Volume2 className="w-3 h-3 text-indigo-300" />
+            )}
+          </button>
+          <div className="w-0 group-hover/vol:w-14 focus-within:w-14 transition-all duration-200 overflow-hidden flex items-center pl-0.5">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={rawVolume}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setParticipantVolume(name, Number(e.target.value))}
+              className="w-12 h-1 bg-slate-600 rounded appearance-none cursor-pointer accent-indigo-500"
+              title={`Volume da live: ${rawVolume}%`}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Name Pill Tag */}
       <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between px-2 py-0.5 bg-black/70 backdrop-blur-md rounded-lg text-[10px] text-white">
         <span className="truncate font-medium">
@@ -179,14 +221,13 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
   onClose,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const {
-    outputVolume,
-    selectedAudioOutput,
-    participantVolumes,
-    setParticipantVolume,
-    liveStreamVolume,
-    setLiveStreamVolume,
-  } = useMediaStore()
+  // Granular selectors — same VU-tick reason as VideoTile above.
+  const outputVolume = useMediaStore((s) => s.outputVolume)
+  const selectedAudioOutput = useMediaStore((s) => s.selectedAudioOutput)
+  const participantVolumes = useMediaStore((s) => s.participantVolumes)
+  const setParticipantVolume = useMediaStore((s) => s.setParticipantVolume)
+  const liveStreamVolume = useMediaStore((s) => s.liveStreamVolume)
+  const setLiveStreamVolume = useMediaStore((s) => s.setLiveStreamVolume)
 
   const rawVolume =
     presenterId && participantVolumes[presenterId] !== undefined
@@ -343,19 +384,30 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
   )
 }
 
+/**
+ * Outer gate: subscribes ONLY to the two booleans that decide visibility, so
+ * 60Hz player-position updates don't re-render this overlay while hidden
+ * (the common case — walking around outside any zone).
+ */
 export const MiniCallOverlay: React.FC = () => {
-  const {
-    localStream,
-    localScreenStream,
-    peerStreams,
-    isMuted,
-    isCameraOff,
-    isScreenSharing,
-    isGridCallOpen,
-    setGridCallOpen,
-    toggleMute,
-    toggleCamera,
-  } = useMediaStore()
+  const currentZoneId = useGameStore((s) => s.localPlayer.currentZoneId)
+  const isGridCallOpen = useMediaStore((s) => s.isGridCallOpen)
+  if (!currentZoneId || isGridCallOpen) return null
+  return <MiniCallOverlayInner />
+}
+
+const MiniCallOverlayInner: React.FC = () => {
+  // Granular selectors — the VU level ticks at ~10Hz; subscribe narrowly so
+  // the overlay doesn't re-render on unrelated media slices.
+  const localStream = useMediaStore((s) => s.localStream)
+  const localScreenStream = useMediaStore((s) => s.localScreenStream)
+  const peerStreams = useMediaStore((s) => s.peerStreams)
+  const isMuted = useMediaStore((s) => s.isMuted)
+  const isCameraOff = useMediaStore((s) => s.isCameraOff)
+  const isScreenSharing = useMediaStore((s) => s.isScreenSharing)
+  const setGridCallOpen = useMediaStore((s) => s.setGridCallOpen)
+  const toggleMute = useMediaStore((s) => s.toggleMute)
+  const toggleCamera = useMediaStore((s) => s.toggleCamera)
 
   const { localPlayer, remotePlayers } = useGameStore()
   const { mapData } = useMapStore()
@@ -368,8 +420,8 @@ export const MiniCallOverlay: React.FC = () => {
   const [isScreenModalOpen, setIsScreenModalOpen] = useState(false)
   const [isFloatingPreviewVisible, setIsFloatingPreviewVisible] = useState(true)
 
-  // Only display if user is in a Private Zone
-  if (!localPlayer.currentZoneId || isGridCallOpen) return null
+  // Only display if user is in a Private Zone (grid-open gate lives in outer).
+  if (!localPlayer.currentZoneId) return null
 
   const currentZone = mapData.zones.find((z) => z.id === localPlayer.currentZoneId)
   const zoneName = currentZone?.name || 'Mesa Privada'

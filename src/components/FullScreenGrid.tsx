@@ -10,19 +10,28 @@ import { GridParticipantTile, ParticipantData } from './grid/GridParticipantTile
 import { FullScreenLiveOverlay } from './grid/FullScreenLiveOverlay'
 import { CallControlsBar } from './grid/CallControlsBar'
 
+/**
+ * Outer gate: subscribes ONLY to isGridCallOpen so 60Hz position updates
+ * don't re-render the conference grid while it's closed (the common case).
+ */
 export const FullScreenGrid: React.FC = () => {
-  const {
-    isGridCallOpen,
-    setGridCallOpen,
-    localStream,
-    localScreenStream,
-    peerStreams,
-    peerScreenStreams,
-    isMuted,
-    isCameraOff,
-    isScreenSharing,
-    localAudioLevel,
-  } = useMediaStore()
+  const isGridCallOpen = useMediaStore((s) => s.isGridCallOpen)
+  if (!isGridCallOpen) return null
+  return <FullScreenGridInner />
+}
+
+const FullScreenGridInner: React.FC = () => {
+  // Granular media selectors — the VU level ticks at ~10Hz; only
+  // localAudioLevel-driven props should update on those ticks.
+  const setGridCallOpen = useMediaStore((s) => s.setGridCallOpen)
+  const localStream = useMediaStore((s) => s.localStream)
+  const localScreenStream = useMediaStore((s) => s.localScreenStream)
+  const peerStreams = useMediaStore((s) => s.peerStreams)
+  const peerScreenStreams = useMediaStore((s) => s.peerScreenStreams)
+  const isMuted = useMediaStore((s) => s.isMuted)
+  const isCameraOff = useMediaStore((s) => s.isCameraOff)
+  const isScreenSharing = useMediaStore((s) => s.isScreenSharing)
+  const localAudioLevel = useMediaStore((s) => s.localAudioLevel)
 
   const { localPlayer, remotePlayers, addReaction } = useGameStore()
   const { mapData } = useMapStore()
@@ -34,43 +43,55 @@ export const FullScreenGrid: React.FC = () => {
   const [liveTheaterUser, setLiveTheaterUser] = useState<ParticipantData | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
-  if (!isGridCallOpen) return null
-
   const currentZone = mapData.zones.find((z) => z.id === localPlayer.currentZoneId)
   const zoneTitle = currentZone?.name || 'Revisão & Call de Time'
 
-  const peersInSameZone = Object.values(remotePlayers).filter(
-    (p) => p.currentZoneId === localPlayer.currentZoneId
-  )
-
-  const allInMeeting: ParticipantData[] = [
-    {
-      id: localPlayer.id,
-      name: localPlayer.name,
-      stream: localStream,
-      screenStream: localScreenStream,
-      isMuted,
-      isCameraOff,
-      isLocal: true,
-      isScreenSharing: localPlayer.isScreenSharing,
-      isSpeaking: localAudioLevel > 0.15 && !isMuted,
-      shirtColor: localPlayer.avatar.shirtColor,
-      statusEmoji: localPlayer.statusEmoji,
-    },
-    ...peersInSameZone.map((p) => ({
-      id: p.id,
-      name: p.name,
-      stream: peerStreams[p.id] || null,
-      screenStream: peerScreenStreams[p.id] || (p.isScreenSharing ? peerStreams[p.id] : null),
-      isMuted: p.isMuted,
-      isCameraOff: p.isCameraOff,
-      isLocal: false,
-      isScreenSharing: p.isScreenSharing,
-      isSpeaking: false,
+  // Memoized so a VU-meter tick (10Hz) that doesn't change speaking state
+  // keeps every tile's `user` prop identity stable (no cascade re-render).
+  const isLocalSpeaking = localAudioLevel > 0.15 && !isMuted
+  const allInMeeting: ParticipantData[] = React.useMemo(() => {
+    const peersInSameZone = Object.values(remotePlayers).filter(
+      (p) => p.currentZoneId === localPlayer.currentZoneId
+    )
+    return [
+      {
+        id: localPlayer.id,
+        name: localPlayer.name,
+        stream: localStream,
+        screenStream: localScreenStream,
+        isMuted,
+        isCameraOff,
+        isLocal: true,
+        isScreenSharing: localPlayer.isScreenSharing,
+        isSpeaking: isLocalSpeaking,
+        shirtColor: localPlayer.avatar.shirtColor,
+        statusEmoji: localPlayer.statusEmoji,
+      },
+      ...peersInSameZone.map((p) => ({
+        id: p.id,
+        name: p.name,
+        stream: peerStreams[p.id] || null,
+        screenStream: peerScreenStreams[p.id] || (p.isScreenSharing ? peerStreams[p.id] : null),
+        isMuted: p.isMuted,
+        isCameraOff: p.isCameraOff,
+        isLocal: false,
+        isScreenSharing: p.isScreenSharing,
+        isSpeaking: false,
       shirtColor: p.avatar.shirtColor,
       statusEmoji: p.statusEmoji,
     })),
-  ]
+    ]
+  }, [
+    remotePlayers,
+    localPlayer,
+    localStream,
+    localScreenStream,
+    peerStreams,
+    peerScreenStreams,
+    isMuted,
+    isCameraOff,
+    isLocalSpeaking,
+  ])
 
   // If someone is screen sharing and no one is explicitly focused, default focus to the active screen share
   const activePresenter = allInMeeting.find((u) => u.screenStream || u.isScreenSharing)

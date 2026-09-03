@@ -46,7 +46,9 @@ export class CanvasEngine {
 
   private setupInputs() {
     this.input.setup()
-    this.canvas.addEventListener('wheel', this.camera.handleWheel, { passive: false })
+    // NOTE: wheel zoom is handled once by MapViewport's wrapper onWheel
+    // (which also owns the immersive/simplified mode switch). Attaching a
+    // second native wheel listener here used to apply every scroll tick 2-3×.
   }
 
   /**
@@ -94,11 +96,20 @@ export class CanvasEngine {
   public dispose() {
     this.stop()
     this.input.dispose()
-    this.canvas.removeEventListener('wheel', this.camera.handleWheel)
   }
 
   private loop = (currentTime: number) => {
     if (!this.isRunning) return
+
+    // The immersive canvas is hidden (display:none) in simplified map mode —
+    // skip all update/render work and just keep the clock fresh so there's
+    // no delta-time jump when switching back.
+    if (useGameStore.getState().mapViewMode === 'simplified') {
+      this.lastTime = currentTime
+      this.lastRenderTime = currentTime
+      this.animationFrameId = requestAnimationFrame(this.loop)
+      return
+    }
 
     const settings = useSettingsStore.getState()
     const targetFps = settings.targetFps

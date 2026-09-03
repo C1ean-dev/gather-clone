@@ -34,21 +34,29 @@ export const TopNavBar: React.FC<Props> = ({
   hasUpdate,
   onDisconnect,
 }) => {
-  const {
-    localPlayer,
-    remotePlayers,
-    roomId,
-    isOwner,
-    isHost,
-    isRoomPublic,
-    toggleRoomPrivacy,
-    roomName,
-    isOnlineUsersOpen,
-    toggleOnlineUsers,
-  } = useGameStore()
-  const { mapData, isEditorOpen, toggleEditor } = useMapStore()
-  const { isChatOpen, toggleChat, channels } = useChatStore()
-  const { isMuted, toggleMute } = useMediaStore()
+  // Granular selectors: subscribing to whole localPlayer/remotePlayers would
+  // re-render this bar at 60Hz on every movement frame. Select only UI fields.
+  const localPlayerName = useGameStore((s) => s.localPlayer.name)
+  const localPlayerAvatarColor = useGameStore((s) => s.localPlayer.avatar?.shirtColor)
+  const localPlayerStatusEmoji = useGameStore((s) => s.localPlayer.statusEmoji)
+  const localPlayerStatusText = useGameStore((s) => s.localPlayer.statusText)
+  const localPlayerCurrentZoneId = useGameStore((s) => s.localPlayer.currentZoneId)
+  const roomId = useGameStore((s) => s.roomId)
+  const isOwner = useGameStore((s) => s.isOwner)
+  const isRoomPublic = useGameStore((s) => s.isRoomPublic)
+  const toggleRoomPrivacy = useGameStore((s) => s.toggleRoomPrivacy)
+  const roomName = useGameStore((s) => s.roomName)
+  const isOnlineUsersOpen = useGameStore((s) => s.isOnlineUsersOpen)
+  const toggleOnlineUsers = useGameStore((s) => s.toggleOnlineUsers)
+  const remotePlayerCount = useGameStore((s) => Object.keys(s.remotePlayers).length)
+  const mapZones = useMapStore((s) => s.mapData.zones)
+  const isEditorOpen = useMapStore((s) => s.isEditorOpen)
+  const toggleEditor = useMapStore((s) => s.toggleEditor)
+  const isChatOpen = useChatStore((s) => s.isChatOpen)
+  const toggleChat = useChatStore((s) => s.toggleChat)
+  const totalUnread = useChatStore((s) => s.channels.reduce((acc, c) => acc + c.unreadCount, 0))
+  const isMuted = useMediaStore((s) => s.isMuted)
+  const toggleMute = useMediaStore((s) => s.toggleMute)
 
   const [copied, setCopied] = useState(false)
   const [autoSavedNotice, setAutoSavedNotice] = useState(false)
@@ -63,9 +71,7 @@ export const TopNavBar: React.FC<Props> = ({
     prevEditorOpenRef.current = isEditorOpen
   }, [isEditorOpen])
 
-  const currentZone = mapData.zones.find((z) => z.id === localPlayer.currentZoneId)
-  const totalUnread = channels.reduce((acc, c) => acc + c.unreadCount, 0)
-  const remotePlayerList = Object.values(remotePlayers)
+  const currentZone = mapZones.find((z) => z.id === localPlayerCurrentZoneId)
 
   const handleCopyCode = () => {
     if (!roomId) return
@@ -222,7 +228,7 @@ export const TopNavBar: React.FC<Props> = ({
           title="Ver Participantes Online, Amigos e Gerenciar Permissões"
         >
           <Users className={`w-3.5 h-3.5 ${isOnlineUsersOpen ? 'text-white' : 'text-emerald-400'}`} />
-          <span>{remotePlayerList.length + 1}</span>
+          <span>{remotePlayerCount + 1}</span>
         </button>
 
         {/* Available Update Notification Rocket */}
@@ -254,18 +260,18 @@ export const TopNavBar: React.FC<Props> = ({
           <div className="relative">
             <div
               className="w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs text-white border border-white/20"
-              style={{ backgroundColor: localPlayer.avatar.shirtColor || '#4c6ef5' }}
+              style={{ backgroundColor: localPlayerAvatarColor || '#4c6ef5' }}
             >
-              {localPlayer.name.charAt(0).toUpperCase()}
+              {localPlayerName.charAt(0).toUpperCase()}
             </div>
             <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-[#12151d]" />
           </div>
           <div className="text-left">
             <div className="text-xs font-bold text-slate-200 group-hover:text-white leading-tight">
-              {localPlayer.name}
+              {localPlayerName}
             </div>
             <div className="text-[10px] text-slate-400 leading-tight truncate max-w-[80px]">
-              {localPlayer.statusEmoji} {localPlayer.statusText}
+              {localPlayerStatusEmoji} {localPlayerStatusText}
             </div>
           </div>
         </button>

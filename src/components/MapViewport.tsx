@@ -15,28 +15,29 @@ export const MapViewport: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const engineRef = useRef<CanvasEngine | null>(null)
 
-  const { mapViewMode, setMapViewMode, isManualSimplified } = useGameStore()
-  const {
-    isEditorOpen,
-    activeTool,
-    selectedFloor,
-    selectedWall,
-    selectedFurnitureDefId,
-    selectedPlacedFurnitureId,
-    setSelectedPlacedFurnitureId,
-    isMovingFurniture,
-    setIsMovingFurniture,
-    updateFurniture,
-    zoneDraft,
-    setWallTile,
-    addFurniture,
-    removeFurnitureAt,
-    removeZoneAt,
-    addOrUpdateZone,
-    paintFloorInZone,
-    findZoneAt,
-    mapData,
-  } = useMapStore()
+  // Granular selectors so 60Hz player-position updates don't re-render the viewport.
+  const mapViewMode = useGameStore((s) => s.mapViewMode)
+  const setMapViewMode = useGameStore((s) => s.setMapViewMode)
+  const isManualSimplified = useGameStore((s) => s.isManualSimplified)
+  const isEditorOpen = useMapStore((s) => s.isEditorOpen)
+  const activeTool = useMapStore((s) => s.activeTool)
+  const selectedFloor = useMapStore((s) => s.selectedFloor)
+  const selectedWall = useMapStore((s) => s.selectedWall)
+  const selectedFurnitureDefId = useMapStore((s) => s.selectedFurnitureDefId)
+  const selectedPlacedFurnitureId = useMapStore((s) => s.selectedPlacedFurnitureId)
+  const setSelectedPlacedFurnitureId = useMapStore((s) => s.setSelectedPlacedFurnitureId)
+  const isMovingFurniture = useMapStore((s) => s.isMovingFurniture)
+  const setIsMovingFurniture = useMapStore((s) => s.setIsMovingFurniture)
+  const updateFurniture = useMapStore((s) => s.updateFurniture)
+  const zoneDraft = useMapStore((s) => s.zoneDraft)
+  const setWallTile = useMapStore((s) => s.setWallTile)
+  const addFurniture = useMapStore((s) => s.addFurniture)
+  const removeFurnitureAt = useMapStore((s) => s.removeFurnitureAt)
+  const removeZoneAt = useMapStore((s) => s.removeZoneAt)
+  const addOrUpdateZone = useMapStore((s) => s.addOrUpdateZone)
+  const paintFloorInZone = useMapStore((s) => s.paintFloorInZone)
+  const findZoneAt = useMapStore((s) => s.findZoneAt)
+  const mapData = useMapStore((s) => s.mapData)
 
   useEffect(() => {
     if (!canvasRef.current) return
@@ -45,13 +46,40 @@ export const MapViewport: React.FC = () => {
     const engine = new CanvasEngine(canvas)
     engineRef.current = engine
 
-    const handleResize = () => {
-      canvas.width = canvas.parentElement?.clientWidth || window.innerWidth
-      canvas.height = canvas.parentElement?.clientHeight || window.innerHeight - 56
+    // Cap the backing store (~2MP, e.g. 1920×1080) — full 4K canvases cost
+    // ~4× fill-rate per frame with zero visual gain for 32px pixel art.
+    // CSS (w-full h-full) upscales; imageSmoothingEnabled=false keeps it crisp.
+    const MAX_CANVAS_PIXELS = 1920 * 1080
+    const applySize = () => {
+      let w = canvas.parentElement?.clientWidth || window.innerWidth
+      let h = canvas.parentElement?.clientHeight || window.innerHeight - 56
+      const area = w * h
+      if (area > MAX_CANVAS_PIXELS) {
+        const scale = Math.sqrt(MAX_CANVAS_PIXELS / area)
+        w = Math.floor(w * scale)
+        h = Math.floor(h * scale)
+      }
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w
+        canvas.height = h
+      }
       engine.fitToScreen(0.95)
     }
 
-    handleResize()
+    let resizeRaf = 0
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null
+    const handleResize = () => {
+      // rAF-throttle the hot path + trailing debounce for fitToScreen.
+      if (resizeRaf) return
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0
+        applySize()
+        if (resizeTimer) clearTimeout(resizeTimer)
+        resizeTimer = setTimeout(() => engine.fitToScreen(0.95), 150)
+      })
+    }
+
+    applySize()
     window.addEventListener('resize', handleResize)
     engine.start()
 
@@ -62,6 +90,8 @@ export const MapViewport: React.FC = () => {
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      if (resizeRaf) cancelAnimationFrame(resizeRaf)
+      if (resizeTimer) clearTimeout(resizeTimer)
       engine.dispose()
     }
   }, [])
@@ -91,8 +121,16 @@ export const MapViewport: React.FC = () => {
   useEffect(() => {
     if (mapViewMode === 'immersive' && engineRef.current && canvasRef.current) {
       const canvas = canvasRef.current
-      canvas.width = canvas.parentElement?.clientWidth || window.innerWidth
-      canvas.height = canvas.parentElement?.clientHeight || window.innerHeight - 56
+      const MAX_CANVAS_PIXELS = 1920 * 1080
+      let w = canvas.parentElement?.clientWidth || window.innerWidth
+      let h = canvas.parentElement?.clientHeight || window.innerHeight - 56
+      if (w * h > MAX_CANVAS_PIXELS) {
+        const scale = Math.sqrt(MAX_CANVAS_PIXELS / (w * h))
+        w = Math.floor(w * scale)
+        h = Math.floor(h * scale)
+      }
+      canvas.width = w
+      canvas.height = h
       const local = useGameStore.getState().localPlayer
       engineRef.current.camera.x = (local?.x ?? 34) * 32
       engineRef.current.camera.y = (local?.y ?? 20) * 32
@@ -388,14 +426,15 @@ export const MapViewport: React.FC = () => {
       onWheel={handleWheel}
       className="relative flex-1 w-full h-[calc(100vh-56px)] overflow-hidden bg-[#0c0e14]"
     >
-      {/* 2D Canvas Engine (Always mounted to preserve rendering context) */}
+      {/* 2D Canvas Engine (Always mounted to preserve rendering context).
+          Wheel zoom lives ONLY on the wrapper div below — a second handler
+          here would apply every scroll tick twice (bubble). */}
       <canvas
         ref={canvasRef}
         onMouseDown={handleCanvasMouseDown}
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
         onMouseLeave={handleCanvasMouseUp}
-        onWheel={handleWheel}
         className={`w-full h-full cursor-crosshair pixelated ${
           mapViewMode === 'simplified' ? 'hidden' : 'block'
         }`}

@@ -36,9 +36,29 @@ export function processNetworkMessage(
 
     case 'PLAYER_JOIN': {
       const isPeerHost = peerId.endsWith('-host')
+      const incomingGameId: string | undefined =
+        msg.payload.player?.gameId ?? msg.payload.player?.id
+      const localId = useGameStore.getState().localPlayer.id
+      // 1. Never register our own echo as a remote player — it would render
+      // as a frozen copy of ourselves stuck at the join position (ghost).
+      if (incomingGameId && incomingGameId === localId) {
+        break
+      }
+      // 2. Same human reconnected with a new connection id (ICE churn, flap):
+      // drop the stale entry so the old frozen clone disappears instead of
+      // lingering next to the live one.
+      if (incomingGameId) {
+        const st = useGameStore.getState()
+        for (const [key, p] of Object.entries(st.remotePlayers)) {
+          if (key !== peerId && (p.gameId ?? p.id) === incomingGameId) {
+            st.removeRemotePlayer(key)
+          }
+        }
+      }
       const player: Player = {
         ...msg.payload.player,
         id: peerId,
+        gameId: incomingGameId,
         isHost: isPeerHost,
         role: isPeerHost ? 'host' : msg.payload.player?.role === 'admin' ? 'admin' : msg.payload.player?.role === 'guest' ? 'guest' : 'member',
       }
@@ -52,6 +72,9 @@ export function processNetworkMessage(
     }
 
     case 'PLAYER_MOVE': {
+      // Defensive: movement allegedly from ourselves must never create or
+      // move a remote entry (would mirror/freeze a clone of the local avatar).
+      if (peerId === useGameStore.getState().localPlayer.id) break
       const payload: PlayerMovePayload = msg.payload
       useGameStore
         .getState()
@@ -60,6 +83,7 @@ export function processNetworkMessage(
     }
 
     case 'PLAYER_UPDATE': {
+      if (peerId === useGameStore.getState().localPlayer.id) break
       const updated = msg.payload.player
       const existing = useGameStore.getState().remotePlayers[peerId]
       if (existing) {

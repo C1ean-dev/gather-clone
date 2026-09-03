@@ -9,6 +9,7 @@ import { useMapStore } from '../../store/useMapStore'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 import { useSettingsStore } from '../../store/useSettingsStore'
 import { CameraManager } from '../camera/CameraManager'
+import { getStaticLayer } from './staticLayerCache'
 
 export class WorldRenderer {
   static render(
@@ -55,7 +56,8 @@ export class WorldRenderer {
         viewHeight / 2 - camera.y
       )
 
-      // 1. Draw Floors (Optimized with Viewport Culling for high FPS)
+      // 1. Static world (floors + walls + static furniture) via offscreen cache:
+      // 1 drawImage instead of ~800 tiles × save/restore + per-zone gradients.
       const mapH = map.height || 40
       const mapW = map.width || 68
       const enableCulling = useSettingsStore.getState().enableCulling
@@ -65,50 +67,93 @@ export class WorldRenderer {
       let startY = 0
       let endY = mapH
 
-      if (enableCulling) {
-        const camMinX = camera.x - viewWidth / 2
-        const camMaxX = camera.x + viewWidth / 2
-        const camMinY = camera.y - viewHeight / 2
-        const camMaxY = camera.y + viewHeight / 2
+      // Visible world bounds in pixels (computed once, reused for all culling).
+      const camMinX = camera.x - viewWidth / 2
+      const camMaxX = camera.x + viewWidth / 2
+      const camMinY = camera.y - viewHeight / 2
+      const camMaxY = camera.y + viewHeight / 2
 
+      if (enableCulling) {
         startX = Math.max(0, Math.floor(camMinX / TILE_SIZE) - 1)
         endX = Math.min(mapW, Math.ceil(camMaxX / TILE_SIZE) + 1)
         startY = Math.max(0, Math.floor(camMinY / TILE_SIZE) - 1)
         endY = Math.min(mapH, Math.ceil(camMaxY / TILE_SIZE) + 1)
       }
 
-      // Base solid underlay to guarantee zero subpixel background bleed across entire visible area
-      ctx.fillStyle = '#f6e7d2'
-      ctx.fillRect(
-        startX * TILE_SIZE,
-        startY * TILE_SIZE,
-        (endX - startX) * TILE_SIZE + 2,
-        (endY - startY) * TILE_SIZE + 2
-      )
+      const staticLayer = getStaticLayer(map)
+      if (staticLayer) {
+        ctx.drawImage(staticLayer.canvas, 0, 0)
+        // Dynamic overdraw only for animated assets (usually empty).
+        for (const t of staticLayer.animatedFloorTiles) {
+          if (enableCulling && (t.x < startX || t.x >= endX || t.y < startY || t.y >= endY)) continue
+          PixelArtRenderer.drawFloor(ctx, t.type, t.x * TILE_SIZE, t.y * TILE_SIZE)
+        }
+        for (const zone of staticLayer.animatedZones) {
+          PixelArtRenderer.drawGatherRoom(ctx, zone, map.zones || [])
+        }
+        for (const item of staticLayer.animatedFurniture) {
+          // Cheap tile-margin cull without def lookup (max furniture ~4 tiles).
+          if (
+            enableCulling &&
+            (item.x + 4 < startX || item.x - 1 > endX || item.y + 4 < startY || item.y - 1 > endY)
+          )
+            continue
+          PixelArtRenderer.drawFurniture(ctx, item)
+        }
+      } else {
+        // Fallback (huge maps / no DOM): culled direct render.
+        // Base solid underlay to guarantee zero subpixel background bleed across entire visible area
+        ctx.fillStyle = '#f6e7d2'
+        ctx.fillRect(
+          startX * TILE_SIZE,
+          startY * TILE_SIZE,
+          (endX - startX) * TILE_SIZE + 2,
+          (endY - startY) * TILE_SIZE + 2
+        )
 
-      for (let y = startY; y < endY; y++) {
-        for (let x = startX; x < endX; x++) {
-          const floor = map.floors?.[y]?.[x] || 'habbo_parquet'
-          PixelArtRenderer.drawFloor(ctx, floor, x * TILE_SIZE, y * TILE_SIZE)
+        for (let y = startY; y < endY; y++) {
+          for (let x = startX; x < endX; x++) {
+            const floor = map.floors?.[y]?.[x] || 'habbo_parquet'
+            PixelArtRenderer.drawFloor(ctx, floor, x * TILE_SIZE, y * TILE_SIZE)
+          }
+        }
+
+        // 2. Draw Gather Room Architecture (culled per zone)
+        for (const zone of map.zones || []) {
+          if (enableCulling) {
+            const zx0 = zone.x * TILE_SIZE
+            const zx1 = (zone.x + zone.width) * TILE_SIZE
+            const zy0 = zone.y * TILE_SIZE
+            const zy1 = (zone.y + zone.height) * TILE_SIZE
+            if (zx1 < camMinX || zx0 > camMaxX || zy1 < camMinY || zy0 > camMaxY) continue
+          }
+          PixelArtRenderer.drawGatherRoom(ctx, zone, map.zones || [])
+        }
+
+        // 4. Draw Placed Furniture (culled)
+        for (const item of map.furniture || []) {
+          if (
+            enableCulling &&
+            (item.x + 4 < startX || item.x - 1 > endX || item.y + 4 < startY || item.y - 1 > endY)
+          )
+            continue
+          PixelArtRenderer.drawFurniture(ctx, item)
         }
       }
 
-      // 2. Draw Gather Room Architecture (1:1 Exact Photo Replica)
-      for (const zone of map.zones || []) {
-        PixelArtRenderer.drawGatherRoom(ctx, zone, map.zones || [])
-      }
-
-      // 3. Draw Zone Header Badges & Dashed Overlays (Only in Editor Mode)
+      // 3. Draw Zone Header Badges & Dashed Overlays (Only in Editor Mode, culled)
       if (isEditorOpen) {
         for (const zone of map.zones || []) {
+          if (enableCulling) {
+            const zx0 = zone.x * TILE_SIZE
+            const zx1 = (zone.x + zone.width) * TILE_SIZE
+            const zy0 = zone.y * TILE_SIZE
+            const zy1 = (zone.y + zone.height) * TILE_SIZE
+            if (zx1 < camMinX || zx0 > camMaxX || zy1 < camMinY || zy0 > camMaxY) continue
+          }
           const isCurrent = localPlayer.currentZoneId === zone.id
           PixelArtRenderer.drawPrivateZone(ctx, zone, isCurrent)
         }
-      }
-
-      // 4. Draw Placed Furniture & Wall Windows
-      for (const item of map.furniture || []) {
-        PixelArtRenderer.drawFurniture(ctx, item)
       }
 
       // 4b. Draw Click-to-Move Path Destination Indicator
@@ -164,27 +209,47 @@ export class WorldRenderer {
         }
       }
 
-      // 5. Sort and Draw Players & Companion Pets by Y-depth
+      // 5. Sort and Draw Players & Companion Pets by Y-depth (culled, single pass)
       type RenderableEntity =
         | { kind: 'player'; y: number; player: Player; isLocal: boolean }
         | { kind: 'pet'; y: number; pet: PetState; petConfig: PetConfig }
 
+      const remoteList = Object.values(remotePlayers)
       const allEntities: RenderableEntity[] = [
         { kind: 'player', y: localPlayer.y, player: localPlayer, isLocal: true },
-        ...Object.values(remotePlayers).map((p) => ({
-          kind: 'player' as const,
-          y: p.y,
-          player: p,
-          isLocal: false,
-        })),
       ]
+      for (let i = 0; i < remoteList.length; i++) {
+        const p = remoteList[i]
+        // Never draw ourselves as a remote: a stale/self echo entry renders
+        // as a frozen clone of the local avatar stuck at an old position.
+        if (p.id === localPlayer.id || (p.gameId && p.gameId === localPlayer.id)) continue
+        // Cull off-screen players early (64px margin for avatar + nametag).
+        if (enableCulling) {
+          const ppx = (p.x + 0.5) * TILE_SIZE
+          const ppy = (p.y + 0.5) * TILE_SIZE
+          if (ppx < camMinX - 64 || ppx > camMaxX + 64 || ppy < camMinY - 64 || ppy > camMaxY + 64)
+            continue
+        }
+        allEntities.push({ kind: 'player', y: p.y, player: p, isLocal: false })
+      }
 
       const petManager = PetManager.getInstance()
-      const allActivePlayers = [localPlayer, ...Object.values(remotePlayers)]
-      for (const p of allActivePlayers) {
+      // Reuse remoteList to avoid a second Object.values allocation.
+      for (let i = -1; i < remoteList.length; i++) {
+        const p = i === -1 ? localPlayer : remoteList[i]
+        // Skip pets of filtered self-echo entries (same ghost reason as above).
+        if (i !== -1 && (p.id === localPlayer.id || (p.gameId && p.gameId === localPlayer.id))) continue
+        // Local player already passed culling implicitly (camera follows them);
+        // still cull remote pets.
         if (p.avatar?.pet && p.avatar.pet.type !== 'none') {
           const pet = petManager.getPet(p.id)
           if (pet) {
+            if (enableCulling && i !== -1) {
+              const ppx = (pet.x + 0.5) * TILE_SIZE
+              const ppy = (pet.y + 0.5) * TILE_SIZE
+              if (ppx < camMinX - 64 || ppx > camMaxX + 64 || ppy < camMinY - 64 || ppy > camMaxY + 64)
+                continue
+            }
             allEntities.push({
               kind: 'pet',
               y: pet.y,
@@ -195,7 +260,7 @@ export class WorldRenderer {
         }
       }
 
-      allEntities.sort((a, b) => a.y - b.y)
+      if (allEntities.length > 1) allEntities.sort((a, b) => a.y - b.y)
 
       const showNameTags = useSettingsStore.getState().showNameTags ?? true
 

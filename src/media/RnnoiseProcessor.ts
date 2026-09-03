@@ -1,4 +1,62 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { useMediaStore } from '../store/useMediaStore'
+// Emscripten glue inlined as text (worker-safe single-threaded build).
+// ?raw keeps it out of the module graph — it runs inside the worklet Blob.
+import rnnoiseGlueSrc from '@jitsi/rnnoise-wasm/dist/rnnoise.js?raw'
+import workletSrc from './rnnoiseWorkletSrc.js?raw'
+import { RNNOISE_WASM_BASE64 } from '../generated/rnnoiseWasmBytes'
+
+let cachedWasmBytes: Uint8Array | null = null
+
+function getWasmBytes(): Uint8Array {
+  if (!cachedWasmBytes) {
+    const bin = atob(RNNOISE_WASM_BASE64)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    cachedWasmBytes = bytes
+  }
+  return cachedWasmBytes
+}
+
+/**
+ * Assemble the worklet Blob: location shim + Emscripten glue (classic-ified)
+ * + processor source. Zero fetches at runtime — works on http(s) AND
+ * file:// (built Electron app), where absolute-URL addModule/importScripts
+ * fail and RNNoise silently never started.
+ *
+ * Each Blob gets a UNIQUE processor name: registration is per-AudioContext,
+ * and a stale/duplicate name is exactly how a scope can end up with
+ * addModule resolved but the expected node name undefined. With unique
+ * names that failure mode cannot occur — any registration problem rejects
+ * addModule with its reason instead.
+ */
+let workletProcVersion = 0
+
+function buildWorkletModule(procName: string): {
+  blobUrl: string
+  procName: string
+  debug: string
+} {
+  const shim = `if (typeof location === 'undefined') { self.location = { href: 'rnnoise-worklet:' }; }\n`
+  // The glue ships as an ES module (`export default ...` tail) but worklets
+  // are classic scripts: strip the export, the top-level `var` leaks to the
+  // worklet global where the processor reads it.
+  const classicGlue = rnnoiseGlueSrc.replace(/export\s+default\s+createRNNWasmModule\s*;?\s*$/, '')
+  const namespacedSrc = workletSrc.replace(
+    `registerProcessor('rnnoise-worklet'`,
+    `registerProcessor('${procName}'`
+  )
+  const blob = new Blob([shim, classicGlue, '\n;\n', namespacedSrc], {
+    type: 'application/javascript',
+  })
+  // Composition fingerprint: if a ?raw import ever resolves empty at
+  // runtime, the Blob evaluates cleanly but registers nothing — exactly the
+  // phantom "addModule ok, node not defined" failure. Surface the lengths.
+  const debug =
+    `blob glue=${classicGlue.length} worklet=${namespacedSrc.length} ` +
+    `registered=${namespacedSrc.includes(`registerProcessor('${procName}'`) ? 'yes' : 'NO'}`
+  return { blobUrl: URL.createObjectURL(blob), procName, debug }
+}
 /**
  * RnnoiseProcessor — orchestrates the RNNoise neural denoiser on the main
  * thread. It owns:
@@ -32,6 +90,16 @@ export class RnnoiseProcessor {
   private workletReady = false
   private workletError: string | null = null
   private lastVad = 0
+  /** Resolved by the first 'ready'/'error' message (or timeout) per processStream. */
+  private readySettler: { resolve: (ok: boolean) => void } | null = null
+  /**
+   * Live Blob URL of the loaded worklet. Revoked only on dispose/replace —
+   * revoking right after addModule is theoretically safe, but there is no
+   * reason to risk a use-after-revoke race inside Chromium's module cache.
+   */
+  private workletBlobUrl: string | null = null
+  /** How long startMedia waits for WASM init before falling back to soft DSP. */
+  private static readonly READY_TIMEOUT_MS = 5000
 
   constructor() {}
 
@@ -47,10 +115,16 @@ export class RnnoiseProcessor {
       this.dispose()
 
       const audioTrack = inputStream.getAudioTracks()[0]
-      if (!audioTrack) return inputStream
+      if (!audioTrack) {
+        useMediaStore.getState().setRnnoiseStatus('error', 'no audio track in input stream')
+        return inputStream
+      }
 
       this.onLevelCallback = onAudioLevel || null
       this.isSuppressionActive = enableSuppression
+      const store = useMediaStore.getState()
+      store.setRnnoiseStatus('loading', null)
+      store.setRnnoiseStage('start')
 
       const AudioContextClass =
         window.AudioContext || (window as any).webkitAudioContext
@@ -58,19 +132,27 @@ export class RnnoiseProcessor {
       if (this.audioCtx.state === 'suspended') {
         await this.audioCtx.resume().catch(() => {})
       }
+      store.setRnnoiseStage('audioctx')
 
-      // Make sure the worklet module is registered. If the file failed to
-      // fetch we surface the error immediately so MediaManager can fall
-      // back to the soft DSP.
+      // Blob-assembled module (glue + processor + byte-fed WASM): no URLs,
+      // no fetches — the only loading path that works in the file:// build.
+      // Unique processor name per attempt (see buildWorkletModule).
+      const procName = `rnnoise-worklet-v${++workletProcVersion}`
+      if (this.workletBlobUrl) {
+        URL.revokeObjectURL(this.workletBlobUrl)
+        this.workletBlobUrl = null
+      }
+      const { blobUrl, debug } = buildWorkletModule(procName)
+      this.workletBlobUrl = blobUrl
+      store.setRnnoiseStage(`blob ${debug}`)
       try {
-        await this.audioCtx.audioWorklet.addModule('/rnnoise-worklet.js')
+        await this.audioCtx.audioWorklet.addModule(blobUrl)
       } catch (err) {
         throw new Error(
-          `audioWorklet.addModule failed: ${
-            (err as Error)?.message ?? String(err)
-          }`
+          `addModule(Blob): ${(err as Error)?.message ?? String(err)}`
         )
       }
+      store.setRnnoiseStage('addModule ok')
 
       this.sourceNode = this.audioCtx.createMediaStreamSource(inputStream)
       this.destination = this.audioCtx.createMediaStreamDestination()
@@ -101,14 +183,52 @@ export class RnnoiseProcessor {
       this.testGainNode = this.audioCtx.createGain()
       this.testGainNode.gain.setValueAtTime(0, this.audioCtx.currentTime)
 
-      this.workletNode = new AudioWorkletNode(this.audioCtx, 'rnnoise-worklet', {
-        numberOfInputs: 1,
-        numberOfOutputs: 1,
-        outputChannelCount: [1],
-        channelCount: 1,
-        channelCountMode: 'explicit',
-      })
-
+      let workletNode: AudioWorkletNode
+      try {
+        workletNode = new AudioWorkletNode(this.audioCtx, procName, {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          outputChannelCount: [1],
+          channelCount: 1,
+          channelCountMode: 'explicit',
+          // WASM bytes travel by structured clone — no fetch on either side.
+          processorOptions: { wasmBytes: getWasmBytes() },
+        })
+      } catch (err) {
+        const msg = (err as Error)?.message ?? String(err)
+        // If the registry lost the name between addModule and construction
+        // (observed once as "not defined in AudioWorkletGlobalScope"),
+        // reload once under a FRESH unique name before giving up — a stale
+        // registration can never collide with it.
+        if (/not defined in AudioWorkletGlobalScope/i.test(msg)) {
+          console.warn('[rnnoise] node name missing after addModule, reloading once:', msg)
+          const retryName = `rnnoise-worklet-v${++workletProcVersion}-retry`
+          const retry = buildWorkletModule(retryName)
+          if (this.workletBlobUrl) URL.revokeObjectURL(this.workletBlobUrl)
+          this.workletBlobUrl = retry.blobUrl
+          useMediaStore.getState().setRnnoiseStage(`blob retry ${retry.debug}`)
+          await this.audioCtx.audioWorklet.addModule(retry.blobUrl)
+          useMediaStore.getState().setRnnoiseStage('addModule retry ok')
+          try {
+            workletNode = new AudioWorkletNode(this.audioCtx, retry.procName, {
+              numberOfInputs: 1,
+              numberOfOutputs: 1,
+              outputChannelCount: [1],
+              channelCount: 1,
+              channelCountMode: 'explicit',
+              processorOptions: { wasmBytes: getWasmBytes() },
+            })
+          } catch (retryErr) {
+            throw new Error(
+              `AudioWorkletNode(retry): ${(retryErr as Error)?.message ?? String(retryErr)} (first: ${msg})`
+            )
+          }
+        } else {
+          throw new Error(`AudioWorkletNode: ${msg}`)
+        }
+      }
+      this.workletNode = workletNode
+      useMediaStore.getState().setRnnoiseStage('node ok, waiting ready')
       // Wire the worklet lifecycle messages.
       this.workletNode.port.onmessage = (e: MessageEvent) => {
         const data = e.data
@@ -116,10 +236,14 @@ export class RnnoiseProcessor {
         if (data.type === 'ready') {
           this.workletReady = true
           this.workletError = null
+          this.readySettler?.resolve(true)
+          this.readySettler = null
         } else if (data.type === 'error') {
           this.workletReady = false
           this.workletError = data.message ?? 'unknown worklet error'
           console.warn('[rnnoise] worklet reported error:', this.workletError)
+          this.readySettler?.resolve(false)
+          this.readySettler = null
         } else if (data.type === 'vad') {
           this.lastVad = typeof data.probability === 'number' ? data.probability : 0
         }
@@ -147,11 +271,38 @@ export class RnnoiseProcessor {
 
       this.startLevelLoop()
 
+      // Wait (bounded) for WASM init. On error/timeout hand the RAW stream
+      // back so MediaManager falls back to the soft DSP — previously this
+      // returned a passthrough graph and the user got NO suppression while
+      // the UI claimed RNNoise was active.
+      const ready = await new Promise<boolean>((resolve) => {
+        if (this.workletReady) return resolve(true)
+        if (this.workletError) return resolve(false)
+        this.readySettler = { resolve }
+        setTimeout(() => {
+          if (this.readySettler) {
+            this.readySettler = null
+            console.warn('[rnnoise] init timed out, falling back')
+            resolve(false)
+          }
+        }, RnnoiseProcessor.READY_TIMEOUT_MS)
+      })
+
+      if (!ready) {
+        useMediaStore.getState().setRnnoiseStatus('error', this.workletError || 'init timeout')
+        this.dispose()
+        return inputStream
+      }
+      useMediaStore.getState().setRnnoiseStatus('ready', null)
+
       const outputStream = this.destination.stream
       inputStream.getVideoTracks().forEach((vTrack) => outputStream.addTrack(vTrack))
       return outputStream
     } catch (err) {
       console.warn('[rnnoise] processStream failed:', err)
+      useMediaStore
+        .getState()
+        .setRnnoiseStatus('error', (err as Error)?.message ?? String(err))
       // Hard fallback: hand back the raw stream so the caller can decide
       // whether to swap engines.
       return inputStream
@@ -224,6 +375,13 @@ export class RnnoiseProcessor {
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId)
       this.animationFrameId = null
+    }
+    this.readySettler = null
+    if (this.workletBlobUrl) {
+      try {
+        URL.revokeObjectURL(this.workletBlobUrl)
+      } catch {}
+      this.workletBlobUrl = null
     }
     try {
       this.workletNode?.port.close()

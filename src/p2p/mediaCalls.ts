@@ -6,6 +6,43 @@ import { prioritizeH264HardwareCodec } from '../media/hardwareCodec'
 
 export class MediaCallHandler {
   /**
+   * Voice receivers must stay conversational: cap their playout delay at
+   * 200ms no matter how large the (video-oriented) adaptive buffer grows.
+   * A 2–3s delay on audio makes people talk over each other ("call lag").
+   */
+  public static readonly VOICE_MAX_PLAYOUT_DELAY_SEC = 0.2
+  public static readonly VOICE_MAX_JITTER_BUFFER_MS = 200
+
+  /**
+   * Apply playout delay to every receiver of a PeerConnection, with audio
+   * receivers capped for real-time conversation. Receivers without track
+   * info (e.g. not yet negotiated) get the full video delay — same as before.
+   */
+  static applyReceiverBuffer(pc: RTCPeerConnection, videoDelayMs: number) {
+    const videoDelaySec = Math.max(0.1, Math.min(5.0, videoDelayMs / 1000))
+    try {
+      if (pc && pc.getReceivers) {
+        pc.getReceivers().forEach((receiver) => {
+          const isAudio = (receiver as any).track?.kind === 'audio'
+          const delaySec = isAudio
+            ? Math.min(videoDelaySec, MediaCallHandler.VOICE_MAX_PLAYOUT_DELAY_SEC)
+            : videoDelaySec
+          const jitterMs = isAudio
+            ? Math.min(videoDelayMs, MediaCallHandler.VOICE_MAX_JITTER_BUFFER_MS)
+            : videoDelayMs
+          try {
+            ;(receiver as any).playoutDelayHint = delaySec
+          } catch (e) {}
+          try {
+            if ('jitterBufferTarget' in receiver) {
+              ;(receiver as any).jitterBufferTarget = jitterMs
+            }
+          } catch (e) {}
+        })
+      }
+    } catch (e) {}
+  }
+  /**
    * Check if local player and remote peer are in the same Private Zone and manage MediaCall
    */
   static checkZoneCallEligibility(
@@ -50,24 +87,11 @@ export class MediaCallHandler {
             }
           }
 
-          // Configure receiver jitter buffer to eliminate stutter / frame dropping (up to 5.0s max)
+          // Configure receiver jitter buffer to eliminate stutter / frame dropping (up to 5.0s max).
+          // Audio receivers are capped at 200ms (see applyReceiverBuffer) so voice stays real-time.
           const applyBuffer = () => {
             const delayMs = useMediaStore.getState().liveBufferDelay || 3000
-            const delaySec = Math.max(0.1, Math.min(5.0, delayMs / 1000))
-            try {
-              if (pc && pc.getReceivers) {
-                pc.getReceivers().forEach((receiver) => {
-                  try {
-                    (receiver as any).playoutDelayHint = delaySec
-                  } catch (e) {}
-                  try {
-                    if ('jitterBufferTarget' in receiver) {
-                      (receiver as any).jitterBufferTarget = delayMs
-                    }
-                  } catch (e) {}
-                })
-              }
-            } catch (e) {}
+            MediaCallHandler.applyReceiverBuffer(pc, delayMs)
           }
 
           try {
@@ -101,25 +125,14 @@ export class MediaCallHandler {
 
   /**
    * Apply Jitter Buffer (playoutDelayHint & jitterBufferTarget) to all active peer connections (max 5.0s)
-   * Smooths packet timing variance and prevents frozen / choppy live video
+   * Smooths packet timing variance and prevents frozen / choppy live video.
+   * Audio receivers are capped at 200ms so voice stays conversational.
    */
   static applyJitterBuffer(mediaCalls: Map<string, MediaConnection>, bufferDelayMs: number = 3000) {
-    const delaySec = Math.max(0.1, Math.min(5.0, bufferDelayMs / 1000))
     mediaCalls.forEach((call) => {
       try {
         const pc = (call as any).peerConnection as RTCPeerConnection
-        if (pc && pc.getReceivers) {
-          pc.getReceivers().forEach((receiver) => {
-            try {
-              (receiver as any).playoutDelayHint = delaySec
-            } catch (e) {}
-            try {
-              if ('jitterBufferTarget' in receiver) {
-                (receiver as any).jitterBufferTarget = bufferDelayMs
-              }
-            } catch (e) {}
-          })
-        }
+        if (pc) MediaCallHandler.applyReceiverBuffer(pc, bufferDelayMs)
       } catch (err) {
         console.warn('Error configuring receiver jitter buffer on call:', err)
       }

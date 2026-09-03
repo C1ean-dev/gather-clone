@@ -17,6 +17,60 @@ export { AvatarAtlasManager } from './avatar/AvatarAtlasManager'
 
 export class AvatarRenderer {
   /**
+   * Memoized atlas resolution: (category|presetId|dir|walkFrame) → SubTexture|null.
+   * drawAtlasPart builds 6 candidate names per layer per player per frame;
+   * this cache reduces it to one Map lookup on repeat frames. Invalidated
+   * when AvatarAtlasManager.clearCache() is called (atlas set changes).
+   */
+  private static atlasResolveCache = new Map<string, SubTexture | null>()
+
+  // Atlas registry version at last resolve — auto-invalidates the memo.
+  private static lastAtlasVersion: number = -1
+
+  private static resolveAtlasSub(
+    category: string,
+    presetId: string,
+    searchDir: Direction,
+    walkFrame: number
+  ): SubTexture | null {
+    // If atlases were cleared/replaced, drop stale resolutions.
+    const version = AvatarAtlasManager.getVersion()
+    if (version !== AvatarRenderer.lastAtlasVersion) {
+      AvatarRenderer.lastAtlasVersion = version
+      AvatarRenderer.atlasResolveCache.clear()
+    }
+    const cacheKey = `${category}|${presetId}|${searchDir}|${walkFrame}`
+    const hit = AvatarRenderer.atlasResolveCache.get(cacheKey)
+    if (hit !== undefined) return hit
+
+    const candidateNames = [
+      `${category}_${presetId}_${searchDir}_${walkFrame}`,
+      `${category}_${presetId}_${searchDir}_0`,
+      `${category}_${presetId}_${searchDir}`,
+      `${category}_${presetId}_${walkFrame}`,
+      `${category}_${presetId}_0`,
+      `${category}_${presetId}`,
+    ]
+
+    let sub: SubTexture | undefined
+    for (const name of candidateNames) {
+      sub = AvatarAtlasManager.getSubTexture(category, name)
+      if (sub) break
+    }
+    const resolved = sub ?? null
+    // Bound cache growth (11 layers × 4 dirs × 4 frames × presets).
+    if (AvatarRenderer.atlasResolveCache.size > 4000) {
+      AvatarRenderer.atlasResolveCache.clear()
+    }
+    AvatarRenderer.atlasResolveCache.set(cacheKey, resolved)
+    return resolved
+  }
+
+  /** Test/debug hook — clears the memoized atlas resolutions. */
+  static clearAtlasResolveCache() {
+    AvatarRenderer.atlasResolveCache.clear()
+  }
+  /**
    * Draw a layer component from AvatarAtlasManager if present.
    * Returns true if rendered, false if not present (triggering hybrid procedural fallback).
    */
@@ -41,27 +95,14 @@ export class AvatarRenderer {
       flipX = true
     }
 
-    // Lookup candidate names in priority order:
+    // Lookup candidate names in priority order (memoized — see resolveAtlasSub):
     // 1. <category>_<presetId>_<dir>_<walkFrame> (frame-specific)
     // 2. <category>_<presetId>_<dir>_0 (static dir)
     // 3. <category>_<presetId>_<dir> (dir name only)
     // 4. <category>_<presetId>_<walkFrame>
     // 5. <category>_<presetId>_0
     // 6. <category>_<presetId>
-    const candidateNames = [
-      `${category}_${presetId}_${searchDir}_${walkFrame}`,
-      `${category}_${presetId}_${searchDir}_0`,
-      `${category}_${presetId}_${searchDir}`,
-      `${category}_${presetId}_${walkFrame}`,
-      `${category}_${presetId}_0`,
-      `${category}_${presetId}`,
-    ]
-
-    let sub: SubTexture | undefined
-    for (const name of candidateNames) {
-      sub = AvatarAtlasManager.getSubTexture(category, name)
-      if (sub) break
-    }
+    const sub = AvatarRenderer.resolveAtlasSub(category, presetId, searchDir, walkFrame)
 
     if (!sub) return false
 
@@ -179,6 +220,18 @@ export class AvatarRenderer {
     const otherType = avatar.otherType || (avatar.accessory === 'headphones' ? 'headphones' : 'none')
     const otherColor = avatar.otherColor || avatar.accessoryColor || '#20c997'
 
+    // Hoisted per-drawPlayer lookup tables: the string→asset resolution below
+    // used to linear-scan the whole custom asset list per layer (11× per player
+    // per frame). Build once here; layers reuse O(1) Map lookups.
+    const customAssetsList = useCustomAssetsStore.getState().customAssets
+    let customById: Map<string, (typeof customAssetsList)[number]> | null = null
+    const getCustomById = () => {
+      if (!customById) {
+        customById = new Map(customAssetsList.map((a) => [a.id, a]))
+      }
+      return customById
+    }
+
     // Helper to render hand-drawn custom component layers with 4-directional support and walk cycle loop
     const drawCustomComponent = (component?: string | Partial<Record<Direction, string | string[]>>) => {
       if (!component) return
@@ -186,18 +239,21 @@ export class AvatarRenderer {
 
       // If component is a string (id or dataUrl), attempt to resolve directionalFrames from store
       if (typeof component === 'string') {
-        const matchingAsset = useCustomAssetsStore
-          .getState()
-          .customAssets.find(
+        // Fast path: id lookup O(1). Slow dataURL scan only for legacy raw URLs.
+        const byId = getCustomById().get(component)
+        if (byId?.directionalFrames) {
+          resolvedComponent = byId.directionalFrames
+        } else if (!byId) {
+          const matchingAsset = customAssetsList.find(
             (a) =>
-              a.id === component ||
               a.frames?.[0] === component ||
               (typeof a.directionalFrames?.down === 'string'
                 ? a.directionalFrames.down === component
                 : a.directionalFrames?.down?.[0] === component)
           )
-        if (matchingAsset?.directionalFrames) {
-          resolvedComponent = matchingAsset.directionalFrames
+          if (matchingAsset?.directionalFrames) {
+            resolvedComponent = matchingAsset.directionalFrames
+          }
         }
       }
 

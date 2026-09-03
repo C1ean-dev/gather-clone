@@ -12,6 +12,24 @@ const DEFAULT_CATEGORIES = ['Geral', 'Forja Antiga', 'Escritório', 'Medieval', 
 // In-memory HTMLImageElement cache for fast canvas rendering
 const imageCache: Map<string, HTMLImageElement> = new Map()
 
+// O(1) id → asset lookup for hot render/collision paths.
+// Rebuilt whenever the asset array identity changes; getAssetById keeps it
+// in sync as a fallback so external mutations can't leave it stale.
+let assetByIdCache = new Map<string, CustomAsset>()
+let assetByIdCacheSource: CustomAsset[] | null = null
+
+function syncAssetByIdCache(assets: CustomAsset[]) {
+  if (assetByIdCacheSource === assets) return
+  assetByIdCache = new Map(assets.map((a) => [a.id, a]))
+  assetByIdCacheSource = assets
+}
+
+export function getCachedAssetById(id: string): CustomAsset | undefined {
+  const assets = useCustomAssetsStore.getState().customAssets
+  syncAssetByIdCache(assets)
+  return assetByIdCache.get(id)
+}
+
 export function getCustomAssetImage(dataUrl: string): HTMLImageElement | null {
   if (typeof Image === 'undefined') return null
   if (imageCache.has(dataUrl)) {
@@ -279,7 +297,12 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
   },
 
   getAssetById: (id) => {
-    return get().customAssets.find((a) => a.id === id)
+    const assets = get().customAssets
+    syncAssetByIdCache(assets)
+    const hit = assetByIdCache.get(id)
+    if (hit) return hit
+    // Fallback (shouldn't happen): linear scan then re-sync.
+    return assets.find((a) => a.id === id)
   },
 
   getFurnitureCatalog: (baseCatalog) => {

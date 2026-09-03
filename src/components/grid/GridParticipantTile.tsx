@@ -35,14 +35,15 @@ export const GridParticipantTile: React.FC<Props> = ({
   const isLive = Boolean(user.screenStream || user.isScreenSharing)
   const activeStream = user.screenStream || user.stream
 
-  const {
-    participantVolumes,
-    setParticipantVolume,
-    liveStreamVolume,
-    setLiveStreamVolume,
-    outputVolume,
-    selectedAudioOutput,
-  } = useMediaStore()
+  // Granular selectors: the media store updates on every VU-meter tick and
+  // every peer-stream change — subscribing whole-store would re-render every
+  // tile on each tick. Select only the volume/output slices this tile needs.
+  const participantVolumes = useMediaStore((s) => s.participantVolumes)
+  const setParticipantVolume = useMediaStore((s) => s.setParticipantVolume)
+  const liveStreamVolume = useMediaStore((s) => s.liveStreamVolume)
+  const setLiveStreamVolume = useMediaStore((s) => s.setLiveStreamVolume)
+  const outputVolume = useMediaStore((s) => s.outputVolume)
+  const selectedAudioOutput = useMediaStore((s) => s.selectedAudioOutput)
 
   const rawVolume =
     participantVolumes[user.id] !== undefined

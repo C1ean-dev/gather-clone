@@ -17,21 +17,21 @@ export const AudioDevicesTab: React.FC<Props> = ({
   isPlayingTestSound,
   onPlayTestSound,
 }) => {
-  const {
-    selectedAudioInput,
-    selectedAudioOutput,
-    inputVolume,
-    outputVolume,
-    sensitivityMode,
-    manualSensitivityThreshold,
-    localAudioLevel,
-    isGateOpen,
-    isTestingMic,
-    setInputVolume,
-    setOutputVolume,
-    setSensitivityMode,
-    setManualSensitivityThreshold,
-  } = useMediaStore()
+  // Granular selectors — localAudioLevel ticks at ~10Hz; whole-store here
+  // would re-render the entire settings tab on every tick.
+  const selectedAudioInput = useMediaStore((s) => s.selectedAudioInput)
+  const selectedAudioOutput = useMediaStore((s) => s.selectedAudioOutput)
+  const inputVolume = useMediaStore((s) => s.inputVolume)
+  const outputVolume = useMediaStore((s) => s.outputVolume)
+  const sensitivityMode = useMediaStore((s) => s.sensitivityMode)
+  const manualSensitivityThreshold = useMediaStore((s) => s.manualSensitivityThreshold)
+  const localAudioLevel = useMediaStore((s) => s.localAudioLevel)
+  const isGateOpen = useMediaStore((s) => s.isGateOpen)
+  const isTestingMic = useMediaStore((s) => s.isTestingMic)
+  const setInputVolume = useMediaStore((s) => s.setInputVolume)
+  const setOutputVolume = useMediaStore((s) => s.setOutputVolume)
+  const setSensitivityMode = useMediaStore((s) => s.setSensitivityMode)
+  const setManualSensitivityThreshold = useMediaStore((s) => s.setManualSensitivityThreshold)
 
   const handleInputChange = async (deviceId: string) => {
     await MediaManager.getInstance().changeAudioInput(deviceId)

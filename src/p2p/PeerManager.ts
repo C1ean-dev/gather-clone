@@ -242,24 +242,10 @@ export class PeerManager {
         }
       }
 
-      // Configure receiver jitter buffer to eliminate stutter / frame dropping (up to 5.0s max)
+      // Configure receiver jitter buffer (video-smooth, voice capped at 200ms).
       const applyBuffer = () => {
         const delayMs = useMediaStore.getState().liveBufferDelay || 3000
-        const delaySec = Math.max(0.1, Math.min(5.0, delayMs / 1000))
-        try {
-          if (pc && pc.getReceivers) {
-            pc.getReceivers().forEach((receiver) => {
-              try {
-                (receiver as any).playoutDelayHint = delaySec
-              } catch (e) {}
-              try {
-                if ('jitterBufferTarget' in receiver) {
-                  (receiver as any).jitterBufferTarget = delayMs
-                }
-              } catch (e) {}
-            })
-          }
-        } catch (e) {}
+        MediaCallHandler.applyReceiverBuffer(pc, delayMs)
       }
 
       try {

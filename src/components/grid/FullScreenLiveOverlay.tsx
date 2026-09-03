@@ -15,14 +15,13 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const isInteractingWithVolumeRef = useRef(false)
 
-  const {
-    participantVolumes,
-    setParticipantVolume,
-    liveStreamVolume,
-    setLiveStreamVolume,
-    outputVolume,
-    selectedAudioOutput,
-  } = useMediaStore()
+  // Granular selectors — same VU-tick reason as the tiles.
+  const participantVolumes = useMediaStore((s) => s.participantVolumes)
+  const setParticipantVolume = useMediaStore((s) => s.setParticipantVolume)
+  const liveStreamVolume = useMediaStore((s) => s.liveStreamVolume)
+  const setLiveStreamVolume = useMediaStore((s) => s.setLiveStreamVolume)
+  const outputVolume = useMediaStore((s) => s.outputVolume)
+  const selectedAudioOutput = useMediaStore((s) => s.selectedAudioOutput)
 
   const rawVolume =
     participantVolumes[user.id] !== undefined

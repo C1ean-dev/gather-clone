@@ -5,29 +5,32 @@ import { MediaManager } from '../../media/MediaManager'
 import { AudioProcessorMode } from '../../types/audio'
 
 export const AdvancedAudioTab: React.FC = () => {
-  const {
-    echoCancellation,
-    autoGainControl,
-    isNoiseSuppressionEnabled,
-    screenShareAudioVolume,
-    duckingEnabled,
-    audioProcessorMode,
-    selectedAudioInput,
-    micCalibrations,
-    isCalibrating,
-    hasUserChosenProcessorMode,
-    manualSensitivityThreshold,
-    sensitivityMode,
-    setEchoCancellation,
-    setAutoGainControl,
-    toggleNoiseSuppression,
-    setScreenShareAudioVolume,
-    setDuckingEnabled,
-    setAudioProcessorMode,
-    setManualSensitivityThreshold,
-    setIsCalibrating,
-    clearMicCalibration,
-  } = useMediaStore()
+  // Granular selectors — whole-store would re-render this tab on each
+  // VU-meter tick (~10Hz) while the mic is live.
+  const echoCancellation = useMediaStore((s) => s.echoCancellation)
+  const autoGainControl = useMediaStore((s) => s.autoGainControl)
+  const isNoiseSuppressionEnabled = useMediaStore((s) => s.isNoiseSuppressionEnabled)
+  const screenShareAudioVolume = useMediaStore((s) => s.screenShareAudioVolume)
+  const duckingEnabled = useMediaStore((s) => s.duckingEnabled)
+  const audioProcessorMode = useMediaStore((s) => s.audioProcessorMode)
+  const selectedAudioInput = useMediaStore((s) => s.selectedAudioInput)
+  const micCalibrations = useMediaStore((s) => s.micCalibrations)
+  const isCalibrating = useMediaStore((s) => s.isCalibrating)
+  const hasUserChosenProcessorMode = useMediaStore((s) => s.hasUserChosenProcessorMode)
+  const manualSensitivityThreshold = useMediaStore((s) => s.manualSensitivityThreshold)
+  const sensitivityMode = useMediaStore((s) => s.sensitivityMode)
+  const setEchoCancellation = useMediaStore((s) => s.setEchoCancellation)
+  const setAutoGainControl = useMediaStore((s) => s.setAutoGainControl)
+  const toggleNoiseSuppression = useMediaStore((s) => s.toggleNoiseSuppression)
+  const setScreenShareAudioVolume = useMediaStore((s) => s.setScreenShareAudioVolume)
+  const setDuckingEnabled = useMediaStore((s) => s.setDuckingEnabled)
+  const setAudioProcessorMode = useMediaStore((s) => s.setAudioProcessorMode)
+  const setManualSensitivityThreshold = useMediaStore((s) => s.setManualSensitivityThreshold)
+  const setIsCalibrating = useMediaStore((s) => s.setIsCalibrating)
+  const clearMicCalibration = useMediaStore((s) => s.clearMicCalibration)
+  const rnnoiseStatus = useMediaStore((s) => s.rnnoiseStatus)
+  const rnnoiseError = useMediaStore((s) => s.rnnoiseError)
+  const rnnoiseStage = useMediaStore((s) => s.rnnoiseStage)
 
   // Local UI state for the calibration wizard.
   const [calProgress, setCalProgress] = useState(0) // 0..1
@@ -381,6 +384,62 @@ export const AdvancedAudioTab: React.FC = () => {
                 Escolha entre DSP clássico, DSP suave (sem cortes duros) e
                 rede neural RNNoise
               </div>
+              {/* Live RNNoise engine state — ground truth, not the setting.
+                  Previously a failed init was silent and the mic ran raw. */}
+              {audioProcessorMode === 'rnnoise' && (
+                <div className="mt-1.5 space-y-1">
+                  <div
+                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-semibold border ${
+                      rnnoiseStatus === 'ready'
+                        ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
+                        : rnnoiseStatus === 'loading'
+                          ? 'bg-amber-500/10 border-amber-500/40 text-amber-300 animate-pulse'
+                          : rnnoiseStatus === 'fallback' || rnnoiseStatus === 'error'
+                            ? 'bg-rose-500/10 border-rose-500/40 text-rose-300'
+                            : 'bg-slate-500/10 border-slate-500/40 text-slate-300'
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        rnnoiseStatus === 'ready'
+                          ? 'bg-emerald-400'
+                          : rnnoiseStatus === 'loading'
+                            ? 'bg-amber-400 animate-ping'
+                            : rnnoiseStatus === 'fallback' || rnnoiseStatus === 'error'
+                              ? 'bg-rose-400'
+                              : 'bg-slate-400'
+                      }`}
+                    />
+                    {rnnoiseStatus === 'ready' && 'Rede neural ativa'}
+                    {rnnoiseStatus === 'loading' && 'Carregando rede neural…'}
+                    {rnnoiseStatus === 'idle' && 'Aguardando microfone…'}
+                    {rnnoiseStatus === 'fallback' && 'RNNoise indisponível — usando DSP Suave'}
+                    {rnnoiseStatus === 'error' && 'Falha no RNNoise — usando DSP Suave'}
+                    {(rnnoiseStatus === 'fallback' || rnnoiseStatus === 'error') && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await MediaManager.getInstance().reprocessStream()
+                        }}
+                        className="ml-1 px-1.5 py-0.5 rounded-md bg-rose-500/20 hover:bg-rose-500/35 text-rose-200 text-[9px] font-bold uppercase tracking-wide transition-colors active:scale-95"
+                        title="Reinicializa o motor RNNoise sem sair da chamada"
+                      >
+                        Tentar de novo
+                      </button>
+                    )}
+                  </div>
+                  {(rnnoiseStatus === 'fallback' || rnnoiseStatus === 'error') && (
+                    <div className="text-[9.5px] font-mono break-all leading-tight space-y-0.5">
+                      {rnnoiseError && (
+                        <div className="text-rose-300/80">Motivo: {rnnoiseError}</div>
+                      )}
+                      {rnnoiseStage && (
+                        <div className="text-slate-400">Estágio: {rnnoiseStage}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-3 gap-1.5">

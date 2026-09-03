@@ -8,7 +8,11 @@ import { AudioDevicesTab } from './settings/AudioDevicesTab'
 import { AdvancedAudioTab } from './settings/AdvancedAudioTab'
 
 export const AudioSettingsModal: React.FC = () => {
-  const { isSettingsModalOpen, setSettingsModalOpen, isTestingMic } = useMediaStore()
+  // Selectors only — whole-store would re-render this modal (and enumerate
+  // effects) on every VU-meter tick while the mic is live.
+  const isSettingsModalOpen = useMediaStore((s) => s.isSettingsModalOpen)
+  const setSettingsModalOpen = useMediaStore((s) => s.setSettingsModalOpen)
+  const isTestingMic = useMediaStore((s) => s.isTestingMic)
 
   const [inputDevices, setInputDevices] = useState<AudioDeviceInfo[]>([])
   const [outputDevices, setOutputDevices] = useState<AudioDeviceInfo[]>([])
