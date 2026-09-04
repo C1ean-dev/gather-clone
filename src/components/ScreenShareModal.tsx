@@ -42,8 +42,8 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [includeAudio, setIncludeAudio] = useState(true)
   const [resolution, setResolution] = useState<'480p' | '720p' | '1080p'>('1080p')
   const [fps, setFps] = useState<30 | 60>(30)
-  // true = user microphone is mixed with screen audio so participants hear both screen and voice
-  const [mixMicrophone, setMixMicrophone] = useState(true)
+  // user microphone is mixed with screen audio so participants hear both screen and voice
+  const mixMicrophone = true
   // Isolates incoming remote peer call audio from the screen share live stream
   const [isolateCallAudio, setIsolateCallAudio] = useState(
     () => useMediaStore.getState().screenShareIsolateCallAudio
@@ -424,50 +424,6 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                     />
                   </div>
 
-                  {/* Audio Source Mode Selection */}
-                  <div>
-                    <div className="text-[11px] font-semibold text-slate-300 mb-1.5">Fonte do Áudio da Transmissão:</div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setMixMicrophone(false)}
-                        className={`p-2.5 rounded-xl text-left border transition-all ${
-                          !mixMicrophone
-                            ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300 shadow-md ring-1 ring-emerald-500/30'
-                            : 'border-[#2a3142] bg-[#12151d] text-slate-400 hover:text-slate-200 hover:border-slate-600'
-                        }`}
-                        title="Apenas o som da janela/aplicação (Chrome/vídeo) é enviado para a live"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold">Apenas a Aplicação</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">
-                            Recomendado
-                          </span>
-                        </div>
-                        <div className="text-[10px] opacity-80 mt-0.5 leading-snug">
-                          Apenas o som do vídeo/janela vai para a live. Seu microfone não é mixado.
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setMixMicrophone(true)}
-                        className={`p-2.5 rounded-xl text-left border transition-all ${
-                          mixMicrophone
-                            ? 'border-indigo-500 bg-indigo-500/15 text-indigo-300 shadow-md ring-1 ring-indigo-500/30'
-                            : 'border-[#2a3142] bg-[#12151d] text-slate-400 hover:text-slate-200 hover:border-slate-600'
-                        }`}
-                        title="Mistura seu microfone com o som da tela (com ducking anti-eco)"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold">Aplicação + Minha Voz</span>
-                        </div>
-                        <div className="text-[10px] opacity-80 mt-0.5 leading-snug">
-                          Você narra junto com o vídeo (com ducking inteligente quando você fala).
-                        </div>
-                      </button>
-                    </div>
-                  </div>
 
                   {/* Call Audio Isolation (Anti-Bleed) Shield Card */}
                   <div className="p-2.5 rounded-xl bg-emerald-950/25 border border-emerald-500/30 flex items-center justify-between gap-3">
@@ -520,7 +476,7 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
             {includeAudio && (
               <span className="text-slate-300">
                 {' • '}
-                {!mixMicrophone ? 'Apenas o som da aplicação' : 'Aplicação + sua voz'}
+                Aplicação + sua voz
                 {isolateCallAudio ? ' (Anti-vazamento ativo)' : ''}
               </span>
             )}

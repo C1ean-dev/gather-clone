@@ -23,6 +23,34 @@ let lastSelectedSourceTime = 0
 const GITHUB_REPO = 'C1ean-dev/gather-clone'
 const CURRENT_VERSION = app.getVersion() || '1.0.0'
 
+// Multi-instance testing support (--instance=2 or env INSTANCE=2 or --multi)
+const instanceArg = process.argv.find((a) => a.startsWith('--instance='))?.split('=')[1]
+const isMultiFlag = process.argv.includes('--multi')
+const instanceId = process.env.INSTANCE || instanceArg || (isMultiFlag ? '2' : '1')
+const isMultiInstance = instanceId !== '1'
+
+if (isMultiInstance) {
+  // Isolate userData directory so Chromium doesn't fight over GPUCache, LevelDB or local storage
+  const defaultUserData = app.getPath('userData')
+  app.setPath('userData', `${defaultUserData}-inst-${instanceId}`)
+  console.log(`[Electron] Modo multi-instância ativo (Instância ${instanceId}). UserData isolado em: ${app.getPath('userData')}`)
+} else {
+  // 0. Single-instance lock: if another instance is already running without --instance, focus it and exit.
+  // This MUST happen before any GPU switches, sockets, or cache operations are touched.
+  const gotSingleInstanceLock = setupSingleInstanceLock({
+    requestLock: () => app.requestSingleInstanceLock(),
+    quit: () => {
+      app.exit(0)
+    },
+    onSecondInstance: (cb) => app.on('second-instance', cb),
+    getWindows: () => BrowserWindow.getAllWindows(),
+  })
+
+  if (!gotSingleInstanceLock) {
+    app.exit(0)
+  }
+}
+
 // Enable full GPU acceleration & Windows Graphics Capture (WGC) for zero-copy, non-black screen sharing
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
@@ -35,7 +63,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'Gather V2 Clone',
+    title: isMultiInstance ? `Gather V2 Clone (Instância ${instanceId})` : 'Gather V2 Clone',
     backgroundColor: '#0c0e14',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -586,8 +614,12 @@ let lanSocket: dgram.Socket | null = null
 function initNetworkTriggerAndLanDiscovery() {
   try {
     const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
-    socket.on('error', (err) => {
-      console.warn('[Network/Firewall] UDP Socket warning:', err.message)
+    socket.on('error', (err: any) => {
+      if (err?.code === 'EADDRINUSE') {
+        console.log('[Network/Firewall] Porta 41234 em uso, operando como instância secundária na rede local.')
+        return
+      }
+      console.warn('[Network/Firewall] UDP Socket warning:', err?.message || err)
     })
     socket.on('listening', () => {
       const addr = socket.address()
@@ -596,8 +628,9 @@ function initNetworkTriggerAndLanDiscovery() {
         socket.setBroadcast(true)
       } catch (e) {}
     })
-    // O bind de porta no Windows força o Windows Defender Firewall a abrir a caixa de permissão se ainda não autorizada
-    socket.bind(41234, '0.0.0.0')
+    // Se for instância secundária, usa porta efêmera (0) para não colidir com a porta 41234
+    const portToBind = isMultiInstance ? 0 : 41234
+    socket.bind(portToBind, '0.0.0.0')
     lanSocket = socket
   } catch (err) {
     console.warn('[Network/Firewall] Falha ao iniciar socket UDP:', err)
@@ -644,14 +677,6 @@ ipcMain.handle('request-firewall-access', async () => {
   })
 })
 
-// Single-instance lock (see singleInstance.ts): a second launch focuses the
-// running window instead of spawning a twin that fights over camera/mic ids.
-setupSingleInstanceLock({
-  requestLock: () => app.requestSingleInstanceLock(),
-  quit: () => app.quit(),
-  onSecondInstance: (cb) => app.on('second-instance', cb),
-  getWindows: () => BrowserWindow.getAllWindows(),
-})
 
 app.whenReady().then(() => {
   createWindow()
