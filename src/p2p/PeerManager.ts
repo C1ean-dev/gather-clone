@@ -8,7 +8,7 @@ import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { CustomAsset } from '../types/customAsset'
 import { PublicRoomsService } from '../services/publicRoomsService'
 import { processNetworkMessage } from './messageHandlers'
-import { MediaCallHandler, ICE_CONNECT_TIMEOUT_MS, SHARED_RTC_CONFIG } from './mediaCalls'
+import { MediaCallHandler, ICE_CONNECT_TIMEOUT_MS, SHARED_RTC_CONFIG, resolveCallGlare } from './mediaCalls'
 import { prioritizeH264HardwareCodec } from '../media/hardwareCodec'
 import { DynamicBufferManager } from '../services/DynamicBufferManager'
 import { diagLog, summarizeStream } from '../utils/diagnosticLogger'
@@ -308,6 +308,32 @@ export class PeerManager {
     // Incoming Media Call (WebRTC Audio/Video)
     this.peer.on('call', (call) => {
       console.log('[P2P Media] Incoming call from:', call.peer)
+      const myId = this.peer ? this.peer.id : ''
+      const existing = this.mediaCalls.get(call.peer)
+      if (existing && existing !== call) {
+        // Glare: both sides dialed on zone entry. Converge on ONE call —
+        // the smaller peer id's OUTGOING call wins (see resolveCallGlare).
+        const verdict = resolveCallGlare(
+          myId,
+          call.peer,
+          (existing as unknown as { __dir?: 'in' | 'out' }).__dir
+        )
+        if (verdict === 'drop-incoming') {
+          diagLog('p2p', 'call.duplicate-dropped', { fromPeer: call.peer })
+          try {
+            call.close()
+          } catch {}
+          return
+        }
+        diagLog('p2p', 'call.duplicate-replaced', { fromPeer: call.peer })
+        // Drop the map entry BEFORE closing so the loser's 'close' handler
+        // (guarded by map identity below) cannot wipe the winner's tile.
+        this.mediaCalls.delete(call.peer)
+        try {
+          ;(existing as unknown as { close?: () => void }).close?.()
+        } catch {}
+        // Fall through: answer the winner, overwrite the map entry below.
+      }
       const localStream = useMediaStore.getState().localStream
       const isSharing = useMediaStore.getState().isScreenSharing
       const screenStream = useMediaStore.getState().localScreenStream
@@ -354,6 +380,9 @@ export class PeerManager {
           })
         }
       }
+      // Inbound track arrival + mute/unmute transitions (receiver-side
+      // visibility — 'stream' alone never re-fires on replaceTrack).
+      MediaCallHandler.watchRemoteTracks(pc, call.peer, 'in')
 
       // Configure receiver jitter buffer. The DynamicBufferManager runs
       // every 1.5s and will overwrite this with the optimal adaptive value
@@ -389,6 +418,8 @@ export class PeerManager {
         }
         console.log(`[P2P Media] Connected incoming call from ${call.peer} (${reason})`)
         diagLog('p2p', 'call.incoming-connected', { fromPeer: call.peer, reason })
+        // Prove the sender side is actually transmitting (bytesSent).
+        MediaCallHandler.logSenderSnapshot(this.mediaCalls, 'incoming-connected')
         if (pc) MediaCallHandler.applyEncoderCaps(pc)
         applyBuffer()
         useGameStore.getState().setCallState(call.peer, 'connected')
@@ -439,23 +470,38 @@ export class PeerManager {
 
       call.on('stream', (remoteStream) => {
         console.log('[P2P Media] Received remote stream from:', call.peer)
+        // A losing glare duplicate can still fire after being replaced:
+        // only the map's current call may drive the tile and the state.
+        if (this.mediaCalls.get(call.peer) !== call) {
+          diagLog('p2p', 'call.remote-stream-stale', { fromPeer: call.peer })
+          return
+        }
         markConnected('remote-stream')
         applyBuffer()
+        diagLog('p2p', 'call.remote-stream', {
+          fromPeer: call.peer,
+          tracks: summarizeStream(remoteStream),
+        })
         useMediaStore.getState().setPeerStream(call.peer, remoteStream)
       })
 
       call.on('close', () => {
         if (iceTimeout) clearTimeout(iceTimeout)
-        useGameStore.getState().setCallState(call.peer, 'idle')
-        useMediaStore.getState().removePeerStream(call.peer)
+        if (this.mediaCalls.get(call.peer) === call) {
+          useGameStore.getState().setCallState(call.peer, 'idle')
+          useMediaStore.getState().removePeerStream(call.peer)
+        }
       })
 
       call.on('error', () => {
         if (iceTimeout) clearTimeout(iceTimeout)
-        useGameStore.getState().setCallState(call.peer, 'failed')
-        useMediaStore.getState().removePeerStream(call.peer)
+        if (this.mediaCalls.get(call.peer) === call) {
+          useGameStore.getState().setCallState(call.peer, 'failed')
+          useMediaStore.getState().removePeerStream(call.peer)
+        }
       })
 
+      ;(call as unknown as { __dir?: 'in' | 'out' }).__dir = 'in'
       this.mediaCalls.set(call.peer, call)
     })
   }
@@ -801,6 +847,16 @@ export class PeerManager {
 
   public endMediaCallWithPeer(peerId: string) {
     MediaCallHandler.endMediaCall(this.mediaCalls, peerId)
+  }
+
+  /**
+   * Log what this side is actually SENDING on every live call (sender track
+   * state + outbound-rtp counters). Called on media transitions (mute,
+   * camera, screenshare) so the next diagnostic log shows whether a black
+   * tile is a sender problem (bytesSent flat) or a receiver/tile problem.
+   */
+  public logSenderSnapshot(reason: string) {
+    MediaCallHandler.logSenderSnapshot(this.mediaCalls, reason)
   }
 
   public endAllZoneMediaCalls() {

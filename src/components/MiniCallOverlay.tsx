@@ -25,7 +25,7 @@ import { useMapStore } from '../store/useMapStore'
 import { useChatStore } from '../store/useChatStore'
 import { MediaManager } from '../media/MediaManager'
 import { ScreenShareModal } from './ScreenShareModal'
-import { diagLog, summarizeStream } from '../utils/diagnosticLogger'
+import { attachStreamToVideo } from '../media/attachVideoElement'
 
 interface VideoTileProps {
   stream: MediaStream | null
@@ -66,48 +66,12 @@ const VideoTile: React.FC<VideoTileProps> = ({
     // Imperative muted — the muted={} JSX prop alone does not mute in
     // Chromium (attribute vs IDL property), leaking a delayed local echo.
     video.muted = !!isLocal
-    video.srcObject = stream
-    diagLog('tile', 'attach', {
+    // Shared attach with play-failure recovery. See attachVideoElement.ts.
+    return attachStreamToVideo(video, stream, {
       tile: 'mini',
       peer: name,
       isLocal: !!isLocal,
-      tracks: summarizeStream(stream),
     })
-    const playPromise = video.play()
-    if (playPromise !== undefined) {
-      playPromise.then(
-        () => diagLog('tile', 'play-ok', { tile: 'mini', peer: name }),
-        (err) =>
-          diagLog('tile', 'play-failed', {
-            tile: 'mini',
-            peer: name,
-            error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
-          })
-      )
-    }
-
-    const handleTrackEvent = () => {
-      if (video.srcObject !== stream) {
-        video.srcObject = stream
-      }
-      video.play().catch(() => {})
-    }
-
-    stream.addEventListener('addtrack', handleTrackEvent)
-    stream.addEventListener('removetrack', handleTrackEvent)
-
-    const tracks = stream.getVideoTracks()
-    tracks.forEach((t) => {
-      t.addEventListener('unmute', handleTrackEvent)
-    })
-
-    return () => {
-      stream.removeEventListener('addtrack', handleTrackEvent)
-      stream.removeEventListener('removetrack', handleTrackEvent)
-      tracks.forEach((t) => {
-        t.removeEventListener('unmute', handleTrackEvent)
-      })
-    }
   }, [stream, isLocal])
 
   useEffect(() => {
@@ -271,48 +235,12 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
     // VideoTile; a local screen preview left unmuted echoes mic+system
     // audio back with DSP latency.
     video.muted = !!isLocal
-    video.srcObject = stream
-    diagLog('tile', 'attach', {
+    // Shared attach with play-failure recovery. See attachVideoElement.ts.
+    return attachStreamToVideo(video, stream, {
       tile: 'mini-pip',
       peer: presenterName,
       isLocal: !!isLocal,
-      tracks: summarizeStream(stream),
     })
-    const playPromise = video.play()
-    if (playPromise !== undefined) {
-      playPromise.then(
-        () => diagLog('tile', 'play-ok', { tile: 'mini-pip', peer: presenterName }),
-        (err) =>
-          diagLog('tile', 'play-failed', {
-            tile: 'mini-pip',
-            peer: presenterName,
-            error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
-          })
-      )
-    }
-
-    const handleTrackEvent = () => {
-      if (video.srcObject !== stream) {
-        video.srcObject = stream
-      }
-      video.play().catch(() => {})
-    }
-
-    stream.addEventListener('addtrack', handleTrackEvent)
-    stream.addEventListener('removetrack', handleTrackEvent)
-
-    const tracks = stream.getVideoTracks()
-    tracks.forEach((t) => {
-      t.addEventListener('unmute', handleTrackEvent)
-    })
-
-    return () => {
-      stream.removeEventListener('addtrack', handleTrackEvent)
-      stream.removeEventListener('removetrack', handleTrackEvent)
-      tracks.forEach((t) => {
-        t.removeEventListener('unmute', handleTrackEvent)
-      })
-    }
   }, [stream, isLocal])
 
   useEffect(() => {

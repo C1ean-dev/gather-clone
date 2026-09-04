@@ -23,6 +23,35 @@ const ICE_POOL_SIZE = 4
  */
 export const ICE_CONNECT_TIMEOUT_MS = 1200
 
+export type CallDirection = 'in' | 'out'
+
+/**
+ * Deterministic glare resolution for the zone-call mesh.
+ *
+ * Both peers dial each other on zone entry, so every pair briefly holds TWO
+ * connections (A→B and B→A). Two live connections mean double uplink, two
+ * remote streams per peer, and a srcObject swap that aborts the tile's
+ * pending play() (AbortError → black tile + silence). Both sides run this
+ * rule and converge on ONE call: the smaller peer id's OUTGOING call wins.
+ */
+export function resolveCallGlare(
+  myId: string,
+  remoteId: string,
+  existingDir: CallDirection | undefined
+): 'drop-incoming' | 'replace-with-incoming' {
+  if (!existingDir) return 'replace-with-incoming'
+  if (existingDir === 'out') {
+    return myId < remoteId ? 'drop-incoming' : 'replace-with-incoming'
+  }
+  // Stale incoming from a previous round — always take the fresh one.
+  return 'replace-with-incoming'
+}
+
+const shortTrackId = (id: string | undefined): string | null => {
+  if (!id) return null
+  return id.length <= 10 ? id : `${id.slice(0, 6)}…${id.slice(-4)}`
+}
+
 /**
  * Shared WebRTC transport config for every PeerJS instance and every
  * post-creation setConfiguration call.
@@ -199,6 +228,98 @@ export class MediaCallHandler {
   }
 
   /**
+   * Snapshot of what each PeerConnection is actually SENDING: sender track
+   * state plus outbound-rtp counters (bytesSent/framesSent). This is what
+   * proves whether a black tile is a SENDER problem (bytesSent flat while
+   * the local track looks live) or a receiver/tile problem (bytesSent
+   * growing). Transitions only — never per-frame.
+   */
+  static logSenderSnapshot(mediaCalls: Map<string, MediaConnection>, reason: string) {
+    mediaCalls.forEach((call, peerId) => {
+      try {
+        const pc = (call as unknown as { peerConnection?: RTCPeerConnection }).peerConnection
+        if (!pc || typeof pc.getSenders !== 'function') return
+        let senders: unknown[] = []
+        try {
+          senders = pc.getSenders().map((s) => ({
+            kind: s.track?.kind ?? null,
+            enabled: s.track ? !!s.track.enabled : null,
+            ready: s.track ? s.track.readyState : null,
+            id: shortTrackId(s.track?.id),
+          }))
+        } catch {
+          // Unreadable connection — nothing trustworthy to report.
+          return
+        }
+        diagLog('p2p', 'sender-state', { toPeer: peerId, reason, senders })
+        try {
+          pc.getStats().then(
+            (stats) => {
+              const outbound: Record<string, unknown> = {}
+              try {
+                stats.forEach((r: any) => {
+                  if (r && r.type === 'outbound-rtp' && !r.isRemote && (r.kind === 'audio' || r.kind === 'video')) {
+                    outbound[r.kind] = {
+                      bytesSent: r.bytesSent ?? null,
+                      packetsSent: r.packetsSent ?? null,
+                      framesSent: r.framesSent ?? null,
+                    }
+                  }
+                })
+              } catch {}
+              diagLog('p2p', 'sender-stats', { toPeer: peerId, reason, outbound })
+            },
+            () => {}
+          )
+        } catch {}
+      } catch {}
+    })
+  }
+
+  /**
+   * Watch inbound tracks of a call: logs per-track arrival and every
+   * mute/unmute/ended transition. This is what shows "live preta" causes on
+   * the RECEIVER side — replaceTrack on the sender never fires a new
+   * 'stream' event, so without this the receiver log goes silent exactly
+   * when the picture should appear.
+   */
+  static watchRemoteTracks(pc: RTCPeerConnection | null | undefined, peerId: string, side: 'in' | 'out') {
+    if (!pc || typeof pc.addEventListener !== 'function') return
+    try {
+      pc.addEventListener('track', (evt) => {
+        try {
+          const track = (evt as RTCTrackEvent).track as MediaStreamTrack | undefined
+          if (!track || (track as any).__diagWatched) return
+          ;(track as any).__diagWatched = true
+          diagLog('p2p', 'call.remote-track', {
+            fromPeer: peerId,
+            side,
+            kind: track.kind,
+            muted: track.muted,
+            ready: track.readyState,
+            id: shortTrackId(track.id),
+          })
+          const onState = () => {
+            try {
+              diagLog('p2p', 'call.remote-track-state', {
+                fromPeer: peerId,
+                side,
+                kind: track.kind,
+                muted: track.muted,
+                ready: track.readyState,
+                id: shortTrackId(track.id),
+              })
+            } catch {}
+          }
+          track.addEventListener('mute', onState)
+          track.addEventListener('unmute', onState)
+          track.addEventListener('ended', onState)
+        } catch {}
+      })
+    } catch {}
+  }
+
+  /**
    * Check if local player and remote peer are in the same Private Zone and manage MediaCall.
    *
    * The call is dialed WITH the real audio/video stream in a single PeerJS
@@ -255,6 +376,8 @@ export class MediaCallHandler {
           diagLog('p2p', 'call.dial-nocall', { toPeer: remotePlayer.id })
           return
         }
+        // Role tag for glare resolution (see resolveCallGlare).
+        ;(call as unknown as { __dir?: CallDirection }).__dir = 'out'
 
         const pc = (call as any).peerConnection as RTCPeerConnection
         if (pc) {
@@ -272,6 +395,10 @@ export class MediaCallHandler {
               ;(pc as any).setConfiguration(SHARED_RTC_CONFIG)
             }
           } catch (e) {}
+          // Inbound track arrival + mute/unmute transitions (receiver-side
+          // visibility for "why is the tile black" — 'stream' alone is not
+          // enough since replaceTrack never re-fires it).
+          MediaCallHandler.watchRemoteTracks(pc, remotePlayer.id, 'out')
         }
 
         // Seed from the adaptive engine (just reset to 1ms/1ms below), NOT
@@ -307,6 +434,8 @@ export class MediaCallHandler {
           }
           console.log(`[Zone Call] Connected with ${remotePlayer.name} (${reason})`)
           diagLog('p2p', 'call.outgoing-connected', { withPeer: remotePlayer.id, reason })
+          // Prove the sender side is actually transmitting (bytesSent).
+          MediaCallHandler.logSenderSnapshot(mediaCalls, 'outgoing-connected')
           if (pc) MediaCallHandler.applyEncoderCaps(pc)
           applyBuffer()
           useGameStore.getState().setCallState(remotePlayer.id, 'connected')
@@ -358,6 +487,12 @@ export class MediaCallHandler {
         }, ICE_CONNECT_TIMEOUT_MS)
 
         call.on('stream', (remoteStream) => {
+          // A losing glare duplicate can still fire after being replaced:
+          // only the map's current call may drive the tile and the state.
+          if (mediaCalls.get(remotePlayer.id) !== call) {
+            diagLog('p2p', 'call.remote-stream-stale', { fromPeer: remotePlayer.id })
+            return
+          }
           // First remote track = media provably flowing end-to-end.
           markConnected('remote-stream')
           applyBuffer()
@@ -369,15 +504,25 @@ export class MediaCallHandler {
         })
         call.on('close', () => {
           if (iceTimeout) clearTimeout(iceTimeout)
-          useGameStore.getState().setCallState(remotePlayer.id, 'idle')
-          diagLog('p2p', 'call.closed', { withPeer: remotePlayer.id })
-          useMediaStore.getState().removePeerStream(remotePlayer.id)
+          diagLog('p2p', 'call.closed', {
+            withPeer: remotePlayer.id,
+            current: mediaCalls.get(remotePlayer.id) === call,
+          })
+          if (mediaCalls.get(remotePlayer.id) === call) {
+            useGameStore.getState().setCallState(remotePlayer.id, 'idle')
+            useMediaStore.getState().removePeerStream(remotePlayer.id)
+          }
         })
         call.on('error', () => {
           if (iceTimeout) clearTimeout(iceTimeout)
-          useGameStore.getState().setCallState(remotePlayer.id, 'failed')
-          diagLog('p2p', 'call.error', { withPeer: remotePlayer.id })
-          useMediaStore.getState().removePeerStream(remotePlayer.id)
+          diagLog('p2p', 'call.error', {
+            withPeer: remotePlayer.id,
+            current: mediaCalls.get(remotePlayer.id) === call,
+          })
+          if (mediaCalls.get(remotePlayer.id) === call) {
+            useGameStore.getState().setCallState(remotePlayer.id, 'failed')
+            useMediaStore.getState().removePeerStream(remotePlayer.id)
+          }
         })
         mediaCalls.set(remotePlayer.id, call)
       } else if (!existingCall) {
@@ -444,7 +589,7 @@ export class MediaCallHandler {
       }
     }
 
-    mediaCalls.forEach((call) => {
+    mediaCalls.forEach((call, peerId) => {
       try {
         const pc = (call as any).peerConnection as RTCPeerConnection
         if (pc) {
@@ -467,6 +612,12 @@ export class MediaCallHandler {
             videoSender
               .replaceTrack(newTrack)
               .then(() => {
+                diagLog('p2p', 'call.replace-ok', {
+                  withPeer: peerId,
+                  kind: 'video',
+                  screen: isScreenShare,
+                  trackEnabled: newTrack ? !!newTrack.enabled : null,
+                })
                 if (newTrack) {
                   try {
                     const params = videoSender.getParameters()
@@ -482,7 +633,15 @@ export class MediaCallHandler {
                   } catch (paramErr) {}
                 }
               })
-              .catch((err) => console.warn('Could not replace video track on sender:', err))
+              .catch((err) => {
+                diagLog('p2p', 'call.replace-failed', {
+                  withPeer: peerId,
+                  kind: 'video',
+                  screen: isScreenShare,
+                  error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+                })
+                console.warn('Could not replace video track on sender:', err)
+              })
           } else if (newTrack) {
             try {
               const localStream = useMediaStore.getState().localStream || new MediaStream()

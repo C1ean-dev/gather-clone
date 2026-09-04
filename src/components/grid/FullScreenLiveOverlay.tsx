@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Radio, Minimize2, Volume2, Volume1, VolumeX } from 'lucide-react'
 import { ParticipantData } from './GridParticipantTile'
 import { useMediaStore } from '../../store/useMediaStore'
+import { attachStreamToVideo } from '../../media/attachVideoElement'
 
 interface Props {
   user: ParticipantData
@@ -47,17 +48,13 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
       ;(video as any).setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput).catch(() => {})
     }
 
-    // Explicit play() to prevent paused on mount
-    video.play().catch(() => {})
-
-    const handleTrackAdded = () => {
-      video.play().catch(() => {})
-    }
-
-    activeStream.addEventListener('addtrack', handleTrackAdded)
-    return () => {
-      activeStream.removeEventListener('addtrack', handleTrackAdded)
-    }
+    // Shared attach with play-failure recovery (retry on audio/video unmute
+    // and click). See attachVideoElement.ts.
+    return attachStreamToVideo(video, activeStream, {
+      tile: 'theater',
+      peer: user.id,
+      isLocal: !!user.isLocal,
+    })
   }, [activeStream, selectedAudioOutput])
 
   // Update volume in real-time

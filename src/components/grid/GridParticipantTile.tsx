@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import { Radio, MicOff, Maximize, Pin, Maximize2, Volume2, Volume1, VolumeX } from 'lucide-react'
 import { useMediaStore } from '../../store/useMediaStore'
-import { diagLog, summarizeStream } from '../../utils/diagnosticLogger'
+import { attachStreamToVideo } from '../../media/attachVideoElement'
 
 export interface ParticipantData {
   id: string
@@ -77,49 +77,14 @@ export const GridParticipantTile: React.FC<Props> = ({
     // this line the local preview is NOT muted and the user hears their own
     // DSP-processed voice ~30-80ms late ("delay"/echo na chamada).
     video.muted = !!user.isLocal
-    video.srcObject = activeStream
-    diagLog('tile', 'attach', {
+    // Shared attach with play-failure recovery (AbortError on stream swap,
+    // retry on audio/video unmute and click). See attachVideoElement.ts.
+    return attachStreamToVideo(video, activeStream, {
       tile: 'grid',
       peer: user.id,
       isLocal: !!user.isLocal,
       isLive,
-      tracks: summarizeStream(activeStream),
     })
-    const playPromise = video.play()
-    if (playPromise !== undefined) {
-      playPromise.then(
-        () => diagLog('tile', 'play-ok', { tile: 'grid', peer: user.id }),
-        (err) =>
-          diagLog('tile', 'play-failed', {
-            tile: 'grid',
-            peer: user.id,
-            error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
-          })
-      )
-    }
-
-    const handleTrackEvent = () => {
-      if (video.srcObject !== activeStream) {
-        video.srcObject = activeStream
-      }
-      video.play().catch(() => {})
-    }
-
-    activeStream.addEventListener('addtrack', handleTrackEvent)
-    activeStream.addEventListener('removetrack', handleTrackEvent)
-
-    const tracks = activeStream.getVideoTracks()
-    tracks.forEach((t) => {
-      t.addEventListener('unmute', handleTrackEvent)
-    })
-
-    return () => {
-      activeStream.removeEventListener('addtrack', handleTrackEvent)
-      activeStream.removeEventListener('removetrack', handleTrackEvent)
-      tracks.forEach((t) => {
-        t.removeEventListener('unmute', handleTrackEvent)
-      })
-    }
   }, [activeStream, isLive, user.isLocal])
 
   const handleFullscreenClick = (e: React.MouseEvent) => {

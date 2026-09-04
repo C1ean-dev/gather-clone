@@ -508,6 +508,10 @@ export class MediaManager {
           physical: !(activeCamTrack as any).__isDummy,
           tracks: summarizeStream(useMediaStore.getState().localStream),
         })
+        try {
+          // Sender proof: is video RTP actually flowing after re-enable?
+          PeerManager.getInstance().logSenderSnapshot('camera-on')
+        } catch {}
         if (!useMediaStore.getState().isScreenSharing) {
           try {
             PeerManager.getInstance().replaceVideoTrack(activeCamTrack, false)
@@ -547,6 +551,10 @@ export class MediaManager {
 
   public syncMuteState(isMuted: boolean): void {
     diagLog('media', 'mute', { isMuted })
+    try {
+      // Sender proof for the next diagnostic: is audio RTP actually flowing?
+      PeerManager.getInstance().logSenderSnapshot(isMuted ? 'mute-on' : 'mute-off')
+    } catch {}
     if (useMediaStore.getState().isMuted !== isMuted) {
       useMediaStore.getState().setMuted(isMuted)
     }
@@ -806,6 +814,9 @@ export class MediaManager {
             getVideoTracks: () => [screenVideoTrack],
           } as unknown as MediaStream),
         })
+        try {
+          PeerManager.getInstance().logSenderSnapshot('screenshare-start')
+        } catch {}
         PeerManager.getInstance().sendPlayerUpdate({ isScreenSharing: true })
 
         screenVideoTrack.onended = () => {
