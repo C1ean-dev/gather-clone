@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { MediaCallHandler } from '../p2p/mediaCalls'
-import { diagStats, __resetDiagForTests } from '../utils/diagnosticLogger'
+import { diagStats, flushDiagLogs, __resetDiagForTests } from '../utils/diagnosticLogger'
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0))
 
@@ -23,7 +23,10 @@ function fakePc() {
 
 describe('logSenderSnapshot', () => {
   beforeEach(() => __resetDiagForTests())
-  afterEach(() => __resetDiagForTests())
+  afterEach(() => {
+    __resetDiagForTests()
+    ;(globalThis as any).window = undefined
+  })
 
   it('logs sender-state synchronously and sender-stats after getStats resolves', async () => {
     const calls = new Map<string, any>([{ peerConnection: fakePc() }].map((c) => ['peer-1', c]))
@@ -43,6 +46,50 @@ describe('logSenderSnapshot', () => {
     MediaCallHandler.logSenderSnapshot(calls, 'mute-off')
     await tick()
     expect(diagStats().buffered).toBe(0)
+  })
+
+  it('sender-state payload carries transport direction (deploy diagnosis contract)', async () => {
+    const sent: unknown[][] = []
+    ;(globalThis as any).window = {
+      electronAPI: {
+        diagnosticLogBatch: vi.fn(async (batch: unknown[]) => {
+          sent.push(batch)
+          return { ok: true, path: null }
+        }),
+      },
+    }
+    const pc = {
+      ...fakePc(),
+      iceConnectionState: 'connected',
+      connectionState: 'connected',
+      signalingState: 'stable',
+      getTransceivers: () => [
+        {
+          receiver: { track: { kind: 'audio' } },
+          sender: { track: { kind: 'audio' } },
+          direction: 'sendrecv',
+          currentDirection: 'sendrecv',
+        },
+        {
+          receiver: { track: { kind: 'video' } },
+          sender: { track: { kind: 'video' } },
+          direction: 'sendrecv',
+          currentDirection: 'recvonly',
+        },
+      ],
+    }
+    MediaCallHandler.logSenderSnapshot(new Map<string, any>([['peer-1', { peerConnection: pc }]]), 'camera-on')
+    await flushDiagLogs()
+    const flat = sent.flat() as any[]
+    const state = flat.find((e) => e.event === 'sender-state')
+    expect(state).toBeDefined()
+    expect(state.data.transport).toMatchObject({ ice: 'connected', conn: 'connected', sig: 'stable' })
+    // A recvonly video transceiver here is exactly the "live senders, zero
+    // bytes" signature — the payload must surface it on every deploy.
+    expect(state.data.transport.transceivers).toEqual([
+      { kind: 'audio', dir: 'sendrecv', cur: 'sendrecv' },
+      { kind: 'video', dir: 'sendrecv', cur: 'recvonly' },
+    ])
   })
 })
 

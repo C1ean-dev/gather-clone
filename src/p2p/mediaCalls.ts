@@ -251,7 +251,27 @@ export class MediaCallHandler {
           // Unreadable connection — nothing trustworthy to report.
           return
         }
-        diagLog('p2p', 'sender-state', { toPeer: peerId, reason, senders })
+        // Transport + direction: the decisive datum for "senders live but
+        // bytesSent flat". currentDirection=recvonly => negotiated away our
+        // send path; sendrecv+connected+flat => encoders/sources starved.
+        let transport: unknown = null
+        try {
+          const tpc = pc as RTCPeerConnection
+          transport = {
+            ice: (tpc as any).iceConnectionState ?? null,
+            conn: (tpc as any).connectionState ?? null,
+            sig: (tpc as any).signalingState ?? null,
+            transceivers:
+              typeof tpc.getTransceivers === 'function'
+                ? tpc.getTransceivers().map((t: any) => ({
+                    kind: t.receiver?.track?.kind ?? t.sender?.track?.kind ?? t.kind ?? null,
+                    dir: t.direction ?? null,
+                    cur: t.currentDirection ?? null,
+                  }))
+                : null,
+          }
+        } catch {}
+        diagLog('p2p', 'sender-state', { toPeer: peerId, reason, senders, transport })
         try {
           pc.getStats().then(
             (stats) => {

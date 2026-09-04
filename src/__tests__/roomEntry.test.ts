@@ -1,6 +1,28 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
-const { FakePeer } = vi.hoisted(() => {
+const { FakePeer, FakeConn } = vi.hoisted(() => {
+  class FakeConn {
+    peer: string
+    sent: unknown[] = []
+    handlers = new Map<string, ((...args: any[]) => void)[]>()
+    constructor(peer: string) {
+      this.peer = peer
+      FakeConn.instances.push(this)
+    }
+    static instances: FakeConn[] = []
+    on(evt: string, fn: (...args: any[]) => void) {
+      const list = this.handlers.get(evt) || []
+      list.push(fn)
+      this.handlers.set(evt, list)
+      return this
+    }
+    emit(evt: string, ...args: any[]) {
+      ;(this.handlers.get(evt) || []).forEach((fn) => fn(...args))
+    }
+    send(msg: unknown) {
+      this.sent.push(msg)
+    }
+  }
   class FakePeer {
     static instances: FakePeer[] = []
     id: string
@@ -24,11 +46,11 @@ const { FakePeer } = vi.hoisted(() => {
       this.destroyed = true
       this.destroyedCount += 1
     }
-    connect() {
-      return { on: () => {}, metadata: {} }
+    connect(peerId: string) {
+      return new FakeConn(peerId)
     }
   }
-  return { FakePeer }
+  return { FakePeer, FakeConn }
 })
 
 vi.mock('peerjs', () => ({ default: FakePeer }))
@@ -46,10 +68,12 @@ describe('room entry (createRoom)', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     FakePeer.instances.length = 0
+    FakeConn.instances.length = 0
     __resetDiagForTests()
     const pm = PeerManager.getInstance() as any
     pm.peer = null
     pm.roomCode = null
+    pm.connections?.clear?.()
     vi.spyOn(pm, 'startHeartbeat').mockImplementation(() => {})
     vi.spyOn(pm, 'setupPeerListeners').mockImplementation(() => {})
   })
@@ -107,5 +131,76 @@ describe('room entry (createRoom)', () => {
     await pending
     expect(joinSpy).toHaveBeenCalledTimes(1)
     expect(diagStats().buffered).toBeGreaterThanOrEqual(2) // begin + error
+  })
+})
+
+describe('room entry (joinRoom)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    FakePeer.instances.length = 0
+    FakeConn.instances.length = 0
+    __resetDiagForTests()
+    const pm = PeerManager.getInstance() as any
+    pm.peer = null
+    pm.roomCode = null
+    pm.connections?.clear?.()
+    vi.spyOn(pm, 'startHeartbeat').mockImplementation(() => {})
+    vi.spyOn(pm, 'setupPeerListeners').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    __resetDiagForTests()
+  })
+
+  it('resolves when the host data connection opens and logs the path', async () => {
+    const pm = PeerManager.getInstance()
+    const pending = pm.joinRoom('code-aaa', player() as any)
+    expect(FakePeer.instances).toHaveLength(1)
+    FakePeer.instances[0].emit('open', 'client-id-1')
+    expect(FakeConn.instances).toHaveLength(1)
+    FakeConn.instances[0].emit('open')
+    await expect(pending).resolves.toBeUndefined()
+    // join-begin + join-open + join-host-open at minimum.
+    expect(diagStats().buffered).toBeGreaterThanOrEqual(3)
+  })
+
+  it('auto-hosts when the host is unreachable and logs every step', async () => {
+    const pm = PeerManager.getInstance()
+    const pending = pm.joinRoom('code-aaa', player() as any)
+    FakePeer.instances[0].emit('open', 'client-id-1')
+    // Host never answers the data connection: force the error path.
+    FakePeer.instances[0].emit('error', { type: 'peer-unavailable', message: 'Could not connect to peer' })
+    // Auto-host creates a real second peer (host id); open it.
+    expect(FakePeer.instances).toHaveLength(2)
+    FakePeer.instances[1].emit('open', 'gather-v2-CODE-AAA-host')
+    await expect(pending).resolves.toBeUndefined()
+    expect(diagStats().buffered).toBeGreaterThanOrEqual(4) // begin + error + autohost + create-*
+  })
+
+  it('a stale join timeout never auto-hosts over the newer session', async () => {
+    const pm = PeerManager.getInstance()
+    // Run 1 hangs before peer open (broker silent).
+    const run1 = pm.joinRoom('code-aaa', player() as any)
+    let run1Settled: string | null = null
+    run1.then(
+      () => (run1Settled = 'resolved'),
+      () => (run1Settled = 'rejected')
+    )
+    expect(FakePeer.instances).toHaveLength(1)
+
+    // Run 2 replaces it and connects as host.
+    const run2 = pm.createRoom('code-bbb', player() as any)
+    FakePeer.instances[1].emit('open', 'gather-v2-CODE-BBB-host')
+    await expect(run2).resolves.toBe('CODE-BBB')
+    const peerB = FakePeer.instances[1]
+    const destroysAfterOpen = peerB.destroyedCount
+
+    // Past run 1's 7.5s join timeout: no auto-host, no new peer, no destroy.
+    await vi.advanceTimersByTimeAsync(9000)
+    expect(FakePeer.instances).toHaveLength(2)
+    expect(peerB.destroyedCount).toBe(destroysAfterOpen)
+    expect(run1Settled).toBeNull()
   })
 })

@@ -11,6 +11,7 @@ import { PublicRoomsService } from '../services/publicRoomsService'
 import { PublicRoomInfo, Player } from '../types/game'
 import { SavedSpace } from '../store/useSavedSpacesStore'
 import { diagLog } from '../utils/diagnosticLogger'
+import { createEnterGuard } from '../utils/enterGuard'
 import { DirectConnectTab } from './lobby/DirectConnectTab'
 import { PublicRoomsTab } from './lobby/PublicRoomsTab'
 import { SavedSpacesTab } from './lobby/SavedSpacesTab'
@@ -70,7 +71,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
   // double-click while the Entrar button only disables via `loading` state —
   // two concurrent runs create TWO host peers with the same id and destroy
   // each other ("entrar não vai"). One entry at a time, always.
-  const enterInFlight = useRef(false)
+  const enterGuardRef = useRef(createEnterGuard())
 
   useEffect(() => {
     if (activeTab === 'available_rooms') {
@@ -128,8 +129,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       setActiveTab('connect')
       return
     }
-    if (enterInFlight.current) return
-    enterInFlight.current = true
+    if (!enterGuardRef.current.tryEnter()) return
 
     setLoading(true)
     setError(null)
@@ -151,7 +151,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       console.error(err)
       setError(`Não foi possível conectar à sala "${room.name}". O host pode ter fechado o app.`)
     } finally {
-      enterInFlight.current = false
+      enterGuardRef.current.release()
       setLoading(false)
     }
   }
@@ -162,8 +162,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       setError('Por favor, informe seu nickname.')
       return
     }
-    if (enterInFlight.current) return
-    enterInFlight.current = true
+    if (!enterGuardRef.current.tryEnter()) return
 
     setLoading(true)
     setError(null)
@@ -252,7 +251,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       console.error(err)
       setError('Não foi possível conectar. Verifique o código da sala e tente novamente.')
     } finally {
-      enterInFlight.current = false
+      enterGuardRef.current.release()
       setLoading(false)
     }
   }
@@ -265,13 +264,12 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
     }
     // The card double-click bypasses the disabled Entrar button — without
     // this, two runs race creating the same host peer id.
-    if (enterInFlight.current) return
-    enterInFlight.current = true
+    if (!enterGuardRef.current.tryEnter()) return
 
     const spaceId = targetSpaceId || selectedSpaceId
     const targetSpace = savedSpaces.find((s) => s.id === spaceId) || savedSpaces[0]
     if (!targetSpace) {
-      enterInFlight.current = false
+      enterGuardRef.current.release()
       setError('Nenhum espaço salvo encontrado.')
       return
     }
@@ -339,7 +337,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       })
       setError('Não foi possível carregar o espaço.')
     } finally {
-      enterInFlight.current = false
+      enterGuardRef.current.release()
       setLoading(false)
     }
   }

@@ -6,6 +6,7 @@ import https from 'https'
 import http from 'http'
 import dgram from 'dgram'
 import { spawn, exec } from 'child_process'
+import { setupSingleInstanceLock } from './singleInstance'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -641,6 +642,15 @@ ipcMain.handle('request-firewall-access', async () => {
       }
     })
   })
+})
+
+// Single-instance lock (see singleInstance.ts): a second launch focuses the
+// running window instead of spawning a twin that fights over camera/mic ids.
+setupSingleInstanceLock({
+  requestLock: () => app.requestSingleInstanceLock(),
+  quit: () => app.quit(),
+  onSecondInstance: (cb) => app.on('second-instance', cb),
+  getWindows: () => BrowserWindow.getAllWindows(),
 })
 
 app.whenReady().then(() => {
