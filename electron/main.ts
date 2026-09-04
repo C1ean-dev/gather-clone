@@ -14,20 +14,19 @@ let mainWindow: BrowserWindow | null = null
 
 // Pre-selected DesktopCapturerSource id for the NEXT getDisplayMedia call.
 // Written by the 'set-screen-source' IPC (renderer picked a thumbnail),
-// consumed once by setDisplayMediaRequestHandler, then cleared.
+// consumed by setDisplayMediaRequestHandler (with a 15s grace window for retries).
 let pendingScreenCapture: { sourceId: string | null; withAudio: boolean } | null = null
+let lastSelectedSourceId: string | null = null
+let lastSelectedSourceTime = 0
 
 const GITHUB_REPO = 'C1ean-dev/gather-clone'
 const CURRENT_VERSION = app.getVersion() || '1.0.0'
 
-// Prevent AMD GPU DirectComposition video overlay driver warning on Windows
-app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
-
-// Enable full GPU hardware video acceleration (NVENC, AMD AMF, Intel QuickSync)
+// Enable full GPU acceleration & Windows Graphics Capture (WGC) for zero-copy, non-black screen sharing
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('enable-accelerated-video-decode')
-app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport,VaapiVideoDecoder,VaapiVideoEncoder,CanvasOopRasterization')
+app.commandLine.appendSwitch('enable-features', 'WebRtcAllowWgcScreenCapturer,WebRtcAllowWgcWindowCapturer,PlatformHEVCDecoderSupport,CanvasOopRasterization')
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -62,8 +61,9 @@ function createWindow() {
   // (e.g. direct getDisplayMedia calls) it falls back to the primary screen
   // so capture never silently fails.
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    const now = Date.now()
     const wantAudio = pendingScreenCapture?.withAudio ?? !!(request as any)?.audio
-    const wantedId = pendingScreenCapture?.sourceId ?? null
+    const wantedId = pendingScreenCapture?.sourceId || (now - lastSelectedSourceTime < 15000 ? lastSelectedSourceId : null)
     pendingScreenCapture = null
 
     const pickAndRespond = (useLoopbackAudio: boolean) => {
@@ -112,8 +112,10 @@ function createWindow() {
   // the EXACT source the user picked is shared (legacy chromeMediaSource
   // constraints were removed in modern Electron/Chromium and no longer work).
   ipcMain.handle('set-screen-source', (_event, payload: { sourceId?: string | null; withAudio?: boolean }) => {
+    lastSelectedSourceId = payload?.sourceId ?? null
+    lastSelectedSourceTime = Date.now()
     pendingScreenCapture = {
-      sourceId: payload?.sourceId ?? null,
+      sourceId: lastSelectedSourceId,
       withAudio: payload?.withAudio ?? true,
     }
     return true

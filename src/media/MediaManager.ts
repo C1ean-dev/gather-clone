@@ -290,6 +290,7 @@ export class MediaManager {
       const track = stream.getVideoTracks()[0]
       if (track) {
         track.enabled = false
+        ;(track as any).__isDummy = true
         return track
       }
     } catch (e) {
@@ -326,8 +327,8 @@ export class MediaManager {
         audio: audioConstraints,
       })
     } catch (err) {
-      console.warn('Could not access camera/mic with selected constraints, trying mic-only fallback:', err)
-      // 2. Fallback without camera constraint (Audio only if user has no webcam or camera in use)
+      console.warn('Could not access camera/mic with selected constraints, trying separated fallbacks:', err)
+      // 2. Fallback: try mic alone (constraints first, then generic)
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: false,
@@ -341,12 +342,31 @@ export class MediaManager {
             audio: audio,
           })
         } catch (totalErr) {
-          console.error('Failed to access physical camera/mic:', totalErr)
+          console.error('Failed to access physical microphone:', totalErr)
+        }
+      }
+
+      // 3. Fallback: try camera alone if requested so mic constraints don't kill the webcam
+      if (!stream) {
+        stream = new MediaStream()
+      }
+
+      if (video && stream.getVideoTracks().length === 0) {
+        try {
+          const camOnlyStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+          })
+          const camTrack = camOnlyStream.getVideoTracks()[0]
+          if (camTrack) {
+            ;(camTrack as any).__isDummy = false
+            stream.addTrack(camTrack)
+          }
+        } catch (camErr) {
+          console.warn('Could not access camera individually:', camErr)
         }
       }
     }
 
-    // 3. If no stream could be captured, create empty MediaStream with fallback tracks
     if (!stream) {
       stream = new MediaStream()
     }
@@ -394,6 +414,117 @@ export class MediaManager {
     } catch (e) {}
 
     return processedStream
+  }
+
+  /**
+   * Toggle camera on/off. When turning on, if no physical camera track exists yet
+   * (e.g. initial startMedia used dummy canvas), dynamically acquires physical webcam via getUserMedia,
+   * updates localStream and peer senders, and broadcasts presence update to all peers.
+   */
+  public async toggleCamera(): Promise<boolean> {
+    const nextCameraOff = !useMediaStore.getState().isCameraOff
+    await this.syncCameraState(nextCameraOff)
+    return !nextCameraOff
+  }
+
+  public async syncCameraState(isCameraOff: boolean): Promise<void> {
+    if (useMediaStore.getState().isCameraOff !== isCameraOff) {
+      useMediaStore.getState().setCameraOff(isCameraOff)
+    }
+
+    if (!isCameraOff) {
+      // Turning camera ON
+      let activeCamTrack = this.rawUserStream?.getVideoTracks().find((t) => t.readyState === 'live' && !(t as any).__isDummy) || null
+
+      if (!activeCamTrack) {
+        try {
+          const camStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+          })
+          activeCamTrack = camStream.getVideoTracks()[0] || null
+          if (activeCamTrack) {
+            ;(activeCamTrack as any).__isDummy = false
+
+            // Replace in rawUserStream
+            if (this.rawUserStream) {
+              this.rawUserStream.getVideoTracks().forEach((t) => {
+                t.stop()
+                this.rawUserStream?.removeTrack(t)
+              })
+              this.rawUserStream.addTrack(activeCamTrack)
+            }
+
+            // Replace in localStream
+            const localStream = useMediaStore.getState().localStream
+            if (localStream) {
+              localStream.getVideoTracks().forEach((t) => {
+                if (t !== activeCamTrack) {
+                  t.stop()
+                  localStream.removeTrack(t)
+                }
+              })
+              localStream.addTrack(activeCamTrack)
+            }
+          }
+        } catch (camErr) {
+          console.warn('[MediaManager] Failed to start physical camera:', camErr)
+        }
+      }
+
+      if (activeCamTrack) {
+        activeCamTrack.enabled = true
+        if (!useMediaStore.getState().isScreenSharing) {
+          try {
+            PeerManager.getInstance().replaceVideoTrack(activeCamTrack, false)
+          } catch {}
+        }
+      } else {
+        const localStream = useMediaStore.getState().localStream
+        localStream?.getVideoTracks().forEach((t) => (t.enabled = true))
+      }
+    } else {
+      // Turning camera OFF
+      const localStream = useMediaStore.getState().localStream
+      if (localStream) {
+        localStream.getVideoTracks().forEach((t) => {
+          t.enabled = false
+        })
+      }
+    }
+
+    try {
+      useGameStore.getState().setLocalPlayer({ isCameraOff })
+    } catch {}
+    try {
+      PeerManager.getInstance().sendPlayerUpdate({ isCameraOff })
+    } catch {}
+  }
+
+  /**
+   * Toggle mute on/off. Updates track enabled state, local player state, and broadcasts to peers.
+   */
+  public toggleMute(): boolean {
+    const nextMute = !useMediaStore.getState().isMuted
+    this.syncMuteState(nextMute)
+    return nextMute
+  }
+
+  public syncMuteState(isMuted: boolean): void {
+    if (useMediaStore.getState().isMuted !== isMuted) {
+      useMediaStore.getState().setMuted(isMuted)
+    }
+    const localStream = useMediaStore.getState().localStream
+    if (localStream) {
+      localStream.getAudioTracks().forEach((track) => {
+        track.enabled = !isMuted
+      })
+    }
+    try {
+      useGameStore.getState().setLocalPlayer({ isMuted })
+    } catch {}
+    try {
+      PeerManager.getInstance().sendPlayerUpdate({ isMuted })
+    } catch {}
   }
 
   /**

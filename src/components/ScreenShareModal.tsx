@@ -42,8 +42,8 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [includeAudio, setIncludeAudio] = useState(true)
   const [resolution, setResolution] = useState<'480p' | '720p' | '1080p'>('1080p')
   const [fps, setFps] = useState<30 | 60>(30)
-  // false = ONLY the screen/window audio is sent (mic never enters the screen share stream).
-  const [mixMicrophone, setMixMicrophone] = useState(false)
+  // true = user microphone is mixed with screen audio so participants hear both screen and voice
+  const [mixMicrophone, setMixMicrophone] = useState(true)
   // Isolates incoming remote peer call audio from the screen share live stream
   const [isolateCallAudio, setIsolateCallAudio] = useState(
     () => useMediaStore.getState().screenShareIsolateCallAudio

@@ -168,15 +168,21 @@ export class SoftDspProcessor {
 
       if (this.sensitivityMode === 'auto') {
         const quietLimit = this.currentThreshold * 0.7
-        if (rms < quietLimit) {
-          this.dynamicNoiseFloor =
-            this.dynamicNoiseFloor * 0.9995 + rms * 0.0005
-          quietMs += 1000 / 60
-          if (quietMs > holdMs) this.updateCalculatedThreshold()
-        } else {
-          quietMs = 0
+        if (rms < this.dynamicNoiseFloor || this.dynamicNoiseFloor === 0) {
+          // Track ambient noise downward quickly
           this.dynamicNoiseFloor = this.dynamicNoiseFloor * 0.95 + rms * 0.05
           this.updateCalculatedThreshold()
+        } else if (rms < quietLimit) {
+          // In quiet periods, allow gentle upward creep only after sustained silence
+          quietMs += 1000 / 60
+          if (quietMs > holdMs) {
+            this.dynamicNoiseFloor =
+              this.dynamicNoiseFloor * 0.999 + rms * 0.001
+            this.updateCalculatedThreshold()
+          }
+        } else {
+          // Active speech: reset quiet timer and do NOT raise the noise floor
+          quietMs = 0
         }
       }
 

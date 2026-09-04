@@ -313,6 +313,11 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
       })
     }
     set({ isMuted: nextMute })
+    try {
+      import('../media/MediaManager').then(({ MediaManager }) => {
+        MediaManager.getInstance().syncMuteState(nextMute)
+      }).catch(() => {})
+    } catch {}
   },
 
   setMuted: (isMuted) => {
@@ -323,6 +328,11 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
       })
     }
     set({ isMuted })
+    try {
+      import('../media/MediaManager').then(({ MediaManager }) => {
+        MediaManager.getInstance().syncMuteState(isMuted)
+      }).catch(() => {})
+    } catch {}
   },
 
   toggleCamera: () => {
@@ -334,6 +344,11 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
       })
     }
     set({ isCameraOff: nextCam })
+    try {
+      import('../media/MediaManager').then(({ MediaManager }) => {
+        MediaManager.getInstance().syncCameraState(nextCam)
+      }).catch(() => {})
+    } catch {}
   },
 
   setCameraOff: (isCameraOff) => {
@@ -344,6 +359,11 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
       })
     }
     set({ isCameraOff })
+    try {
+      import('../media/MediaManager').then(({ MediaManager }) => {
+        MediaManager.getInstance().syncCameraState(isCameraOff)
+      }).catch(() => {})
+    } catch {}
   },
 
   setScreenSharing: (sharing) => set({ isScreenSharing: sharing }),
