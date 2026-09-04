@@ -71,6 +71,11 @@ export const GridParticipantTile: React.FC<Props> = ({
     const video = videoRef.current
     if (!video || !activeStream) return
 
+    // Imperative muted (NOT just the muted={} JSX prop): React sets the
+    // `muted` *attribute* but Chromium reads the IDL *property* — without
+    // this line the local preview is NOT muted and the user hears their own
+    // DSP-processed voice ~30-80ms late ("delay"/echo na chamada).
+    video.muted = !!user.isLocal
     video.srcObject = activeStream
     const playPromise = video.play()
     if (playPromise !== undefined) {
@@ -99,7 +104,7 @@ export const GridParticipantTile: React.FC<Props> = ({
         t.removeEventListener('unmute', handleTrackEvent)
       })
     }
-  }, [activeStream, isLive])
+  }, [activeStream, isLive, user.isLocal])
 
   const handleFullscreenClick = (e: React.MouseEvent) => {
     e.stopPropagation()

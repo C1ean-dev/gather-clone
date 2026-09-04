@@ -64,6 +64,7 @@ const OnlineUsersMenuInner: React.FC = () => {
   const { mapData } = useMapStore()
   const { toggleChat } = useChatStore()
   const peerStreams = useMediaStore((s) => s.peerStreams)
+  const callStates = useGameStore((s) => s.callStates)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [filterTab, setFilterTab] = useState<'all' | 'friends' | 'roles'>('all')
@@ -312,6 +313,26 @@ const OnlineUsersMenuInner: React.FC = () => {
 
                   {/* Right Media Status & Quick Actions */}
                   <div className="flex items-center gap-1">
+                    {/* Connecting badge — shown while WebRTC ICE/codecs are
+                        still negotiating so users see "handshake happening"
+                        instead of "frozen / delayed avatar". */}
+                    {!isLocal && callStates[player.id] === 'connecting' && (
+                      <span
+                        className="text-[8px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold flex items-center gap-1 animate-pulse"
+                        title="Estabelecendo conexão de áudio/vídeo…"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                        Conectando
+                      </span>
+                    )}
+                    {!isLocal && callStates[player.id] === 'failed' && (
+                      <span
+                        className="text-[8px] bg-rose-500/15 text-rose-300 border border-rose-500/30 px-1.5 py-0.5 rounded font-bold flex items-center gap-1"
+                        title="Falha na conexão de chamada"
+                      >
+                        Sem áudio
+                      </span>
+                    )}
                     {/* Media Badges */}
                     <div className="flex items-center gap-0.5 text-slate-400 bg-slate-900/60 p-1 rounded-lg border border-slate-800">
                       {player.isMuted ? (

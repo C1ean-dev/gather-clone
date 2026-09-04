@@ -211,16 +211,63 @@ describe('Audio & Media Store - Expected Behaviors', () => {
   it('should manage live buffer delay settings', () => {
     const { setLiveBufferDelay } = useMediaStore.getState()
 
-    // Default or set to 3000ms
-    setLiveBufferDelay(3000)
-    expect(useMediaStore.getState().liveBufferDelay).toBe(3000)
+    // Default or set to 500ms (was 3000ms — tightened to fix voice lag)
+    setLiveBufferDelay(500)
+    expect(useMediaStore.getState().liveBufferDelay).toBe(500)
 
-    // Clamps to min 200ms and max 5000ms
-    setLiveBufferDelay(50)
-    expect(useMediaStore.getState().liveBufferDelay).toBe(200)
+    // Clamps to min 1ms (true minimum) and max 1500ms
+    setLiveBufferDelay(0)
+    expect(useMediaStore.getState().liveBufferDelay).toBe(1)
 
     setLiveBufferDelay(8000)
-    expect(useMediaStore.getState().liveBufferDelay).toBe(5000)
+    expect(useMediaStore.getState().liveBufferDelay).toBe(1500)
+  })
+
+  it('setAdaptiveBuffers should persist audio+video WITHOUT dispatching live-buffer-changed (no event clobber)', () => {
+    // Regression test: DynamicBufferManager applies (video,audio) straight
+    // to the peer connections and then persists. If persisting re-dispatched
+    // the legacy event, PeerManager would re-apply a video-only value and
+    // wipe the adaptive audio number on every 1.5s tick.
+    const dispatched: any[] = []
+    const prevWindow = (globalThis as any).window
+    const prevCE = (globalThis as any).CustomEvent
+    ;(globalThis as any).window = {
+      dispatchEvent: (e: any) => {
+        dispatched.push(e)
+        return true
+      },
+    }
+    if (typeof (globalThis as any).CustomEvent === 'undefined') {
+      ;(globalThis as any).CustomEvent = class {
+        type: string
+        detail: any
+        constructor(t: string, init?: any) {
+          this.type = t
+          this.detail = init?.detail
+        }
+      }
+    }
+    try {
+      // Control: the user-slider path MUST still dispatch.
+      useMediaStore.getState().setLiveBufferDelay(400)
+      expect(dispatched.length).toBe(1)
+      expect(dispatched[0].detail).toBe(400)
+
+      dispatched.length = 0
+      useMediaStore.getState().setAdaptiveBuffers(50, 300, 12, 1)
+      expect(dispatched.length).toBe(0)
+
+      expect(useMediaStore.getState().liveBufferDelay).toBe(300)
+      expect(useMediaStore.getState().dynamicBufferMetrics.audioMs).toBe(50)
+      expect(useMediaStore.getState().dynamicBufferMetrics.calculatedMs).toBe(300)
+      expect(useMediaStore.getState().dynamicBufferMetrics.jitterMs).toBe(12)
+      expect(useMediaStore.getState().dynamicBufferMetrics.frameDropRate).toBe(1)
+    } finally {
+      if (prevWindow === undefined) delete (globalThis as any).window
+      else (globalThis as any).window = prevWindow
+      if (prevCE === undefined) delete (globalThis as any).CustomEvent
+      else (globalThis as any).CustomEvent = prevCE
+    }
   })
 
   it('should synchronize and persist live stream volume across overlays and modal', () => {

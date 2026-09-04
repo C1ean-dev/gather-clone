@@ -62,6 +62,9 @@ const VideoTile: React.FC<VideoTileProps> = ({
     const video = videoRef.current
     if (!video || !stream) return
 
+    // Imperative muted — the muted={} JSX prop alone does not mute in
+    // Chromium (attribute vs IDL property), leaking a delayed local echo.
+    video.muted = !!isLocal
     video.srcObject = stream
     const playPromise = video.play()
     if (playPromise !== undefined) {
@@ -90,7 +93,7 @@ const VideoTile: React.FC<VideoTileProps> = ({
         t.removeEventListener('unmute', handleTrackEvent)
       })
     }
-  }, [stream])
+  }, [stream, isLocal])
 
   useEffect(() => {
     if (videoRef.current && !isLocal) {
@@ -249,6 +252,10 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
     const video = videoRef.current
     if (!video || !stream) return
 
+    // Imperative muted — same Chromium attribute-vs-property gotcha as
+    // VideoTile; a local screen preview left unmuted echoes mic+system
+    // audio back with DSP latency.
+    video.muted = !!isLocal
     video.srcObject = stream
     const playPromise = video.play()
     if (playPromise !== undefined) {
@@ -277,7 +284,7 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
         t.removeEventListener('unmute', handleTrackEvent)
       })
     }
-  }, [stream])
+  }, [stream, isLocal])
 
   useEffect(() => {
     if (videoRef.current && !isLocal) {

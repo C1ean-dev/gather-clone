@@ -10,6 +10,7 @@ import {
   Sliders,
   Sparkles,
   RefreshCw,
+  ShieldCheck,
 } from 'lucide-react'
 import { MediaManager, ScreenShareConfig } from '../media/MediaManager'
 import { useMediaStore } from '../store/useMediaStore'
@@ -31,24 +32,44 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'screen' | 'window'>('screen')
   const [loading, setLoading] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+
+  // No navegador (sem Electron) não há desktopCapturer — a lista de
+  // miniaturas não existe e o caminho correto é o seletor nativo.
+  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.getSources
 
   // Quality & Audio Options: 480p, 720p, 1080p and 30, 60 FPS
   const [includeAudio, setIncludeAudio] = useState(true)
   const [resolution, setResolution] = useState<'480p' | '720p' | '1080p'>('1080p')
   const [fps, setFps] = useState<30 | 60>(30)
+  // false = ONLY the screen/window audio is sent (mic never enters the screen share stream).
+  const [mixMicrophone, setMixMicrophone] = useState(false)
+  // Isolates incoming remote peer call audio from the screen share live stream
+  const [isolateCallAudio, setIsolateCallAudio] = useState(
+    () => useMediaStore.getState().screenShareIsolateCallAudio
+  )
 
   const fetchSources = async () => {
     setLoading(true)
+    setFetchError(null)
     const electronAPI = (window as any).electronAPI
     if (electronAPI && electronAPI.getSources) {
       try {
-        const items = await electronAPI.getSources()
+        // Race contra o IPC: o desktopCapturer pode TRAVAR (não só falhar)
+        // em alguns drivers/GPUs — sem timeout o modal gira para sempre.
+        const items = (await Promise.race([
+          electronAPI.getSources(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Tempo esgotado ao listar telas')), 9000)
+          ),
+        ])) as DesktopSource[]
         setSources(items || [])
         if (items && items.length > 0) {
-          setSelectedSourceId(items[0].id)
+          setSelectedSourceId((prev) => prev ?? items[0].id)
         }
       } catch (err) {
         console.error('Failed to get desktop sources:', err)
+        setFetchError('Não foi possível listar telas e janelas automaticamente. Tente recarregar ou use o seletor do sistema.')
       }
     }
     setLoading(false)
@@ -65,13 +86,17 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const windows = sources.filter((s) => s.id.startsWith('window:'))
 
   const currentList = activeTab === 'screen' ? (screens.length > 0 ? screens : sources) : windows
+  const selectedSource = sources.find((s) => s.id === selectedSourceId)
 
   const handleConfirm = async () => {
     const config: ScreenShareConfig = {
       sourceId: selectedSourceId || undefined,
+      sourceName: selectedSource?.name,
       includeAudio,
       resolution,
       fps,
+      mixMicrophone,
+      isolateCallAudio,
     }
     await MediaManager.getInstance().startScreenShare(config)
     onClose()
@@ -80,9 +105,12 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const handleNativePicker = async () => {
     const config: ScreenShareConfig = {
       sourceId: undefined, // Forces native system/browser window picker
+      sourceName: undefined,
       includeAudio,
       resolution,
       fps,
+      mixMicrophone,
+      isolateCallAudio,
     }
     await MediaManager.getInstance().startScreenShare(config)
     onClose()
@@ -100,7 +128,7 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
             <div>
               <h2 className="text-base font-bold text-slate-100">Compartilhar Tela & Áudio</h2>
               <p className="text-xs text-slate-400">
-                Selecione a tela ou janela, e defina a resolução (480p, 720p, 1080p), FPS (30, 60) e áudio
+                Transmita som de alta fidelidade da sua aplicação ou vídeo sem eco de outras chamadas
               </p>
             </div>
           </div>
@@ -153,7 +181,7 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
           <div>
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-semibold text-slate-300">
-                {activeTab === 'screen' ? 'Selecione o Monitor' : 'Selecione a Janela do Aplicativo'}
+                {activeTab === 'screen' ? 'Selecione o Monitor' : 'Selecione a Janela do Aplicativo (ex: Chrome)'}
               </span>
               <button
                 type="button"
@@ -166,6 +194,43 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
             {loading ? (
               <div className="text-center py-10 text-sm text-slate-400">Detectando telas disponíveis...</div>
+            ) : !isElectron ? (
+              <div className="p-6 text-center bg-[#12151d]/50 rounded-2xl border border-[#2a3142] space-y-3">
+                <p className="text-xs text-slate-300">
+                  Você está no navegador: a lista de miniaturas só existe no app desktop. Use o seletor
+                  nativo do sistema para escolher a tela ou janela.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleNativePicker}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md transition-all inline-flex items-center gap-2"
+                >
+                  <ScreenShare className="w-4 h-4" />
+                  Abrir Seletor de Telas do Sistema
+                </button>
+              </div>
+            ) : fetchError ? (
+              <div className="p-6 text-center bg-rose-950/30 rounded-2xl border border-rose-500/30 space-y-3">
+                <p className="text-xs text-rose-200">{fetchError}</p>
+                <div className="flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={fetchSources}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all inline-flex items-center gap-2"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Tentar Novamente
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNativePicker}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md transition-all inline-flex items-center gap-2"
+                  >
+                    <ScreenShare className="w-4 h-4" />
+                    Usar Seletor do Sistema
+                  </button>
+                </div>
+              </div>
             ) : currentList.length === 0 ? (
               <div className="p-6 text-center bg-[#12151d]/50 rounded-2xl border border-[#2a3142] space-y-3">
                 <p className="text-xs text-slate-300">
@@ -235,6 +300,16 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
             )}
           </div>
 
+          {/* Selected Target Feedback */}
+          {selectedSource && (
+            <div className="flex items-center gap-2 px-3.5 py-2 bg-indigo-950/30 border border-indigo-500/30 rounded-xl text-xs text-indigo-200">
+              <AppWindow className="w-4 h-4 text-indigo-400 shrink-0" />
+              <span className="truncate">
+                Transmitindo: <strong className="text-indigo-300">{selectedSource.name}</strong>
+              </span>
+            </div>
+          )}
+
           {/* Settings Section: Resolution, FPS and Sound */}
           <div className="bg-[#12151d]/60 rounded-2xl p-4 border border-[#2a3142] space-y-4">
             <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
@@ -275,7 +350,7 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <div className="grid grid-cols-2 gap-2">
                   {[
                     { id: 30, label: '30 FPS', desc: 'Padrão (Trabalho)' },
-                    { id: 60, label: '60 FPS', desc: 'Ultra Fluido (Jogos)' },
+                    { id: 60, label: '60 FPS', desc: 'Ultra Fluido (Vídeo / Jogos)' },
                   ].map((f) => (
                     <button
                       key={f.id}
@@ -309,9 +384,9 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                     {includeAudio ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
                   </div>
                   <div>
-                    <div className="text-xs font-semibold text-slate-200">Transmitir Áudio do Sistema / Aplicativo</div>
+                    <div className="text-xs font-semibold text-slate-200">Transmitir Áudio da Janela / Sistema</div>
                     <div className="text-[10px] text-slate-400">
-                      Seus amigos ouvirão o som transmitido junto com seu microfone
+                      Transmite o som do vídeo, navegador (Chrome) ou aplicativo com fidelidade 48kHz
                     </div>
                   </div>
                 </div>
@@ -328,27 +403,110 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
               </div>
 
               {includeAudio && (
-                <div className="bg-[#1b202c] p-3 rounded-xl border border-[#2a3142] space-y-2 animate-in fade-in duration-150">
-                  <div className="flex items-center justify-between text-[11px] text-slate-300">
-                    <span>Volume do Áudio Transmitido</span>
-                    <span className="font-bold text-indigo-400">{useMediaStore.getState().screenShareAudioVolume}%</span>
+                <div className="bg-[#1b202c] p-3.5 rounded-xl border border-[#2a3142] space-y-3 animate-in fade-in duration-150">
+                  {/* Volume Slider */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] text-slate-300">
+                      <span>Volume da Transmissão</span>
+                      <span className="font-bold text-indigo-400">{useMediaStore.getState().screenShareAudioVolume}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={useMediaStore.getState().screenShareAudioVolume}
+                      onChange={(e) => {
+                        const val = Number(e.target.value)
+                        useMediaStore.getState().setScreenShareAudioVolume(val)
+                        MediaManager.getInstance().updateScreenShareAudioVolume(val)
+                      }}
+                      className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={useMediaStore.getState().screenShareAudioVolume}
-                    onChange={(e) => {
-                      const val = Number(e.target.value)
-                      useMediaStore.getState().setScreenShareAudioVolume(val)
-                      MediaManager.getInstance().updateScreenShareAudioVolume(val)
-                    }}
-                    className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                  />
-                  <div className="text-[10px] text-emerald-400 flex items-center gap-1.5 pt-1">
-                    <Sparkles className="w-3 h-3 shrink-0" />
-                    <span>Ducking anti-eco ativado: o som da tela diminui automaticamente quando você fala.</span>
+
+                  {/* Audio Source Mode Selection */}
+                  <div>
+                    <div className="text-[11px] font-semibold text-slate-300 mb-1.5">Fonte do Áudio da Transmissão:</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMixMicrophone(false)}
+                        className={`p-2.5 rounded-xl text-left border transition-all ${
+                          !mixMicrophone
+                            ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300 shadow-md ring-1 ring-emerald-500/30'
+                            : 'border-[#2a3142] bg-[#12151d] text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                        }`}
+                        title="Apenas o som da janela/aplicação (Chrome/vídeo) é enviado para a live"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold">Apenas a Aplicação</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">
+                            Recomendado
+                          </span>
+                        </div>
+                        <div className="text-[10px] opacity-80 mt-0.5 leading-snug">
+                          Apenas o som do vídeo/janela vai para a live. Seu microfone não é mixado.
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setMixMicrophone(true)}
+                        className={`p-2.5 rounded-xl text-left border transition-all ${
+                          mixMicrophone
+                            ? 'border-indigo-500 bg-indigo-500/15 text-indigo-300 shadow-md ring-1 ring-indigo-500/30'
+                            : 'border-[#2a3142] bg-[#12151d] text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                        }`}
+                        title="Mistura seu microfone com o som da tela (com ducking anti-eco)"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold">Aplicação + Minha Voz</span>
+                        </div>
+                        <div className="text-[10px] opacity-80 mt-0.5 leading-snug">
+                          Você narra junto com o vídeo (com ducking inteligente quando você fala).
+                        </div>
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Call Audio Isolation (Anti-Bleed) Shield Card */}
+                  <div className="p-2.5 rounded-xl bg-emerald-950/25 border border-emerald-500/30 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                        <ShieldCheck className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-semibold text-emerald-300">
+                          Isolamento Ativo de Vozes da Chamada
+                        </div>
+                        <div className="text-[9px] text-slate-400 leading-tight">
+                          Bloqueia as vozes dos outros participantes da reunião para que apenas o som do app saia na live.
+                        </div>
+                      </div>
+                    </div>
+
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={isolateCallAudio}
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          setIsolateCallAudio(checked)
+                          useMediaStore.getState().setScreenShareIsolateCallAudio(checked)
+                          MediaManager.getInstance().setScreenShareIsolateCallAudio(checked)
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                  </div>
+
+                  {mixMicrophone && (
+                    <div className="text-[10px] text-indigo-400 flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3 shrink-0" />
+                      <span>Ducking inteligente ativo: o som do app diminui quando você fala.</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -359,7 +517,13 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
         <div className="p-4 border-t border-[#2a3142] bg-[#12151d]/90 flex items-center justify-between">
           <div className="text-xs text-slate-400">
             Transmissão: <strong className="text-indigo-400">{resolution} @ {fps} FPS</strong>
-            {includeAudio && ' (com Áudio)'}
+            {includeAudio && (
+              <span className="text-slate-300">
+                {' • '}
+                {!mixMicrophone ? 'Apenas o som da aplicação' : 'Aplicação + sua voz'}
+                {isolateCallAudio ? ' (Anti-vazamento ativo)' : ''}
+              </span>
+            )}
           </div>
 
           <div className="flex gap-3">
@@ -382,3 +546,4 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
     </div>
   )
 }
+

@@ -18,6 +18,7 @@ export interface UpdateProgress {
 
 export interface IElectronAPI {
   getSources: () => Promise<Array<{ id: string; name: string; thumbnail: string; appIcon: string | null }>>
+  setScreenSource: (sourceId: string | null, withAudio?: boolean) => Promise<boolean>
   isElectron: boolean
   checkForUpdates: () => Promise<UpdateInfo>
   downloadAndInstallUpdate: (downloadUrl: string) => Promise<boolean>
@@ -35,6 +36,8 @@ export interface IElectronAPI {
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getSources: () => ipcRenderer.invoke('get-sources'),
+  setScreenSource: (sourceId: string | null, withAudio: boolean = true) =>
+    ipcRenderer.invoke('set-screen-source', { sourceId, withAudio }),
   isElectron: true,
   checkForUpdates: () => ipcRenderer.invoke('check-update'),
   downloadAndInstallUpdate: (downloadUrl: string) => ipcRenderer.invoke('download-and-install-update', downloadUrl),

@@ -2,6 +2,7 @@ import { NoiseSuppressor } from './NoiseSuppressor'
 import { SoftDspProcessor } from './SoftDspProcessor'
 import { RnnoiseProcessor } from './RnnoiseProcessor'
 import { MicCalibrator } from './MicCalibrator'
+import { CallAudioIsolator } from './CallAudioIsolator'
 import { useMediaStore } from '../store/useMediaStore'
 import { useGameStore } from '../store/useGameStore'
 import { PeerManager } from '../p2p/PeerManager'
@@ -9,9 +10,23 @@ import { SensitivityMode, AudioProcessorMode } from '../types/audio'
 
 export interface ScreenShareConfig {
   sourceId?: string
+  sourceName?: string
   includeAudio?: boolean
   resolution?: '480p' | '720p' | '1080p'
   fps?: 30 | 60
+  /**
+   * When true (default), the microphone is mixed together with the screen
+   * audio and sent as a single track (with voice ducking).
+   * When false, ONLY the captured screen/window audio is sent — the mic
+   * never enters the call. Ideal for sharing a browser video/page: remotes
+   * hear exactly what that screen plays, nothing else.
+   */
+  mixMicrophone?: boolean
+  /**
+   * When true (default), incoming call voices are filtered out of the screen share
+   * audio so remote peers never hear their own voices echoing in the live stream.
+   */
+  isolateCallAudio?: boolean
 }
 
 /**
@@ -44,6 +59,7 @@ export class MediaManager {
   private screenAudioContext: AudioContext | null = null
   private screenGainNode: GainNode | null = null
   private screenDuckInterval: number | null = null
+  private callAudioIsolator: CallAudioIsolator | null = null
   private currentProcessorMode: AudioProcessorMode = 'classic'
 
   // Throttle state for VU-meter forwarding. DSP engines invoke the level
@@ -367,6 +383,16 @@ export class MediaManager {
     })
 
     useMediaStore.getState().setLocalStream(processedStream)
+
+    // The room-join path runs startMedia IN PARALLEL with the P2P handshake
+    // (see LobbyModal) so mic-permission latency (or the 5s RNNoise WASM
+    // init) doesn't block entering the room. PLAYER_JOIN messages that
+    // arrived before this stream existed skipped their zone calls —
+    // re-evaluate now that we can actually dial.
+    try {
+      PeerManager.getInstance().recheckZoneCalls()
+    } catch (e) {}
+
     return processedStream
   }
 
@@ -441,17 +467,27 @@ export class MediaManager {
   }
 
   /**
-    * Start Screen Sharing with Customizable Source, Audio, Resolution (480p, 720p, 1080p) and FPS (30, 60)
-    * Includes Anti-Reverberation Audio Ducking and Highpass Filter
-    */
+   * Start Screen Sharing with Customizable Source, Audio, Resolution (480p, 720p, 1080p) and FPS (30, 60)
+   * Audio modes:
+   *   - mixMicrophone=true (default): mic + screen audio mixed with ducking.
+   *   - mixMicrophone=false: ONLY the screen/window audio is sent, untouched
+   *     (no second AudioContext, no ducking — also ~20-40ms less latency).
+   */
   public async startScreenShare(config: ScreenShareConfig = {}): Promise<MediaStream | null> {
     try {
       const {
         sourceId,
+        sourceName,
         includeAudio = true,
         resolution = '1080p',
         fps = 30,
+        mixMicrophone = true,
+        isolateCallAudio = useMediaStore.getState().screenShareIsolateCallAudio,
       } = config
+
+      if (sourceName) {
+        useMediaStore.getState().setScreenShareTargetTitle(sourceName)
+      }
 
       let width = 1920
       let height = 1080
@@ -468,134 +504,102 @@ export class MediaManager {
 
       let screenStream: MediaStream
 
-      if (sourceId && (window as any).electronAPI) {
-        const videoConstraints: any = {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: sourceId,
-            maxWidth: width,
-            maxHeight: height,
-            maxFrameRate: fps,
-          },
-        }
+      const electronAPI = (window as any).electronAPI
+      const displayAudioConstraint = includeAudio
+        ? {
+            echoCancellation: true,
+            noiseSuppression: false,
+            autoGainControl: false,
+          }
+        : false
 
+      if (sourceId && electronAPI?.setScreenSource) {
         try {
-          if (includeAudio) {
-            screenStream = await (navigator.mediaDevices as any).getUserMedia({
-              video: videoConstraints,
-              audio: {
-                mandatory: {
-                  chromeMediaSource: 'desktop',
-                },
-              },
-            })
-          } else {
-            screenStream = await (navigator.mediaDevices as any).getUserMedia({
-              video: videoConstraints,
-              audio: false,
-            })
-          }
-        } catch (audioErr) {
-          console.warn('Desktop capture with audio/constraints failed, trying fallback:', audioErr)
-          try {
-            screenStream = await (navigator.mediaDevices as any).getUserMedia({
-              video: {
-                mandatory: {
-                  chromeMediaSource: 'desktop',
-                  chromeMediaSourceId: sourceId,
-                },
-              },
-              audio: false,
-            })
-          } catch (relaxedErr) {
-            console.warn('Falling back to getDisplayMedia:', relaxedErr)
-            screenStream = await navigator.mediaDevices.getDisplayMedia({
-              video: {
-                width: { ideal: width, max: width },
-                height: { ideal: height, max: height },
-                frameRate: { ideal: fps, max: fps },
-              },
-              audio: includeAudio,
-            })
-          }
+          await electronAPI.setScreenSource(sourceId, includeAudio)
+        } catch (ipcErr) {
+          console.warn('[MediaManager] set-screen-source IPC failed, capturing primary screen:', ipcErr)
+        }
+        try {
+          screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: { ideal: width, max: width },
+              height: { ideal: height, max: height },
+              frameRate: { ideal: fps, max: fps },
+            },
+            audio: displayAudioConstraint,
+          })
+        } catch {
+          screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: { ideal: width, max: width },
+              height: { ideal: height, max: height },
+              frameRate: { ideal: fps, max: fps },
+            },
+            audio: includeAudio,
+          })
         }
       } else {
-        screenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            width: { ideal: width, max: width },
-            height: { ideal: height, max: height },
-            frameRate: { ideal: fps, max: fps },
-          },
-          audio: includeAudio,
-        })
+        try {
+          screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: { ideal: width, max: width },
+              height: { ideal: height, max: height },
+              frameRate: { ideal: fps, max: fps },
+            },
+            audio: displayAudioConstraint,
+          })
+        } catch {
+          screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: { ideal: width, max: width },
+              height: { ideal: height, max: height },
+              frameRate: { ideal: fps, max: fps },
+            },
+            audio: includeAudio,
+          })
+        }
       }
 
-      // Screen audio mixing with Gain Limiter and Voice Ducking (prevents echo/reverberation loop)
+      // Screen audio routing with CallAudioIsolator:
+      // Eliminates incoming call audio leakage from the outbound screen share.
+      // In "Apenas a Aplicação" mode (mixMicrophone = false), local mic and call voices
+      // are completely isolated, broadcasting 100% pure application sound (Chrome, etc.).
+      // In "Aplicação + Minha Voz" mode (mixMicrophone = true), user's voice is mixed
+      // with ducking while call voices remain blocked.
       const screenAudioTrack = screenStream.getAudioTracks()[0]
       const localStream = useMediaStore.getState().localStream
 
-      if (screenAudioTrack && localStream) {
-        try {
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
-          this.screenAudioContext = new AudioContextClass({ sampleRate: 48000 })
+      // Tear down any previous isolator before (re)building.
+      if (this.callAudioIsolator) {
+        this.callAudioIsolator.dispose()
+        this.callAudioIsolator = null
+      }
 
-          const micSource = this.screenAudioContext.createMediaStreamSource(localStream)
-          const screenSource = this.screenAudioContext.createMediaStreamSource(
-            new MediaStream([screenAudioTrack])
+      if (screenAudioTrack) {
+        screenAudioTrack.enabled = true
+        try {
+          const initialScreenVol = useMediaStore.getState().screenShareAudioVolume / 100
+          this.callAudioIsolator = new CallAudioIsolator()
+
+          const cleanAudioTrack = this.callAudioIsolator.init(
+            screenAudioTrack,
+            localStream,
+            {
+              mixMicrophone,
+              isolateCallAudio,
+              initialVolume: initialScreenVol,
+              targetTitle: sourceName,
+            }
           )
 
-          // 1. Screen Audio Gain Node (Controlled by user settings, default 50%)
-          const initialScreenVol = useMediaStore.getState().screenShareAudioVolume / 100
-          this.screenGainNode = this.screenAudioContext.createGain()
-          this.screenGainNode.gain.setValueAtTime(initialScreenVol, this.screenAudioContext.currentTime)
-
-          // 2. Highpass filter on screen audio to cut out low-end bass build-up
-          const screenFilter = this.screenAudioContext.createBiquadFilter()
-          screenFilter.type = 'highpass'
-          screenFilter.frequency.setValueAtTime(80, this.screenAudioContext.currentTime)
-
-          // 3. Destination mixer
-          const dest = this.screenAudioContext.createMediaStreamDestination()
-
-          micSource.connect(dest)
-          screenSource.connect(screenFilter)
-          screenFilter.connect(this.screenGainNode)
-          this.screenGainNode.connect(dest)
-
-          // 4. Intelligent Voice Ducking loop:
-          if (this.screenDuckInterval) clearInterval(this.screenDuckInterval)
-          this.screenDuckInterval = window.setInterval(() => {
-            if (!this.screenGainNode || !this.screenAudioContext || this.screenAudioContext.state === 'closed') {
-              return
-            }
-
-            const st = useMediaStore.getState()
-            if (!st.duckingEnabled) {
-              const targetVol = st.screenShareAudioVolume / 100
-              this.screenGainNode.gain.setValueAtTime(targetVol, this.screenAudioContext.currentTime)
-              return
-            }
-
-            const isSpeaking = st.localAudioLevel > 0.08 || st.isGateOpen
-            const baseVol = st.screenShareAudioVolume / 100
-            const now = this.screenAudioContext.currentTime
-
-            if (isSpeaking) {
-              const duckedVol = baseVol * 0.25
-              this.screenGainNode.gain.cancelScheduledValues(now)
-              this.screenGainNode.gain.setTargetAtTime(duckedVol, now, 0.06)
-            } else {
-              this.screenGainNode.gain.cancelScheduledValues(now)
-              this.screenGainNode.gain.setTargetAtTime(baseVol, now, 0.2)
-            }
-          }, 80)
-
-          const combinedAudioTrack = dest.stream.getAudioTracks()[0]
-          if (combinedAudioTrack) {
-            PeerManager.getInstance().replaceAudioTrack(combinedAudioTrack)
+          if (cleanAudioTrack) {
+            cleanAudioTrack.enabled = true
+            PeerManager.getInstance().replaceAudioTrack(cleanAudioTrack)
           }
         } catch (mixErr) {
-          console.warn('Audio mixing fallback:', mixErr)
+          console.warn('Audio isolation fallback to raw screen track:', mixErr)
+          screenAudioTrack.enabled = true
+          PeerManager.getInstance().replaceAudioTrack(screenAudioTrack)
         }
       }
 
@@ -636,10 +640,11 @@ export class MediaManager {
   }
 
   public stopScreenShare() {
-    if (this.screenDuckInterval) {
-      clearInterval(this.screenDuckInterval)
-      this.screenDuckInterval = null
+    if (this.callAudioIsolator) {
+      this.callAudioIsolator.dispose()
+      this.callAudioIsolator = null
     }
+    useMediaStore.getState().setScreenShareTargetTitle(null)
 
     const currentScreen = useMediaStore.getState().localScreenStream
     if (currentScreen) {
@@ -648,12 +653,6 @@ export class MediaManager {
     useMediaStore.getState().setLocalScreenStream(null)
     useMediaStore.getState().setScreenSharing(false)
     useGameStore.getState().setLocalPlayer({ isScreenSharing: false })
-
-    if (this.screenAudioContext && this.screenAudioContext.state !== 'closed') {
-      this.screenAudioContext.close().catch(() => {})
-      this.screenAudioContext = null
-      this.screenGainNode = null
-    }
 
     const localStream = useMediaStore.getState().localStream
     let camTrack = localStream?.getVideoTracks()[0] || null
@@ -693,6 +692,24 @@ export class MediaManager {
     } catch (e) {}
   }
 
+  public updateScreenShareAudioVolume(percent: number) {
+    if (this.callAudioIsolator) {
+      this.callAudioIsolator.updateVolume(percent)
+    }
+    if (this.screenGainNode && this.screenAudioContext) {
+      const now = this.screenAudioContext.currentTime
+      this.screenGainNode.gain.cancelScheduledValues(now)
+      this.screenGainNode.gain.setTargetAtTime(percent / 100, now, 0.05)
+    }
+  }
+
+  public setScreenShareIsolateCallAudio(enabled: boolean) {
+    useMediaStore.getState().setScreenShareIsolateCallAudio(enabled)
+    if (this.callAudioIsolator) {
+      this.callAudioIsolator.setIsolateCallAudio(enabled)
+    }
+  }
+
   public updateInputVolume(vol: number) {
     this.classicEngine.setInputVolume(vol)
     this.softEngine.setInputVolume(vol)
@@ -715,49 +732,41 @@ export class MediaManager {
     // The actual swap happens on the next processStream() call, which
     // selects the engine based on the current store value. Nothing to do
     // here — kept so callers can force a state flush if they want.
-    }
+  }
 
-    /**
-      * Re-run the active engine over the cached raw user stream and swap the
-      * processed audio track into every connected peer. Used when the user
-      * changes the processor mode without leaving the call — without this
-      * the new engine only takes effect on the next startMedia() / mic swap.
-      *
-      * No-op if no raw stream is cached (caller must request mic permission
-      * first).
-      */
-    public async reprocessStream(): Promise<boolean> {
-      if (!this.rawUserStream) return false
-      try {
-        const processed = await this.runEngine(
-          this.rawUserStream,
-          this.handleEngineLevel
-        )
-        // Preserve current mute/cameraOff state on the new track.
-        const isMuted = useMediaStore.getState().isMuted
-        processed.getAudioTracks().forEach((track) => {
-          track.enabled = !isMuted
-        })
-        const existingVideo = useMediaStore.getState().localStream?.getVideoTracks() ?? []
-        existingVideo.forEach((v) => processed.addTrack(v))
+  /**
+   * Re-run the active engine over the cached raw user stream and swap the
+   * processed audio track into every connected peer. Used when the user
+   * changes the processor mode without leaving the call — without this
+   * the new engine only takes effect on the next startMedia() / mic swap.
+   *
+   * No-op if no raw stream is cached (caller must request mic permission
+   * first).
+   */
+  public async reprocessStream(): Promise<boolean> {
+    if (!this.rawUserStream) return false
+    try {
+      const processed = await this.runEngine(
+        this.rawUserStream,
+        this.handleEngineLevel
+      )
+      // Preserve current mute/cameraOff state on the new track.
+      const isMuted = useMediaStore.getState().isMuted
+      processed.getAudioTracks().forEach((track) => {
+        track.enabled = !isMuted
+      })
+      const existingVideo = useMediaStore.getState().localStream?.getVideoTracks() ?? []
+      existingVideo.forEach((v) => processed.addTrack(v))
 
-        useMediaStore.getState().setLocalStream(processed)
-        const newAudioTrack = processed.getAudioTracks()[0]
-        if (newAudioTrack) {
-          PeerManager.getInstance().replaceAudioTrack(newAudioTrack)
-        }
-        return true
-      } catch (err) {
-        console.warn('[MediaManager] reprocessStream failed:', err)
-        return false
+      useMediaStore.getState().setLocalStream(processed)
+      const newAudioTrack = processed.getAudioTracks()[0]
+      if (newAudioTrack) {
+        PeerManager.getInstance().replaceAudioTrack(newAudioTrack)
       }
-    }
-
-  public updateScreenShareAudioVolume(vol: number) {
-    if (this.screenGainNode && this.screenAudioContext) {
-      const now = this.screenAudioContext.currentTime
-      this.screenGainNode.gain.cancelScheduledValues(now)
-      this.screenGainNode.gain.setTargetAtTime(vol / 100, now, 0.05)
+      return true
+    } catch (err) {
+      console.warn('[MediaManager] reprocessStream failed:', err)
+      return false
     }
   }
 
@@ -769,8 +778,8 @@ export class MediaManager {
   }
 
   /**
-    * Play a pleasant chime tone to test the selected speakers/headphones
-    */
+   * Play a pleasant chime tone to test the selected speakers/headphones
+   */
   public playAudioTestBeep() {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext

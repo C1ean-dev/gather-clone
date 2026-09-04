@@ -127,11 +127,16 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
     try {
       setLocalPlayer({ name: userName.trim() })
-      await MediaManager.getInstance().startMedia(true, true)
-      await PeerManager.getInstance().joinRoom(room.code, {
-        ...localPlayer,
-        name: userName.trim(),
-      })
+      // Parallel: mic/camera warm-up must NOT block the P2P handshake.
+      // MediaManager.startMedia re-triggers zone-call eligibility when the
+      // stream lands, so calls missed while the mic was initializing heal.
+      await Promise.all([
+        MediaManager.getInstance().startMedia(true, true),
+        PeerManager.getInstance().joinRoom(room.code, {
+          ...localPlayer,
+          name: userName.trim(),
+        }),
+      ])
       onJoined()
     } catch (err: any) {
       console.error(err)
@@ -155,7 +160,18 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       setLocalPlayer({ name: userName.trim() })
       useMediaStore.getState().setMuted(true)
       useMediaStore.getState().setCameraOff(true)
-      await MediaManager.getInstance().startMedia(true, true)
+
+      // Validate BEFORE touching hardware so a typo'd code doesn't pop a
+      // mic-permission prompt for nothing.
+      if (mode === 'join' && !roomInput.trim()) {
+        setError('Por favor, insira o código da sala.')
+        setLoading(false)
+        return
+      }
+
+      // Warm up mic/camera in parallel with everything below — the P2P
+      // handshake no longer waits for getUserMedia / RNNoise WASM init.
+      const mediaReady = MediaManager.getInstance().startMedia(true, true)
 
       if (mode === 'create') {
         const roomTitle = createRoomName.trim() || `Espaço de ${userName.trim()}`
@@ -194,28 +210,29 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
           currentZoneId: null,
         }
 
-        await PeerManager.getInstance().createRoom(
-          persistentRoomCode,
-          playerPayload,
-          {
-            roomName: createdSpace.name,
-            roomDescription: createDescription.trim() || 'Espaço virtual público aberto para todos',
-            isPublic: createIsPublic,
-            maxPlayers: 25,
-            color,
-          }
-        )
+        await Promise.all([
+          mediaReady,
+          PeerManager.getInstance().createRoom(
+            persistentRoomCode,
+            playerPayload,
+            {
+              roomName: createdSpace.name,
+              roomDescription: createDescription.trim() || 'Espaço virtual público aberto para todos',
+              isPublic: createIsPublic,
+              maxPlayers: 25,
+              color,
+            }
+          ),
+        ])
       } else {
-        if (!roomInput.trim()) {
-          setError('Por favor, insira o código da sala.')
-          setLoading(false)
-          return
-        }
         const playerPayload: Player = {
           ...useGameStore.getState().localPlayer,
           name: userName.trim(),
         }
-        await PeerManager.getInstance().joinRoom(roomInput.trim(), playerPayload)
+        await Promise.all([
+          mediaReady,
+          PeerManager.getInstance().joinRoom(roomInput.trim(), playerPayload),
+        ])
       }
 
       onJoined()
@@ -260,7 +277,9 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
 
       useMediaStore.getState().setMuted(true)
       useMediaStore.getState().setCameraOff(true)
-      await MediaManager.getInstance().startMedia(true, true)
+      // Parallel with room creation (see handleStart) — P2P handshake must
+      // not wait for mic/RNNoise init.
+      const mediaReady = MediaManager.getInstance().startMedia(true, true)
 
       let persistentCode = targetSpace.roomCode
       if (!persistentCode) {
@@ -276,14 +295,17 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
         currentZoneId: null,
       }
 
-      await PeerManager.getInstance().createRoom(
-        persistentCode,
-        playerPayload,
-        {
-          roomName: targetSpace.name,
-          isPublic: true,
-        }
-      )
+      await Promise.all([
+        mediaReady,
+        PeerManager.getInstance().createRoom(
+          persistentCode,
+          playerPayload,
+          {
+            roomName: targetSpace.name,
+            isPublic: true,
+          }
+        ),
+      ])
       onJoined()
     } catch (err: any) {
       console.error(err)

@@ -12,6 +12,11 @@ const __dirname = path.dirname(__filename)
 
 let mainWindow: BrowserWindow | null = null
 
+// Pre-selected DesktopCapturerSource id for the NEXT getDisplayMedia call.
+// Written by the 'set-screen-source' IPC (renderer picked a thumbnail),
+// consumed once by setDisplayMediaRequestHandler, then cleared.
+let pendingScreenCapture: { sourceId: string | null; withAudio: boolean } | null = null
+
 const GITHUB_REPO = 'C1ean-dev/gather-clone'
 const CURRENT_VERSION = app.getVersion() || '1.0.0'
 
@@ -50,21 +55,68 @@ function createWindow() {
     callback(true)
   })
 
-  // Handle getDisplayMedia natively in Electron
+  // Handle getDisplayMedia natively in Electron.
+  // The renderer pre-selects a source via 'set-screen-source' IPC (see
+  // below) and then calls getDisplayMedia — this handler resolves that
+  // selection to the actual DesktopCapturerSource. Without a pre-selection
+  // (e.g. direct getDisplayMedia calls) it falls back to the primary screen
+  // so capture never silently fails.
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-    desktopCapturer
-      .getSources({ types: ['screen', 'window'] })
-      .then((sources) => {
-        if (sources && sources.length > 0) {
-          callback({ video: sources[0] })
-        } else {
-          callback({})
-        }
-      })
-      .catch((err) => {
-        console.warn('[Electron] setDisplayMediaRequestHandler error:', err)
-        callback({})
-      })
+    const wantAudio = pendingScreenCapture?.withAudio ?? !!(request as any)?.audio
+    const wantedId = pendingScreenCapture?.sourceId ?? null
+    pendingScreenCapture = null
+
+    const pickAndRespond = (useLoopbackAudio: boolean) => {
+      desktopCapturer
+        .getSources({ types: ['screen', 'window'] })
+        .then((sources) => {
+          if (!sources || sources.length === 0) {
+            callback({})
+            return
+          }
+          const picked = (wantedId && sources.find((s) => s.id === wantedId)) || sources[0]
+          if (useLoopbackAudio && wantAudio) {
+            // System-audio loopback (Windows/macOS). If Electron rejects the
+            // loopback token, retry video-only so capture still succeeds.
+            try {
+              callback({ video: picked, audio: 'loopback' } as any)
+            } catch (loopErr) {
+              console.warn('[Electron] loopback audio rejected, retrying video-only:', loopErr)
+              try {
+                callback({ video: picked })
+              } catch (e2) {
+                console.warn('[Electron] display-media callback failed:', e2)
+              }
+            }
+          } else {
+            try {
+              callback({ video: picked })
+            } catch (err) {
+              console.warn('[Electron] display-media callback failed:', err)
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn('[Electron] setDisplayMediaRequestHandler error:', err)
+          try {
+            callback({})
+          } catch {}
+        })
+    }
+
+    pickAndRespond(true)
+  })
+
+  // Pre-selected screen/window source for the next getDisplayMedia request.
+  // Set by the renderer's ScreenShareModal before calling getDisplayMedia so
+  // the EXACT source the user picked is shared (legacy chromeMediaSource
+  // constraints were removed in modern Electron/Chromium and no longer work).
+  ipcMain.handle('set-screen-source', (_event, payload: { sourceId?: string | null; withAudio?: boolean }) => {
+    pendingScreenCapture = {
+      sourceId: payload?.sourceId ?? null,
+      withAudio: payload?.withAudio ?? true,
+    }
+    return true
   })
 
   // Enable F12 or Ctrl+Shift+I for DevTools
@@ -95,34 +147,84 @@ function isNewerVersion(latestTag: string, currentVer: string): boolean {
   return false
 }
 
-// 1. IPC handler for Screen Sharing sources with resilient fallbacks
+// 1. IPC handler for Screen Sharing sources with resilient fallbacks.
+// desktopCapturer.getSources can HANG (not just throw) on some Windows
+// GPU/driver combos when fetchWindowIcons:true touches elevated/UWP app
+// icons — the picker then spins on "Detectando..." forever. Every attempt
+// below races a 6s timeout, and the no-icons path (which almost never
+// throws) is preferred after the first failure.
+const GET_SOURCES_TIMEOUT_MS = 6000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: any = null
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`[Electron] ${label} timed out after ${ms}ms`)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer)
+  }) as Promise<T>
+}
+
+function toSourcePayload(source: any, withIcon: boolean) {
+  return {
+    id: source.id,
+    name: source.name,
+    thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : '',
+    appIcon: withIcon && source.appIcon && !source.appIcon.isEmpty() ? source.appIcon.toDataURL() : null,
+  }
+}
+
 ipcMain.handle('get-sources', async () => {
+  // Fast path first: thumbnails WITHOUT window icons. Icons are the #1
+  // hang/throw source and the modal already renders a Monitor/AppWindow
+  // fallback glyph when appIcon is null.
   try {
-    const sources = await desktopCapturer.getSources({
-      types: ['screen', 'window'],
-      thumbnailSize: { width: 320, height: 180 },
-      fetchWindowIcons: true,
-    })
-    return sources.map((source) => ({
-      id: source.id,
-      name: source.name,
-      thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : '',
-      appIcon: source.appIcon && !source.appIcon.isEmpty() ? source.appIcon.toDataURL() : null,
-    }))
-  } catch (err) {
-    console.warn('[Electron] getSources with icons failed, trying fallback without icons:', err)
-    try {
-      const fallbackSources = await desktopCapturer.getSources({
+    const sources = await withTimeout(
+      desktopCapturer.getSources({
         types: ['screen', 'window'],
         thumbnailSize: { width: 320, height: 180 },
         fetchWindowIcons: false,
-      })
-      return fallbackSources.map((source) => ({
-        id: source.id,
-        name: source.name,
-        thumbnail: source.thumbnail && !source.thumbnail.isEmpty() ? source.thumbnail.toDataURL() : '',
-        appIcon: null,
-      }))
+      }),
+      GET_SOURCES_TIMEOUT_MS,
+      'getSources(no-icons)'
+    )
+    const mapped = sources.map((s) => toSourcePayload(s, false))
+    // Best-effort icon upgrade in the background is NOT possible over a
+    // single invoke — instead do one icons attempt only when the fast path
+    // returned very few sources (likely a partial failure). Otherwise ship
+    // the fast result immediately (latency beats icons here).
+    if (mapped.length <= 1) {
+      try {
+        const withIcons = await withTimeout(
+          desktopCapturer.getSources({
+            types: ['screen', 'window'],
+            thumbnailSize: { width: 320, height: 180 },
+            fetchWindowIcons: true,
+          }),
+          GET_SOURCES_TIMEOUT_MS,
+          'getSources(with-icons)'
+        )
+        if (withIcons.length > mapped.length) {
+          return withIcons.map((s) => toSourcePayload(s, true))
+        }
+      } catch (iconErr) {
+        console.warn('[Electron] icon upgrade failed, keeping fast-path sources:', iconErr)
+      }
+    }
+    return mapped
+  } catch (err) {
+    console.warn('[Electron] getSources fast path failed, trying fallback with icons:', err)
+    try {
+      const fallbackSources = await withTimeout(
+        desktopCapturer.getSources({
+          types: ['screen', 'window'],
+          thumbnailSize: { width: 320, height: 180 },
+          fetchWindowIcons: true,
+        }),
+        GET_SOURCES_TIMEOUT_MS,
+        'getSources(fallback)'
+      )
+      return fallbackSources.map((s) => toSourcePayload(s, true))
     } catch (fallbackErr) {
       console.error('[Electron] desktopCapturer.getSources completely failed:', fallbackErr)
       return []

@@ -135,6 +135,17 @@ export interface Player {
   isMuted?: boolean
   isCameraOff?: boolean
   isScreenSharing?: boolean
+  /**
+   * Per-player WebRTC zone-call lifecycle. Separate from `status` (which is
+   * user-presence "available/busy/..."). Tracks whether the audio/video
+   * handshake with this peer has finished negotiating ICE + codecs yet.
+   *
+   * - `idle`     : no zone call active (default, also used when player leaves zone)
+   * - `connecting` : zone call was created, ICE/codecs still negotiating
+   * - `connected` : at least one media track is flowing end-to-end
+   * - `failed`   : connection attempt gave up (timeout / ICE failed)
+   */
+  callState?: 'idle' | 'connecting' | 'connected' | 'failed'
 }
 
 export interface ReactionItem {

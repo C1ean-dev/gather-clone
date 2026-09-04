@@ -110,6 +110,13 @@ interface GameStore {
   removeRemotePlayer: (id: string) => void
   clearRemotePlayers: () => void
 
+  // Zone call connection state (per-peer, surfaced for the 'connecting' indicator).
+  // Stored separately from Player so React subscribers can avoid re-rendering on
+  // every move packet just because callState flipped.
+  callStates: Record<string, 'idle' | 'connecting' | 'connected' | 'failed'>
+  setCallState: (peerId: string, state: 'idle' | 'connecting' | 'connected' | 'failed') => void
+  clearCallStates: () => void
+
   // Session / Room State
   roomId: string | null
   isOwner: boolean
@@ -425,8 +432,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
         playerCount: 1,
       })
     }
-    set({ remotePlayers: {} })
+    set({ remotePlayers: {}, callStates: {} })
   },
+
+  callStates: {},
+  setCallState: (peerId, state) =>
+    set((store) => {
+      const prev = store.callStates[peerId]
+      // Idle is the default — don't store it, prevents infinite growth for
+      // peers we never called (e.g. everyone outside our zone).
+      if (state === 'idle') {
+        if (prev === undefined) return store
+        const next = { ...store.callStates }
+        delete next[peerId]
+        return { callStates: next }
+      }
+      if (prev === state) return store
+      return { callStates: { ...store.callStates, [peerId]: state } }
+    }),
+  clearCallStates: () => set({ callStates: {} }),
 
   roomId: null,
   isOwner: false,

@@ -8,8 +8,9 @@ import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { CustomAsset } from '../types/customAsset'
 import { PublicRoomsService } from '../services/publicRoomsService'
 import { processNetworkMessage } from './messageHandlers'
-import { MediaCallHandler } from './mediaCalls'
+import { MediaCallHandler, ICE_CONNECT_TIMEOUT_MS, SHARED_RTC_CONFIG } from './mediaCalls'
 import { prioritizeH264HardwareCodec } from '../media/hardwareCodec'
+import { DynamicBufferManager } from '../services/DynamicBufferManager'
 
 export class PeerManager {
   private static instance: PeerManager
@@ -25,7 +26,11 @@ export class PeerManager {
   private constructor() {
     if (typeof window !== 'undefined') {
       window.addEventListener('gather:live-buffer-changed', (e: any) => {
-        const ms = e.detail || 300
+        const ms = e.detail || MediaCallHandler.DEFAULT_LIVE_BUFFER_MS
+        // Legacy single-number slider event: apply ONLY to video; audio
+        // stays at its dynamic value. The DynamicBufferManager writes to
+        // liveBufferDelay frequently (every 1.5s) so this rarely fires
+        // unless the user touches the slider.
         MediaCallHandler.applyJitterBuffer(this.mediaCalls, ms)
       })
     }
@@ -72,12 +77,9 @@ export class PeerManager {
       let resolved = false
 
       this.peer = new Peer(hostPeerId, {
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' },
-          ],
-        },
+        // STUN + TURN fallback (see SHARED_RTC_CONFIG): without the TURN
+        // leg, symmetric-NAT users spin ICE for 10-20s ("delay").
+        config: SHARED_RTC_CONFIG,
       })
 
       this.peer.on('open', (id) => {
@@ -133,12 +135,8 @@ export class PeerManager {
       let fallbackTimer: any = null
 
       this.peer = new Peer(clientPeerId, {
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' },
-          ],
-        },
+        // STUN + TURN fallback (see SHARED_RTC_CONFIG).
+        config: SHARED_RTC_CONFIG,
       })
 
       const triggerAutoHost = async () => {
@@ -220,7 +218,18 @@ export class PeerManager {
       const isSharing = useMediaStore.getState().isScreenSharing
       const screenStream = useMediaStore.getState().localScreenStream
 
-      let streamToAnswer = localStream || new MediaStream()
+      // Answer WITH the real stream in the single PeerJS negotiation.
+      // (Never attach tracks directly on the pc afterwards — PeerJS ignores
+      // later `negotiationneeded`, so that would leave the caller with BLACK
+      // video. See MediaCallHandler.applyEncoderCaps.)
+      useGameStore.getState().setCallState(call.peer, 'connecting')
+
+      // Seed adaptive buffer for this brand-new connection so it starts
+      // at the floor and grows only if the network actually needs it.
+      DynamicBufferManager.getInstance().resetForNewCall()
+
+      let streamToAnswer: MediaStream
+
       if (isSharing && screenStream && screenStream.getVideoTracks()[0]) {
         const combined = new MediaStream()
         if (localStream) {
@@ -228,6 +237,10 @@ export class PeerManager {
         }
         screenStream.getVideoTracks().forEach((t) => combined.addTrack(t))
         streamToAnswer = combined
+      } else if (localStream) {
+        streamToAnswer = localStream
+      } else {
+        streamToAnswer = new MediaStream()
       }
 
       call.answer(streamToAnswer)
@@ -242,14 +255,22 @@ export class PeerManager {
         }
       }
 
-      // Configure receiver jitter buffer (video-smooth, voice capped at 200ms).
-      const applyBuffer = () => {
-        const delayMs = useMediaStore.getState().liveBufferDelay || 3000
-        MediaCallHandler.applyReceiverBuffer(pc, delayMs)
+      // Configure receiver jitter buffer. The DynamicBufferManager runs
+      // every 1.5s and will overwrite this with the optimal adaptive value
+      // — we just seed it with the floor here so the very first packet
+      // doesn't go through with a 5s+ legacy default. Audio is left
+      // undefined on purpose: applyReceiverBuffer then reads the adaptive
+      // engine's current audio value (1ms on a fresh call).
+      const applyBuffer = (audioMs?: number, videoMs?: number) => {
+        const v = videoMs ?? MediaCallHandler.DEFAULT_LIVE_BUFFER_MS
+        if (audioMs === undefined) {
+          MediaCallHandler.applyReceiverBuffer(pc, v)
+        } else {
+          MediaCallHandler.applyReceiverBuffer(pc, v, audioMs)
+        }
       }
 
       try {
-        const pc = (call as any).peerConnection as RTCPeerConnection
         if (pc && pc.addEventListener) {
           pc.addEventListener('track', () => {
             setTimeout(applyBuffer, 50)
@@ -257,17 +278,75 @@ export class PeerManager {
         }
       } catch (e) {}
 
+      let settled = false
+      let iceTimeout: any = null
+      const markConnected = (reason: string) => {
+        if (settled) return
+        settled = true
+        if (iceTimeout) {
+          clearTimeout(iceTimeout)
+          iceTimeout = null
+        }
+        console.log(`[P2P Media] Connected incoming call from ${call.peer} (${reason})`)
+        if (pc) MediaCallHandler.applyEncoderCaps(pc)
+        applyBuffer()
+        useGameStore.getState().setCallState(call.peer, 'connected')
+      }
+      const markFailed = (reason: string) => {
+        if (settled) return
+        settled = true
+        if (iceTimeout) {
+          clearTimeout(iceTimeout)
+          iceTimeout = null
+        }
+        console.warn(`[P2P Media] Incoming call from ${call.peer} failed (${reason})`)
+        useGameStore.getState().setCallState(call.peer, 'failed')
+      }
+
+      if (pc && pc.addEventListener) {
+        pc.addEventListener('iceconnectionstatechange', () => {
+          const s = pc.iceConnectionState
+          if (s === 'connected' || s === 'completed') {
+            markConnected('ice=' + s)
+          } else if (s === 'failed') {
+            markFailed('ice=failed')
+          }
+        })
+        pc.addEventListener('connectionstatechange', () => {
+          const s = pc.connectionState
+          if (s === 'connected') {
+            markConnected('pc=connected')
+          } else if (s === 'failed') {
+            markFailed('pc=failed')
+          }
+        })
+      }
+
+      // Late-race safety net only: settle 'connected' if the transport is
+      // provably up — never fake it.
+      iceTimeout = setTimeout(() => {
+        try {
+          const s = pc?.iceConnectionState
+          if (s === 'connected' || s === 'completed') markConnected('late-ice=' + s)
+        } catch (e) {}
+      }, ICE_CONNECT_TIMEOUT_MS)
+
       call.on('stream', (remoteStream) => {
         console.log('[P2P Media] Received remote stream from:', call.peer)
+        markConnected('remote-stream')
         applyBuffer()
         useMediaStore.getState().setPeerStream(call.peer, remoteStream)
       })
 
       call.on('close', () => {
+        if (iceTimeout) clearTimeout(iceTimeout)
+        useGameStore.getState().setCallState(call.peer, 'idle')
         useMediaStore.getState().removePeerStream(call.peer)
       })
 
       call.on('error', () => {
+        if (iceTimeout) clearTimeout(iceTimeout)
+        useGameStore.getState().setCallState(call.peer, 'failed')
         useMediaStore.getState().removePeerStream(call.peer)
       })
 
@@ -303,12 +382,34 @@ export class PeerManager {
         const customAssets = useCustomAssetsStore.getState().customAssets
         const customCategories = useCustomAssetsStore.getState().customCategories
         if (customAssets && customAssets.length > 0) {
-          this.sendToPeer(conn, {
-            type: 'CUSTOM_ASSETS_SYNC',
-            senderId: this.peer!.id,
-            payload: { customAssets, categories: customCategories },
-            timestamp: Date.now(),
-          })
+          // Chunked delivery: one giant CUSTOM_ASSETS_SYNC (MBs of dataURL
+          // pixel-art frames) saturates the host uplink for seconds and the
+          // resulting router bufferbloat delays LIVE audio/video for everyone
+          // mid-call. Batches of 8 assets every 120ms leave headroom for
+          // media. syncRemoteCustomAssets MERGES by id, so batches are
+          // protocol-compatible with receivers expecting a single message.
+          const ASSET_BATCH_SIZE = 8
+          const ASSET_BATCH_GAP_MS = 120
+          for (let i = 0; i < customAssets.length; i += ASSET_BATCH_SIZE) {
+            const batch = customAssets.slice(i, i + ASSET_BATCH_SIZE)
+            const isFirst = i === 0
+            const sendBatch = () => {
+              this.sendToPeer(conn, {
+                type: 'CUSTOM_ASSETS_SYNC',
+                senderId: this.peer!.id,
+                payload: { customAssets: batch, categories: isFirst ? customCategories : undefined },
+                timestamp: Date.now(),
+              })
+            }
+            if (isFirst) {
+              sendBatch()
+            } else {
+              setTimeout(() => {
+                // sendToPeer already no-ops on closed connections.
+                sendBatch()
+              }, (i / ASSET_BATCH_SIZE) * ASSET_BATCH_GAP_MS)
+            }
+          }
         }
 
         // Also broadcast newcomer to other peers
@@ -448,12 +549,8 @@ export class PeerManager {
 
     const hostPeerId = `gather-v2-${this.roomCode}-host`
     this.peer = new Peer(hostPeerId, {
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' },
-        ],
-      },
+      // STUN + TURN fallback (see SHARED_RTC_CONFIG).
+      config: SHARED_RTC_CONFIG,
     })
 
     this.peer.on('open', (id) => {
@@ -581,6 +678,19 @@ export class PeerManager {
       this.mediaCalls,
       (pid) => this.endMediaCallWithPeer(pid)
     )
+  }
+
+  /**
+   * Re-evaluate zone calls against every known remote player. Called when
+   * the local media stream becomes ready AFTER the data channel already
+   * delivered PLAYER_JOIN messages (parallel room-join path) — without this,
+   * calls that "should" exist are silently missed until someone moves zones.
+   */
+  public recheckZoneCalls() {
+    const remotePlayers = useGameStore.getState().remotePlayers
+    Object.values(remotePlayers).forEach((p) => {
+      this.checkZoneCallEligibility(p)
+    })
   }
 
   public endMediaCallWithPeer(peerId: string) {
@@ -770,8 +880,12 @@ export class PeerManager {
       this.peer = null
     }
 
+    // Reset adaptive buffer state so a future room join starts fresh.
+    DynamicBufferManager.getInstance().resetForNewCall()
+
     useGameStore.getState().setConnected(false)
     useGameStore.getState().clearRemotePlayers()
+    // clearRemotePlayers already clears callStates (defined in same set()).
     useMediaStore.getState().clearAllPeerStreams()
   }
 }

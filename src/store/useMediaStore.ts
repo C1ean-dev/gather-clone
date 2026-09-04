@@ -54,6 +54,9 @@ interface MediaStore {
   hasUserChosenProcessorMode: boolean
   screenShareAudioVolume: number // 0 to 100 (percentage, default 50)
   duckingEnabled: boolean // Auto-reduce screen sound when user talks
+  screenShareIsolateCallAudio: boolean // Isolate call audio: prevent remote peers' voices from leaking into screen share
+  screenShareTargetTitle: string | null // Name of target window/app being shared
+  screenShareAudioMode: 'app_only' | 'app_and_mic' // 'app_only' = pure app sound, 'app_and_mic' = app + user voice
 
   setSelectedAudioInput: (deviceId: string) => void
   setSelectedAudioOutput: (deviceId: string) => void
@@ -66,6 +69,9 @@ interface MediaStore {
   setAudioProcessorMode: (mode: AudioProcessorMode) => void
   setScreenShareAudioVolume: (vol: number) => void
   setDuckingEnabled: (enabled: boolean) => void
+  setScreenShareIsolateCallAudio: (enabled: boolean) => void
+  setScreenShareTargetTitle: (title: string | null) => void
+  setScreenShareAudioMode: (mode: 'app_only' | 'app_and_mic') => void
 
   // RNNoise engine lifecycle (surfaced so the UI can show ground truth —
   // previously a failed init was silent and the user got raw mic audio).
@@ -100,15 +106,25 @@ interface MediaStore {
   liveStreamVolume: number // shared persisted volume for live / screen share
   setLiveStreamVolume: (volume: number) => void
   liveBufferMode: 'dynamic' | 'manual'
-  liveBufferDelay: number // in ms, default 3000 (range: 200 to 5000, max 5s)
+  liveBufferDelay: number // in ms, legacy single-number mirror of the adaptive VIDEO buffer
   dynamicBufferMetrics: {
     calculatedMs: number
     jitterMs: number
     frameDropRate: number
     statusText: string
+    /** Adaptive AUDIO buffer in ms (independent from video). */
+    audioMs?: number
   }
   setLiveBufferMode: (mode: 'dynamic' | 'manual') => void
   setLiveBufferDelay: (ms: number) => void
+  /**
+   * Written by DynamicBufferManager every evaluation tick. Unlike
+   * setLiveBufferDelay it does NOT dispatch 'gather:live-buffer-changed'
+   * (the manager already applied both values straight to the peer
+   * connections) — dispatching would make PeerManager re-apply a
+   * video-only value and clobber the adaptive audio number.
+   */
+  setAdaptiveBuffers: (audioMs: number, videoMs: number, jitterMs: number, lossPct: number) => void
   setDynamicBufferMetrics: (
     metrics: Partial<{ calculatedMs: number; jitterMs: number; frameDropRate: number; statusText: string }>
   ) => void
@@ -197,6 +213,9 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   hasUserChosenProcessorMode: saved.hasUserChosenProcessorMode === true,
   screenShareAudioVolume: saved.screenShareAudioVolume !== undefined ? saved.screenShareAudioVolume : 50,
   duckingEnabled: saved.duckingEnabled !== undefined ? saved.duckingEnabled : true,
+  screenShareIsolateCallAudio: saved.screenShareIsolateCallAudio !== undefined ? saved.screenShareIsolateCallAudio : true,
+  screenShareTargetTitle: null,
+  screenShareAudioMode: saved.screenShareAudioMode === 'app_and_mic' ? 'app_and_mic' : 'app_only',
 
   // Per-device calibrations, persisted as a flat map.
   micCalibrations: (saved.micCalibrations as Record<string, MicCalibration>) || {},
@@ -261,6 +280,15 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   setDuckingEnabled: (duckingEnabled) => {
     saveAudioSettings({ duckingEnabled })
     set({ duckingEnabled })
+  },
+  setScreenShareIsolateCallAudio: (screenShareIsolateCallAudio) => {
+    saveAudioSettings({ screenShareIsolateCallAudio })
+    set({ screenShareIsolateCallAudio })
+  },
+  setScreenShareTargetTitle: (screenShareTargetTitle) => set({ screenShareTargetTitle }),
+  setScreenShareAudioMode: (screenShareAudioMode) => {
+    saveAudioSettings({ screenShareAudioMode })
+    set({ screenShareAudioMode })
   },
 
   setMicCalibration: (deviceId, cal) => {
@@ -360,12 +388,16 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   },
 
   liveBufferMode: (saved.liveBufferMode as any) || 'dynamic',
-  liveBufferDelay: typeof saved.liveBufferDelay === 'number' ? saved.liveBufferDelay : 3000,
+  // Default jitter buffer is 1ms. The DynamicBufferManager grows this
+  // every 1.5s based on real RTCStats — a clean LAN stays at 1ms,
+  // a jittery link grows to whatever's needed. Hard-coding anything
+  // higher here was the source of the user-reported voice lag.
+  liveBufferDelay: typeof saved.liveBufferDelay === 'number' ? saved.liveBufferDelay : 1,
   dynamicBufferMetrics: {
-    calculatedMs: typeof saved.liveBufferDelay === 'number' ? saved.liveBufferDelay : 3000,
+    calculatedMs: typeof saved.liveBufferDelay === 'number' ? saved.liveBufferDelay : 1,
     jitterMs: 0,
     frameDropRate: 0,
-    statusText: 'Buffer Dinâmico Ativo',
+    statusText: 'Calibrando…',
   },
 
   setLiveBufferMode: (mode) => {
@@ -374,13 +406,50 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   },
 
   setLiveBufferDelay: (ms) => {
-    const clamped = Math.max(200, Math.min(5000, Math.round(ms)))
+    // Range now matches DynamicBufferManager: 1ms floor (true minimum),
+    // 1500ms ceiling (was 5s — tightened because real WebRTC never needs
+    // more than ~1s to absorb 99th-percentile home-network jitter).
+    // NOTE: this is the USER-SLIDER path — it dispatches an event so
+    // PeerManager re-applies the value to live calls. The adaptive engine
+    // uses setAdaptiveBuffers instead (no event, no clobber).
+    const clamped = Math.max(1, Math.min(1500, Math.round(ms)))
     saveAudioSettings({ liveBufferDelay: clamped })
     set({ liveBufferDelay: clamped })
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('gather:live-buffer-changed', { detail: clamped }))
     }
   },
+
+  setAdaptiveBuffers: (audioMs, videoMs, jitterMs, lossPct) =>
+    set((state) => {
+      const v = Math.max(1, Math.min(1500, Math.round(videoMs)))
+      const a = Math.max(1, Math.min(500, Math.round(audioMs)))
+      const prev = state.dynamicBufferMetrics
+      const nextMetrics = {
+        calculatedMs: v,
+        jitterMs: Math.round(jitterMs),
+        frameDropRate: Math.round(lossPct),
+        statusText: `Dinâmico · áudio ${a}ms · vídeo ${v}ms`,
+        audioMs: a,
+      }
+      // Persist the video mirror (slider reads it on reload) without
+      // dispatching the live-buffer event — the manager applied both
+      // values directly to the peer connections already.
+      if (state.liveBufferDelay !== v) {
+        saveAudioSettings({ liveBufferDelay: v })
+      }
+      if (
+        state.liveBufferDelay === v &&
+        prev.calculatedMs === nextMetrics.calculatedMs &&
+        prev.jitterMs === nextMetrics.jitterMs &&
+        prev.frameDropRate === nextMetrics.frameDropRate &&
+        prev.statusText === nextMetrics.statusText &&
+        (prev as any).audioMs === nextMetrics.audioMs
+      ) {
+        return state
+      }
+      return { liveBufferDelay: v, dynamicBufferMetrics: nextMetrics }
+    }),
 
   setDynamicBufferMetrics: (metrics) =>
     set((state) => {
