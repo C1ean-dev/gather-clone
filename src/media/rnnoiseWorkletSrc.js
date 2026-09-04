@@ -80,6 +80,7 @@ class RnnoiseWorkletProcessor extends AudioWorkletProcessor {
     try {
       // Factory comes from the Emscripten glue prepended in the Blob.
       const factory =
+        (typeof globalThis !== 'undefined' && globalThis.createRNNWasmModule) ||
         (typeof self !== 'undefined' && self.createRNNWasmModule) ||
         (typeof createRNNWasmModule !== 'undefined' ? createRNNWasmModule : null)
       if (typeof factory !== 'function') {
@@ -230,9 +231,9 @@ class RnnoiseWorkletProcessor extends AudioWorkletProcessor {
   }
 }
 
-// NOTE: registered WITHOUT try/catch on purpose — if registration ever
-// fails, audioWorklet.addModule must reject with the reason instead of
-// resolving into a scope where the node name is undefined (silent fallback).
-// The main thread injects a unique processor name per Blob (see
-// RnnoiseProcessor), so legitimate double-registration cannot happen.
-registerProcessor('rnnoise-worklet', RnnoiseWorkletProcessor)
+try {
+  registerProcessor('rnnoise-worklet', RnnoiseWorkletProcessor)
+} catch (regErr) {
+  console.error('[rnnoise-worklet] registerProcessor failed:', regErr)
+  throw regErr
+}

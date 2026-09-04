@@ -37,16 +37,22 @@ function buildWorkletModule(procName: string): {
   procName: string
   debug: string
 } {
-  const shim = `if (typeof location === 'undefined') { self.location = { href: 'rnnoise-worklet:' }; }\n`
+  const shim = `var globalScope = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this);\n` +
+    `try { if (typeof globalScope.self === 'undefined') globalScope.self = globalScope; } catch (e) {}\n` +
+    `var self = globalScope;\n` +
+    `try { if (typeof globalScope.location === 'undefined') globalScope.location = { href: 'rnnoise-worklet:' }; } catch (e) {}\n` +
+    `try { if (typeof globalScope.setTimeout === 'undefined') { globalScope.setTimeout = function(fn) { try { fn(); } catch (e) {} return 0; }; globalScope.clearTimeout = function() {}; } } catch (e) {}\n` +
+    `try { if (typeof globalScope.setInterval === 'undefined') { globalScope.setInterval = function() { return 0; }; globalScope.clearInterval = function() {}; } } catch (e) {}\n`
   // The glue ships as an ES module (`export default ...` tail) but worklets
-  // are classic scripts: strip the export, the top-level `var` leaks to the
-  // worklet global where the processor reads it.
+  // evaluate as module scripts: strip the export, and expose createRNNWasmModule
+  // on globalScope and in module scope.
   const classicGlue = rnnoiseGlueSrc.replace(/export\s+default\s+createRNNWasmModule\s*;?\s*$/, '')
+  const exposeGlue = `\ntry { globalScope.createRNNWasmModule = createRNNWasmModule; } catch (e) {}\n`
   const namespacedSrc = workletSrc.replace(
     `registerProcessor('rnnoise-worklet'`,
     `registerProcessor('${procName}'`
   )
-  const blob = new Blob([shim, classicGlue, '\n;\n', namespacedSrc], {
+  const blob = new Blob([shim, classicGlue, exposeGlue, '\n;\n', namespacedSrc], {
     type: 'application/javascript',
   })
   // Composition fingerprint: if a ?raw import ever resolves empty at
