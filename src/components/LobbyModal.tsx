@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { DoorOpen, Globe, LayoutGrid } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
@@ -10,6 +10,7 @@ import { createEmptyWorkspace } from '../editor/templates'
 import { PublicRoomsService } from '../services/publicRoomsService'
 import { PublicRoomInfo, Player } from '../types/game'
 import { SavedSpace } from '../store/useSavedSpacesStore'
+import { diagLog } from '../utils/diagnosticLogger'
 import { DirectConnectTab } from './lobby/DirectConnectTab'
 import { PublicRoomsTab } from './lobby/PublicRoomsTab'
 import { SavedSpacesTab } from './lobby/SavedSpacesTab'
@@ -64,6 +65,12 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
   const [searchQuery, setSearchQuery] = useState('')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [copiedRoomCode, setCopiedRoomCode] = useState<string | null>(null)
+
+  // Re-entry guard: the saved-space card fires handleEnterSavedSpace on
+  // double-click while the Entrar button only disables via `loading` state —
+  // two concurrent runs create TWO host peers with the same id and destroy
+  // each other ("entrar não vai"). One entry at a time, always.
+  const enterInFlight = useRef(false)
 
   useEffect(() => {
     if (activeTab === 'available_rooms') {
@@ -121,6 +128,8 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       setActiveTab('connect')
       return
     }
+    if (enterInFlight.current) return
+    enterInFlight.current = true
 
     setLoading(true)
     setError(null)
@@ -142,6 +151,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       console.error(err)
       setError(`Não foi possível conectar à sala "${room.name}". O host pode ter fechado o app.`)
     } finally {
+      enterInFlight.current = false
       setLoading(false)
     }
   }
@@ -152,6 +162,8 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       setError('Por favor, informe seu nickname.')
       return
     }
+    if (enterInFlight.current) return
+    enterInFlight.current = true
 
     setLoading(true)
     setError(null)
@@ -240,6 +252,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       console.error(err)
       setError('Não foi possível conectar. Verifique o código da sala e tente novamente.')
     } finally {
+      enterInFlight.current = false
       setLoading(false)
     }
   }
@@ -250,16 +263,26 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
       setActiveTab('connect')
       return
     }
+    // The card double-click bypasses the disabled Entrar button — without
+    // this, two runs race creating the same host peer id.
+    if (enterInFlight.current) return
+    enterInFlight.current = true
 
     const spaceId = targetSpaceId || selectedSpaceId
     const targetSpace = savedSpaces.find((s) => s.id === spaceId) || savedSpaces[0]
     if (!targetSpace) {
+      enterInFlight.current = false
       setError('Nenhum espaço salvo encontrado.')
       return
     }
 
     setLoading(true)
     setError(null)
+    diagLog('room', 'enter-begin', {
+      spaceId: targetSpace.id,
+      spaceName: targetSpace.name,
+      hasCode: !!targetSpace.roomCode,
+    })
 
     try {
       useMapStore.getState().setMapData(targetSpace.mapData)
@@ -307,10 +330,16 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
         ),
       ])
       onJoined()
+      diagLog('room', 'enter-ok', { spaceId: targetSpace.id })
     } catch (err: any) {
       console.error(err)
+      diagLog('room', 'enter-fail', {
+        spaceId: targetSpace.id,
+        error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      })
       setError('Não foi possível carregar o espaço.')
     } finally {
+      enterInFlight.current = false
       setLoading(false)
     }
   }

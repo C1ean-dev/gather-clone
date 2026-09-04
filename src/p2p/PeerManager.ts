@@ -79,10 +79,16 @@ export class PeerManager {
       let resolved = false
       let hostTimeout: any = null
 
+      diagLog('room', 'create-begin', { roomCode: this.roomCode, hostPeerId })
+
       hostTimeout = setTimeout(() => {
         if (!resolved) {
           resolved = true
           console.warn(`[P2P Host] Host registration timeout (${hostPeerId})`)
+          diagLog('room', 'create-timeout', { roomCode: this.roomCode, hostPeerId })
+          // Never destroy a NEWER run's peer: a stale timeout must not kill
+          // a session that already replaced this one (fast room switching).
+          if (this.peer !== myPeer) return
           try {
             if (this.peer) {
               this.peer.destroy()
@@ -100,17 +106,26 @@ export class PeerManager {
         }
       }, 7000)
 
-      this.peer = new Peer(hostPeerId, {
+      const myPeer = new Peer(hostPeerId, {
         // STUN + TURN fallback (see SHARED_RTC_CONFIG): without the TURN
         // leg, symmetric-NAT users spin ICE for 10-20s ("delay").
         config: SHARED_RTC_CONFIG,
       })
+      this.peer = myPeer
 
       this.peer.on('open', (id) => {
         if (resolved) return
+        // Stale open (a newer run replaced this peer): quietly drop it.
+        if (this.peer !== myPeer) {
+          try {
+            myPeer.destroy()
+          } catch {}
+          return
+        }
         resolved = true
         if (hostTimeout) clearTimeout(hostTimeout)
         console.log('[P2P] Room created with Host ID:', id)
+        diagLog('room', 'create-open', { roomCode: this.roomCode, hostPeerId: id })
         useGameStore.getState().setRoomSession(this.roomCode!, true, options)
         useGameStore.getState().setConnected(true)
         this.setupPeerListeners()
@@ -120,8 +135,15 @@ export class PeerManager {
 
       this.peer.on('error', async (err: any) => {
         if (resolved) return
+        // Stale error from a replaced peer: ignore entirely.
+        if (this.peer !== myPeer) return
         if (hostTimeout) clearTimeout(hostTimeout)
         console.warn('[P2P] Error hosting room, checking fallback:', err)
+        diagLog('room', 'create-error', {
+          roomCode: this.roomCode,
+          type: err?.type || null,
+          message: String(err?.message || err || '').slice(0, 160),
+        })
 
         // If ID is already taken or unavailable (e.g. active room already hosted or lingering session)
         if (
@@ -178,12 +200,17 @@ export class PeerManager {
       let fallbackTimer: any = null
       let joinTimeout: any = null
 
+      diagLog('room', 'join-begin', { roomCode: this.roomCode, clientPeerId })
+
       const triggerAutoHost = async () => {
         if (isResolved) return
+        // Stale run (a newer session replaced this peer): stay out of the way.
+        if (this.peer !== myPeer) return
         isResolved = true
         if (fallbackTimer) clearTimeout(fallbackTimer)
         if (joinTimeout) clearTimeout(joinTimeout)
         console.log(`[P2P Join] Host ${hostPeerId} is offline or unavailable. Auto-hosting space ${this.roomCode}...`)
+        diagLog('room', 'join-autohost', { roomCode: this.roomCode })
 
         try {
           if (this.peer) {
@@ -215,17 +242,21 @@ export class PeerManager {
       joinTimeout = setTimeout(() => {
         if (!isResolved) {
           console.warn(`[P2P Join] Overall connection timeout for room ${this.roomCode}`)
+          diagLog('room', 'join-timeout-autohost', { roomCode: this.roomCode })
           triggerAutoHost()
         }
       }, 7500)
 
-      this.peer = new Peer(clientPeerId, {
+      const myPeer = new Peer(clientPeerId, {
         // STUN + TURN fallback (see SHARED_RTC_CONFIG).
         config: SHARED_RTC_CONFIG,
       })
+      this.peer = myPeer
 
       this.peer.on('open', (id) => {
         console.log('[P2P] Joined peer network with ID:', id)
+        if (isResolved || this.peer !== myPeer) return
+        diagLog('room', 'join-open', { roomCode: this.roomCode, clientPeerId: id })
         useGameStore.getState().setRoomSession(this.roomCode!, false)
         useGameStore.getState().setConnected(true)
         this.setupPeerListeners()
@@ -249,6 +280,7 @@ export class PeerManager {
             if (fallbackTimer) clearTimeout(fallbackTimer)
             if (joinTimeout) clearTimeout(joinTimeout)
             isResolved = true
+            diagLog('room', 'join-host-open', { roomCode: this.roomCode })
             resolve()
           }
         })
@@ -273,6 +305,13 @@ export class PeerManager {
       this.peer.on('error', (err: any) => {
         console.warn('[P2P] Peer network warning/error:', err)
         if (!isResolved) {
+          // Stale error from a replaced peer: ignore entirely.
+          if (this.peer !== myPeer) return
+          diagLog('room', 'join-error', {
+            roomCode: this.roomCode,
+            type: err?.type || null,
+            message: String(err?.message || err || '').slice(0, 160),
+          })
           if (
             err?.type === 'peer-unavailable' ||
             err?.message?.includes('Could not connect to peer') ||
