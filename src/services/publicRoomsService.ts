@@ -33,8 +33,35 @@ export class PublicRoomsService {
   private constructor() {
     this.initLocalStorageCache()
     this.initBroadcastChannel()
+    this.initNetworkListeners()
     this.initWebSocketRelay()
     this.startPruneInterval()
+  }
+
+  private initNetworkListeners() {
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('online', () => {
+        console.log('[PublicRoomsHub] Network change detected: ONLINE. Reconnecting relay...')
+        if (this.ws) {
+          try {
+            this.ws.close()
+          } catch (e) {}
+          this.ws = null
+        }
+        this.initWebSocketRelay(true)
+      })
+
+      window.addEventListener('offline', () => {
+        console.log('[PublicRoomsHub] Network change detected: OFFLINE.')
+        this.setBrokerStatus('disconnected')
+        if (this.ws) {
+          try {
+            this.ws.close()
+          } catch (e) {}
+          this.ws = null
+        }
+      })
+    }
   }
 
   public static getInstance(): PublicRoomsService {
@@ -122,6 +149,18 @@ export class PublicRoomsService {
    * 3. Public WebSockets Relay for Internet P2P discovery
    */
   private initWebSocketRelay(force: boolean = false) {
+    if (force && this.ws) {
+      try {
+        this.ws.close()
+      } catch (e) {}
+      this.ws = null
+      this.isConnectedToRelay = false
+    }
+
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return
+    }
+
     const relayUrls = [
       'wss://broker.emqx.io:8084/mqtt',
       'wss://broker.hivemq.com:8884/mqtt',

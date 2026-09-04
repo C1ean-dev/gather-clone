@@ -440,6 +440,64 @@ function getDataDirectory(): string {
   return userDataDir
 }
 
+// 4b. Diagnostic call logs: renderer ships JSONL batches here; main appends
+// to logs/call-debug-<date>.log (rotated at ~5MB, keeps 3 files).
+function getLogsDirectory(): string {
+  const base = path.join(process.cwd(), 'src')
+  const dir = fs.existsSync(base)
+    ? path.join(process.cwd(), 'logs')
+    : path.join(app.getPath('userData'), 'logs')
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+  return dir
+}
+
+function rotateDiagLog(filePath: string, maxBytes: number = 5 * 1024 * 1024, keep: number = 3) {
+  try {
+    if (!fs.existsSync(filePath)) return
+    if (fs.statSync(filePath).size < maxBytes) return
+    for (let i = keep - 1; i >= 1; i--) {
+      const older = `${filePath}.${i}`
+      const newer = `${filePath}.${i + 1}`
+      if (fs.existsSync(older)) {
+        if (i + 1 > keep) fs.unlinkSync(older)
+        else fs.renameSync(older, newer)
+      }
+    }
+    fs.renameSync(filePath, `${filePath}.1`)
+  } catch (err) {
+    console.warn('[DiagLog] rotation failed:', err)
+  }
+}
+
+ipcMain.handle('diagnostic-log-batch', async (_event, entries: unknown[]) => {
+  try {
+    if (!Array.isArray(entries) || entries.length === 0) return { ok: true, path: null as string | null }
+    const dir = getLogsDirectory()
+    const day = new Date().toISOString().slice(0, 10)
+    const filePath = path.join(dir, `call-debug-${day}.log`)
+    rotateDiagLog(filePath)
+    const lines = entries.map((e) => (typeof e === 'string' ? e : JSON.stringify(e))).join('\n') + '\n'
+    fs.appendFileSync(filePath, lines, 'utf-8')
+    return { ok: true, path: filePath }
+  } catch (err) {
+    console.error('[DiagLog] append failed:', err)
+    return { ok: false, path: null as string | null }
+  }
+})
+
+ipcMain.handle('open-logs-folder', async () => {
+  try {
+    const dir = getLogsDirectory()
+    await shell.openPath(dir)
+    return dir
+  } catch (err) {
+    console.error('[DiagLog] open folder failed:', err)
+    return null
+  }
+})
+
 // 5. IPC handlers to save and load native project assets
 ipcMain.handle('save-native-assets', async (_event, data: { categories: string[]; assets: any[] }) => {
   try {

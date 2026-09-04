@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import { Radio, MicOff, Maximize, Pin, Maximize2, Volume2, Volume1, VolumeX } from 'lucide-react'
 import { useMediaStore } from '../../store/useMediaStore'
+import { diagLog, summarizeStream } from '../../utils/diagnosticLogger'
 
 export interface ParticipantData {
   id: string
@@ -77,9 +78,24 @@ export const GridParticipantTile: React.FC<Props> = ({
     // DSP-processed voice ~30-80ms late ("delay"/echo na chamada).
     video.muted = !!user.isLocal
     video.srcObject = activeStream
+    diagLog('tile', 'attach', {
+      tile: 'grid',
+      peer: user.id,
+      isLocal: !!user.isLocal,
+      isLive,
+      tracks: summarizeStream(activeStream),
+    })
     const playPromise = video.play()
     if (playPromise !== undefined) {
-      playPromise.catch(() => {})
+      playPromise.then(
+        () => diagLog('tile', 'play-ok', { tile: 'grid', peer: user.id }),
+        (err) =>
+          diagLog('tile', 'play-failed', {
+            tile: 'grid',
+            peer: user.id,
+            error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+          })
+      )
     }
 
     const handleTrackEvent = () => {

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { X, Sliders, Zap, Mic, Sparkles, CheckCircle2 } from 'lucide-react'
+import { X, Sliders, Zap, Mic, Sparkles, CheckCircle2, Download } from 'lucide-react'
 import { useMediaStore } from '../store/useMediaStore'
 import { MediaManager } from '../media/MediaManager'
+import { exportDiagLogs } from '../utils/diagnosticLogger'
 import { AudioDeviceInfo } from '../types/audio'
 import { GraphicsSettingsTab } from './settings/GraphicsSettingsTab'
 import { AudioDevicesTab } from './settings/AudioDevicesTab'
@@ -18,6 +19,7 @@ export const AudioSettingsModal: React.FC = () => {
   const [outputDevices, setOutputDevices] = useState<AudioDeviceInfo[]>([])
   const [activeTab, setActiveTab] = useState<'graphics' | 'devices' | 'advanced'>('graphics')
   const [isPlayingTestSound, setIsPlayingTestSound] = useState(false)
+  const [logsExported, setLogsExported] = useState(false)
 
   // Enumerate all media devices
   const refreshDevices = async () => {
@@ -157,10 +159,24 @@ export const AudioSettingsModal: React.FC = () => {
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 border-t border-[#2a3142] bg-[#12151d]/90 flex items-center justify-between">
-          <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Configurações salvas automaticamente no seu dispositivo</span>
+        <div className="p-4 border-t border-[#2a3142] bg-[#12151d]/90 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Configurações salvas automaticamente no seu dispositivo</span>
+            </div>
+            <button
+              onClick={async () => {
+                await exportDiagLogs()
+                setLogsExported(true)
+                setTimeout(() => setLogsExported(false), 3000)
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold transition-all"
+              title="Gera o arquivo de diagnóstico da chamada (pasta logs) para enviar ao suporte"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{logsExported ? 'Pasta de logs aberta!' : 'Exportar logs da chamada'}</span>
+            </button>
           </div>
 
           <button

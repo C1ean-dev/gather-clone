@@ -4,6 +4,7 @@ import { useGameStore } from '../store/useGameStore'
 import { useMediaStore } from '../store/useMediaStore'
 import { prioritizeH264HardwareCodec } from '../media/hardwareCodec'
 import { DynamicBufferManager } from '../services/DynamicBufferManager'
+import { diagLog, summarizeStream } from '../utils/diagnosticLogger'
 
 /**
  * ICE candidate pool — pre-gathered candidates before the call is established.
@@ -242,9 +243,16 @@ export class MediaCallHandler {
 
         // Dial WITH the real stream — single negotiation, fully PeerJS-driven.
         const streamToSend = MediaCallHandler.buildOutboundStream()
+        diagLog('p2p', 'call.dial', {
+          toPeer: remotePlayer.id,
+          toName: remotePlayer.name,
+          zone: localPlayer.currentZoneId,
+          tracks: summarizeStream(streamToSend),
+        })
         const call = peer.call(remotePlayer.id, streamToSend)
         if (!call) {
           useGameStore.getState().setCallState(remotePlayer.id, 'failed')
+          diagLog('p2p', 'call.dial-nocall', { toPeer: remotePlayer.id })
           return
         }
 
@@ -298,6 +306,7 @@ export class MediaCallHandler {
             iceTimeout = null
           }
           console.log(`[Zone Call] Connected with ${remotePlayer.name} (${reason})`)
+          diagLog('p2p', 'call.outgoing-connected', { withPeer: remotePlayer.id, reason })
           if (pc) MediaCallHandler.applyEncoderCaps(pc)
           applyBuffer()
           useGameStore.getState().setCallState(remotePlayer.id, 'connected')
@@ -311,6 +320,11 @@ export class MediaCallHandler {
             iceTimeout = null
           }
           console.warn(`[Zone Call] Failed with ${remotePlayer.name} (${reason})`)
+          diagLog('p2p', 'call.outgoing-failed', {
+            withPeer: remotePlayer.id,
+            reason,
+            iceState: (pc as RTCPeerConnection | null)?.iceConnectionState,
+          })
           useGameStore.getState().setCallState(remotePlayer.id, 'failed')
         }
 
@@ -347,23 +361,39 @@ export class MediaCallHandler {
           // First remote track = media provably flowing end-to-end.
           markConnected('remote-stream')
           applyBuffer()
+          diagLog('p2p', 'call.remote-stream', {
+            fromPeer: remotePlayer.id,
+            tracks: summarizeStream(remoteStream),
+          })
           useMediaStore.getState().setPeerStream(remotePlayer.id, remoteStream)
         })
         call.on('close', () => {
           if (iceTimeout) clearTimeout(iceTimeout)
           useGameStore.getState().setCallState(remotePlayer.id, 'idle')
+          diagLog('p2p', 'call.closed', { withPeer: remotePlayer.id })
           useMediaStore.getState().removePeerStream(remotePlayer.id)
         })
         call.on('error', () => {
           if (iceTimeout) clearTimeout(iceTimeout)
           useGameStore.getState().setCallState(remotePlayer.id, 'failed')
+          diagLog('p2p', 'call.error', { withPeer: remotePlayer.id })
           useMediaStore.getState().removePeerStream(remotePlayer.id)
         })
         mediaCalls.set(remotePlayer.id, call)
+      } else if (!existingCall) {
+        // Same zone, should be calling, but can't: no peer yet or no local
+        // media. This silent skip is a classic "nobody hears nobody" cause.
+        diagLog('p2p', 'call.dial-skipped', {
+          withPeer: remotePlayer.id,
+          hasPeer: !!peer,
+          hasLocalStream: !!localStream,
+          localTracks: summarizeStream(localStream),
+        })
       }
     } else {
       if (existingCall) {
         console.log(`[Zone Call] Leaving zone with ${remotePlayer.name}, terminating media call`)
+        diagLog('p2p', 'call.terminated-left-zone', { withPeer: remotePlayer.id })
         useGameStore.getState().setCallState(remotePlayer.id, 'idle')
         endMediaCallWithPeer(remotePlayer.id)
       }

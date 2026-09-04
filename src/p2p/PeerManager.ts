@@ -11,6 +11,7 @@ import { processNetworkMessage } from './messageHandlers'
 import { MediaCallHandler, ICE_CONNECT_TIMEOUT_MS, SHARED_RTC_CONFIG } from './mediaCalls'
 import { prioritizeH264HardwareCodec } from '../media/hardwareCodec'
 import { DynamicBufferManager } from '../services/DynamicBufferManager'
+import { diagLog, summarizeStream } from '../utils/diagnosticLogger'
 
 export class PeerManager {
   private static instance: PeerManager
@@ -59,9 +60,10 @@ export class PeerManager {
       isPublic?: boolean
       maxPlayers?: number
       color?: string
-    }
+    },
+    retryCount: number = 0
   ): Promise<string> {
-    this.roomCode = roomCode.toUpperCase()
+    this.roomCode = roomCode.trim().toUpperCase()
     this.isHost = true
     const hostPeerId = `gather-v2-${this.roomCode}-host`
 
@@ -75,6 +77,28 @@ export class PeerManager {
 
     return new Promise((resolve, reject) => {
       let resolved = false
+      let hostTimeout: any = null
+
+      hostTimeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true
+          console.warn(`[P2P Host] Host registration timeout (${hostPeerId})`)
+          try {
+            if (this.peer) {
+              this.peer.destroy()
+              this.peer = null
+            }
+          } catch (e) {}
+          if (retryCount === 0) {
+            console.log('[P2P Host] Host registration timed out, attempting to join as client...')
+            this.joinRoom(this.roomCode!, localPlayer, retryCount + 1)
+              .then(() => resolve(this.roomCode!))
+              .catch((err) => reject(err))
+          } else {
+            reject(new Error('Tempo limite de conexão excedido ao registrar o espaço no servidor P2P.'))
+          }
+        }
+      }, 7000)
 
       this.peer = new Peer(hostPeerId, {
         // STUN + TURN fallback (see SHARED_RTC_CONFIG): without the TURN
@@ -85,6 +109,7 @@ export class PeerManager {
       this.peer.on('open', (id) => {
         if (resolved) return
         resolved = true
+        if (hostTimeout) clearTimeout(hostTimeout)
         console.log('[P2P] Room created with Host ID:', id)
         useGameStore.getState().setRoomSession(this.roomCode!, true, options)
         useGameStore.getState().setConnected(true)
@@ -95,10 +120,14 @@ export class PeerManager {
 
       this.peer.on('error', async (err: any) => {
         if (resolved) return
+        if (hostTimeout) clearTimeout(hostTimeout)
         console.warn('[P2P] Error hosting room, checking fallback:', err)
 
         // If ID is already taken or unavailable (e.g. active room already hosted or lingering session)
-        if (err?.type === 'unavailable-id' || err?.message?.includes('is taken') || err?.type === 'server-error') {
+        if (
+          (err?.type === 'unavailable-id' || err?.message?.includes('is taken') || err?.type === 'server-error') &&
+          retryCount === 0
+        ) {
           resolved = true
           console.log('[P2P] Host ID already registered. Joining as client to active room...')
           try {
@@ -108,13 +137,19 @@ export class PeerManager {
               } catch (e) {}
               this.peer = null
             }
-            await this.joinRoom(this.roomCode!, localPlayer)
+            await this.joinRoom(this.roomCode!, localPlayer, retryCount + 1)
             resolve(this.roomCode!)
           } catch (joinErr) {
             reject(joinErr)
           }
         } else {
           resolved = true
+          try {
+            if (this.peer) {
+              this.peer.destroy()
+              this.peer = null
+            }
+          } catch (e) {}
           reject(err)
         }
       })
@@ -124,25 +159,30 @@ export class PeerManager {
   /**
    * Join an existing Room (with Smart Auto-Host Fallback if unhosted)
    */
-  public async joinRoom(roomCode: string, localPlayer: Player): Promise<void> {
-    this.roomCode = roomCode.toUpperCase()
+  public async joinRoom(roomCode: string, localPlayer: Player, retryCount: number = 0): Promise<void> {
+    this.roomCode = roomCode.trim().toUpperCase()
     this.isHost = false
     const clientPeerId = `gather-v2-${this.roomCode}-peer-${Math.random().toString(36).substring(2, 7)}`
     const hostPeerId = `gather-v2-${this.roomCode}-host`
 
+    // Clean up any stale peer connection first
+    if (this.peer) {
+      try {
+        this.peer.destroy()
+      } catch (e) {}
+      this.peer = null
+    }
+
     return new Promise((resolve, reject) => {
       let isResolved = false
       let fallbackTimer: any = null
-
-      this.peer = new Peer(clientPeerId, {
-        // STUN + TURN fallback (see SHARED_RTC_CONFIG).
-        config: SHARED_RTC_CONFIG,
-      })
+      let joinTimeout: any = null
 
       const triggerAutoHost = async () => {
         if (isResolved) return
         isResolved = true
         if (fallbackTimer) clearTimeout(fallbackTimer)
+        if (joinTimeout) clearTimeout(joinTimeout)
         console.log(`[P2P Join] Host ${hostPeerId} is offline or unavailable. Auto-hosting space ${this.roomCode}...`)
 
         try {
@@ -152,16 +192,37 @@ export class PeerManager {
             } catch (e) {}
             this.peer = null
           }
-          await this.createRoom(this.roomCode!, localPlayer, {
-            roomName: `Espaço ${this.roomCode}`,
-            isPublic: false,
-          })
-          resolve()
+          if (retryCount === 0) {
+            await this.createRoom(
+              this.roomCode!,
+              localPlayer,
+              {
+                roomName: `Espaço ${this.roomCode}`,
+                isPublic: false,
+              },
+              retryCount + 1
+            )
+            resolve()
+          } else {
+            reject(new Error(`Host da sala ${this.roomCode} não respondeu.`))
+          }
         } catch (err) {
           console.error('[P2P AutoHost] Error promoting to host:', err)
           reject(err)
         }
       }
+
+      joinTimeout = setTimeout(() => {
+        if (!isResolved) {
+          console.warn(`[P2P Join] Overall connection timeout for room ${this.roomCode}`)
+          triggerAutoHost()
+        }
+      }, 7500)
+
+      this.peer = new Peer(clientPeerId, {
+        // STUN + TURN fallback (see SHARED_RTC_CONFIG).
+        config: SHARED_RTC_CONFIG,
+      })
 
       this.peer.on('open', (id) => {
         console.log('[P2P] Joined peer network with ID:', id)
@@ -186,8 +247,23 @@ export class PeerManager {
         conn.on('open', () => {
           if (!isResolved) {
             if (fallbackTimer) clearTimeout(fallbackTimer)
+            if (joinTimeout) clearTimeout(joinTimeout)
             isResolved = true
             resolve()
+          }
+        })
+
+        conn.on('error', (connErr) => {
+          console.warn('[P2P Data] Failed to connect to host:', connErr)
+          if (!isResolved) {
+            triggerAutoHost()
+          }
+        })
+
+        conn.on('close', () => {
+          if (!isResolved) {
+            console.warn('[P2P Data] Host connection closed before open')
+            triggerAutoHost()
           }
         })
 
@@ -196,8 +272,26 @@ export class PeerManager {
 
       this.peer.on('error', (err: any) => {
         console.warn('[P2P] Peer network warning/error:', err)
-        if (!isResolved && (err?.type === 'peer-unavailable' || err?.message?.includes('Could not connect to peer'))) {
-          triggerAutoHost()
+        if (!isResolved) {
+          if (
+            err?.type === 'peer-unavailable' ||
+            err?.message?.includes('Could not connect to peer') ||
+            err?.type === 'unavailable-id' ||
+            err?.type === 'server-error'
+          ) {
+            triggerAutoHost()
+          } else {
+            isResolved = true
+            if (fallbackTimer) clearTimeout(fallbackTimer)
+            if (joinTimeout) clearTimeout(joinTimeout)
+            try {
+              if (this.peer) {
+                this.peer.destroy()
+                this.peer = null
+              }
+            } catch (e) {}
+            reject(new Error(`Falha de conexão P2P: ${err?.type || err?.message || 'erro de rede'}`))
+          }
         }
       })
     })
@@ -241,8 +335,14 @@ export class PeerManager {
         streamToAnswer = localStream
       } else {
         streamToAnswer = new MediaStream()
+        diagLog('p2p', 'call.answer-empty-no-local-stream', { fromPeer: call.peer })
       }
 
+      diagLog('p2p', 'call.answer', {
+        fromPeer: call.peer,
+        sharing: isSharing,
+        tracks: summarizeStream(streamToAnswer),
+      })
       call.answer(streamToAnswer)
 
       const pc = (call as any).peerConnection as RTCPeerConnection
@@ -288,6 +388,7 @@ export class PeerManager {
           iceTimeout = null
         }
         console.log(`[P2P Media] Connected incoming call from ${call.peer} (${reason})`)
+        diagLog('p2p', 'call.incoming-connected', { fromPeer: call.peer, reason })
         if (pc) MediaCallHandler.applyEncoderCaps(pc)
         applyBuffer()
         useGameStore.getState().setCallState(call.peer, 'connected')
@@ -300,6 +401,11 @@ export class PeerManager {
           iceTimeout = null
         }
         console.warn(`[P2P Media] Incoming call from ${call.peer} failed (${reason})`)
+        diagLog('p2p', 'call.incoming-failed', {
+          fromPeer: call.peer,
+          reason,
+          iceState: (pc as RTCPeerConnection | null)?.iceConnectionState,
+        })
         useGameStore.getState().setCallState(call.peer, 'failed')
       }
 
@@ -883,7 +989,11 @@ export class PeerManager {
     // Reset adaptive buffer state so a future room join starts fresh.
     DynamicBufferManager.getInstance().resetForNewCall()
 
+    this.roomCode = null
+    this.isHost = false
+
     useGameStore.getState().setConnected(false)
+    useGameStore.getState().setRoomSession('', false)
     useGameStore.getState().clearRemotePlayers()
     // clearRemotePlayers already clears callStates (defined in same set()).
     useMediaStore.getState().clearAllPeerStreams()

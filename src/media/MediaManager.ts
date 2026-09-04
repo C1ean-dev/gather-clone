@@ -3,6 +3,7 @@ import { SoftDspProcessor } from './SoftDspProcessor'
 import { RnnoiseProcessor } from './RnnoiseProcessor'
 import { MicCalibrator } from './MicCalibrator'
 import { CallAudioIsolator } from './CallAudioIsolator'
+import { diagLog, summarizeStream } from '../utils/diagnosticLogger'
 import { useMediaStore } from '../store/useMediaStore'
 import { useGameStore } from '../store/useGameStore'
 import { PeerManager } from '../p2p/PeerManager'
@@ -33,8 +34,7 @@ export interface ScreenShareConfig {
   * Common interface implemented by every audio cleanup engine so
   * MediaManager can swap between them without knowing the internals.
   */
-interface AudioEngine {
-  processStream(
+interface AudioEngine {  processStream(
     inputStream: MediaStream,
     enableSuppression: boolean,
     initialInputVolume: number,
@@ -49,6 +49,11 @@ interface AudioEngine {
   dispose(): void
 }
 
+/** Compact error for logs (name + message, no stack). */
+function errShort(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`.slice(0, 300)
+  return String(err).slice(0, 300)
+}
 export class MediaManager {
   private static instance: MediaManager
   private classicEngine: NoiseSuppressor
@@ -318,31 +323,43 @@ export class MediaManager {
         }
       : false
 
+    const safeGetUserMedia = (constraints: MediaStreamConstraints, timeoutMs: number = 3500): Promise<MediaStream> => {
+      return Promise.race([
+        navigator.mediaDevices.getUserMedia(constraints),
+        new Promise<MediaStream>((_, reject) =>
+          setTimeout(() => reject(new Error('getUserMedia timed out')), timeoutMs)
+        ),
+      ])
+    }
+
     let stream: MediaStream | null = null
 
     // 1. Try with Camera + Mic
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
+      stream = await safeGetUserMedia({
         video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } } : false,
         audio: audioConstraints,
-      })
+      }, 4000)
     } catch (err) {
       console.warn('Could not access camera/mic with selected constraints, trying separated fallbacks:', err)
+      diagLog('media', 'startMedia.av-failed', { error: errShort(err) })
       // 2. Fallback: try mic alone (constraints first, then generic)
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        stream = await safeGetUserMedia({
           video: false,
           audio: audioConstraints,
-        })
+        }, 2500)
       } catch (micErr) {
         console.warn('Could not access mic with constraints, trying generic audio:', micErr)
+        diagLog('media', 'startMedia.mic-constrained-failed', { error: errShort(micErr) })
         try {
-          stream = await navigator.mediaDevices.getUserMedia({
+          stream = await safeGetUserMedia({
             video: false,
             audio: audio,
-          })
+          }, 2000)
         } catch (totalErr) {
           console.error('Failed to access physical microphone:', totalErr)
+          diagLog('media', 'startMedia.mic-failed', { error: errShort(totalErr) })
         }
       }
 
@@ -353,9 +370,9 @@ export class MediaManager {
 
       if (video && stream.getVideoTracks().length === 0) {
         try {
-          const camOnlyStream = await navigator.mediaDevices.getUserMedia({
+          const camOnlyStream = await safeGetUserMedia({
             video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
-          })
+          }, 3000)
           const camTrack = camOnlyStream.getVideoTracks()[0]
           if (camTrack) {
             ;(camTrack as any).__isDummy = false
@@ -363,6 +380,7 @@ export class MediaManager {
           }
         } catch (camErr) {
           console.warn('Could not access camera individually:', camErr)
+          diagLog('media', 'startMedia.camonly-failed', { error: errShort(camErr) })
         }
       }
     }
@@ -381,6 +399,13 @@ export class MediaManager {
     }
 
     this.rawUserStream = stream
+    diagLog('media', 'startMedia.capture', {
+      videoRequested: video,
+      audioRequested: audio,
+      selectedAudioInput: state.selectedAudioInput,
+      tracks: summarizeStream(stream),
+      dummyVideo: stream.getVideoTracks().some((t) => (t as any).__isDummy === true),
+    })
 
     const processedStream = await this.runEngine(
       this.rawUserStream,
@@ -403,6 +428,12 @@ export class MediaManager {
     })
 
     useMediaStore.getState().setLocalStream(processedStream)
+    diagLog('media', 'startMedia.ready', {
+      engine: this.currentProcessorMode,
+      tracks: summarizeStream(processedStream),
+      isMuted,
+      isCameraOff,
+    })
 
     // The room-join path runs startMedia IN PARALLEL with the P2P handshake
     // (see LobbyModal) so mic-permission latency (or the 5s RNNoise WASM
@@ -444,7 +475,6 @@ export class MediaManager {
           activeCamTrack = camStream.getVideoTracks()[0] || null
           if (activeCamTrack) {
             ;(activeCamTrack as any).__isDummy = false
-
             // Replace in rawUserStream
             if (this.rawUserStream) {
               this.rawUserStream.getVideoTracks().forEach((t) => {
@@ -468,11 +498,16 @@ export class MediaManager {
           }
         } catch (camErr) {
           console.warn('[MediaManager] Failed to start physical camera:', camErr)
+          diagLog('media', 'camera.acquire-failed', { error: errShort(camErr) })
         }
       }
 
       if (activeCamTrack) {
         activeCamTrack.enabled = true
+        diagLog('media', 'camera.on', {
+          physical: !(activeCamTrack as any).__isDummy,
+          tracks: summarizeStream(useMediaStore.getState().localStream),
+        })
         if (!useMediaStore.getState().isScreenSharing) {
           try {
             PeerManager.getInstance().replaceVideoTrack(activeCamTrack, false)
@@ -484,6 +519,7 @@ export class MediaManager {
       }
     } else {
       // Turning camera OFF
+      diagLog('media', 'camera.off')
       const localStream = useMediaStore.getState().localStream
       if (localStream) {
         localStream.getVideoTracks().forEach((t) => {
@@ -510,6 +546,7 @@ export class MediaManager {
   }
 
   public syncMuteState(isMuted: boolean): void {
+    diagLog('media', 'mute', { isMuted })
     if (useMediaStore.getState().isMuted !== isMuted) {
       useMediaStore.getState().setMuted(isMuted)
     }
@@ -560,7 +597,7 @@ export class MediaManager {
         this.handleEngineLevel
       )
 
-      useMediaStore.getState().setLocalStream(processedStream)
+    useMediaStore.getState().setLocalStream(processedStream)
 
       const processedAudioTrack = processedStream.getAudioTracks()[0]
       if (processedAudioTrack) {
@@ -725,11 +762,13 @@ export class MediaManager {
 
           if (cleanAudioTrack) {
             cleanAudioTrack.enabled = true
+            diagLog('screenshare', 'audio-track-sent', { isolated: true })
             PeerManager.getInstance().replaceAudioTrack(cleanAudioTrack)
           }
         } catch (mixErr) {
           console.warn('Audio isolation fallback to raw screen track:', mixErr)
           screenAudioTrack.enabled = true
+          diagLog('screenshare', 'audio-track-sent', { isolated: false, fallback: errShort(mixErr) })
           PeerManager.getInstance().replaceAudioTrack(screenAudioTrack)
         }
       }
@@ -737,6 +776,10 @@ export class MediaManager {
       useMediaStore.getState().setLocalScreenStream(screenStream)
       useMediaStore.getState().setScreenSharing(true)
       useGameStore.getState().setLocalPlayer({ isScreenSharing: true })
+      diagLog('screenshare', 'start', {
+        resolution, fps, includeAudio, mixMicrophone,
+        tracks: summarizeStream(screenStream),
+      })
 
       const screenVideoTrack = screenStream.getVideoTracks()[0]
       if (screenVideoTrack) {
@@ -756,6 +799,13 @@ export class MediaManager {
         }
 
         PeerManager.getInstance().replaceVideoTrack(screenVideoTrack, true, targetBitrate, fps)
+        diagLog('screenshare', 'video-track-sent', {
+          bitrate: targetBitrate,
+          track: summarizeStream({
+            getAudioTracks: () => [],
+            getVideoTracks: () => [screenVideoTrack],
+          } as unknown as MediaStream),
+        })
         PeerManager.getInstance().sendPlayerUpdate({ isScreenSharing: true })
 
         screenVideoTrack.onended = () => {
@@ -766,6 +816,7 @@ export class MediaManager {
       return screenStream
     } catch (err) {
       console.warn('Screen share cancelled or failed:', err)
+      diagLog('screenshare', 'cancelled-or-failed', { error: errShort(err) })
       return null
     }
   }
@@ -804,6 +855,10 @@ export class MediaManager {
     if (micTrack) {
       PeerManager.getInstance().replaceAudioTrack(micTrack)
     }
+    diagLog('screenshare', 'stop-restore', {
+      cam: camTrack ? { enabled: camTrack.enabled, dummy: (camTrack as any).__isDummy === true } : null,
+      mic: micTrack ? { enabled: micTrack.enabled } : null,
+    })
     PeerManager.getInstance().sendPlayerUpdate({ isScreenSharing: false })
   }
 

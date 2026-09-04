@@ -38,3 +38,17 @@ _Avoid_: Screenshot, raster copy
 Rendering resolution order where the engine attempts to draw from the Sprite Atlas first, then custom native assets, falling back to legacy procedural renderers if no raster sprite exists.
 _Avoid_: Fallback cascade, double render
 
+### Chamada de Zona & Mídia
+
+**Chamada de Zona**:
+Mesh de áudio e vídeo formada automaticamente entre os participantes cujo identificador de zona atual coincide dentro de uma sala privada.
+_Avoid_: Videochamada, conferência
+
+**Live**:
+Transmissão da tela de um participante para os demais presentes na mesma zona.
+_Avoid_: Stream, broadcast
+
+**Trilha Local**:
+Fluxo de microfone e webcam do próprio usuário após processamento de áudio, sempre com uma trilha de áudio e uma de vídeo.
+_Avoid_: Stream do mic
+

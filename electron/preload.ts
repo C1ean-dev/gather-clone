@@ -32,6 +32,8 @@ export interface IElectronAPI {
   requestFirewallAccess: () => Promise<{ success: boolean; error?: string }>
   setFullScreen: (flag: boolean) => Promise<boolean>
   isFullScreen: () => Promise<boolean>
+  diagnosticLogBatch: (entries: unknown[]) => Promise<{ ok: boolean; path: string | null }>
+  openLogsFolder: () => Promise<string | null>
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -57,4 +59,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   requestFirewallAccess: () => ipcRenderer.invoke('request-firewall-access'),
   setFullScreen: (flag: boolean) => ipcRenderer.invoke('set-fullscreen', flag),
   isFullScreen: () => ipcRenderer.invoke('is-fullscreen'),
+  diagnosticLogBatch: (entries: unknown[]) => ipcRenderer.invoke('diagnostic-log-batch', entries),
+  openLogsFolder: () => ipcRenderer.invoke('open-logs-folder'),
 })

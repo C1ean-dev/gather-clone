@@ -25,6 +25,7 @@ import { useMapStore } from '../store/useMapStore'
 import { useChatStore } from '../store/useChatStore'
 import { MediaManager } from '../media/MediaManager'
 import { ScreenShareModal } from './ScreenShareModal'
+import { diagLog, summarizeStream } from '../utils/diagnosticLogger'
 
 interface VideoTileProps {
   stream: MediaStream | null
@@ -66,9 +67,23 @@ const VideoTile: React.FC<VideoTileProps> = ({
     // Chromium (attribute vs IDL property), leaking a delayed local echo.
     video.muted = !!isLocal
     video.srcObject = stream
+    diagLog('tile', 'attach', {
+      tile: 'mini',
+      peer: name,
+      isLocal: !!isLocal,
+      tracks: summarizeStream(stream),
+    })
     const playPromise = video.play()
     if (playPromise !== undefined) {
-      playPromise.catch(() => {})
+      playPromise.then(
+        () => diagLog('tile', 'play-ok', { tile: 'mini', peer: name }),
+        (err) =>
+          diagLog('tile', 'play-failed', {
+            tile: 'mini',
+            peer: name,
+            error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+          })
+      )
     }
 
     const handleTrackEvent = () => {
@@ -257,9 +272,23 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
     // audio back with DSP latency.
     video.muted = !!isLocal
     video.srcObject = stream
+    diagLog('tile', 'attach', {
+      tile: 'mini-pip',
+      peer: presenterName,
+      isLocal: !!isLocal,
+      tracks: summarizeStream(stream),
+    })
     const playPromise = video.play()
     if (playPromise !== undefined) {
-      playPromise.catch(() => {})
+      playPromise.then(
+        () => diagLog('tile', 'play-ok', { tile: 'mini-pip', peer: presenterName }),
+        (err) =>
+          diagLog('tile', 'play-failed', {
+            tile: 'mini-pip',
+            peer: presenterName,
+            error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+          })
+      )
     }
 
     const handleTrackEvent = () => {
