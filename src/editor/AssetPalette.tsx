@@ -127,7 +127,7 @@ export const AssetPalette: React.FC = () => {
 
   return (
     <>
-      <div className="absolute top-16 right-4 w-92 bg-[#1b202c]/95 backdrop-blur-md border border-[#2a3142] rounded-2xl shadow-2xl z-40 overflow-hidden flex flex-col max-h-[calc(100vh-120px)] animate-in fade-in slide-in-from-right-4 duration-200 select-none">
+      <div className="absolute top-16 right-4 w-[380px] max-w-[calc(100vw-2rem)] bg-[#1b202c]/95 backdrop-blur-md border border-[#2a3142] rounded-2xl shadow-2xl z-40 overflow-hidden flex flex-col max-h-[calc(100vh-100px)] animate-in fade-in slide-in-from-right-4 duration-200 select-none">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a3142] bg-[#12151d]/70">
           <div className="flex items-center gap-2">

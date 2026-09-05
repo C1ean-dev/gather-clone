@@ -23,6 +23,9 @@ export class PeerManager {
   private staleCheckInterval: any = null
   private roomCode: string | null = null
   private isHost: boolean = false
+  private isIntentionalDisconnect = false
+  private signalingReconnectTimer: any = null
+  private signalingReconnectAttempts = 0
 
   private constructor() {
     if (typeof window !== 'undefined') {
@@ -65,6 +68,7 @@ export class PeerManager {
   ): Promise<string> {
     this.roomCode = roomCode.trim().toUpperCase()
     this.isHost = true
+    this.isIntentionalDisconnect = false
     const hostPeerId = `gather-v2-${this.roomCode}-host`
 
     // Clean up any stale peer connection first
@@ -101,6 +105,8 @@ export class PeerManager {
               .then(() => resolve(this.roomCode!))
               .catch((err) => reject(err))
           } else {
+            useGameStore.getState().setConnected(false)
+            useGameStore.getState().setConnectionStatus('disconnected')
             reject(new Error('Tempo limite de conexão excedido ao registrar o espaço no servidor P2P.'))
           }
         }
@@ -112,9 +118,23 @@ export class PeerManager {
         config: SHARED_RTC_CONFIG,
       })
       this.peer = myPeer
+      this.setupSignalingListeners(myPeer)
 
       this.peer.on('open', (id) => {
-        if (resolved) return
+        if (resolved) {
+          // Re-opened after signaling disconnect/reconnect
+          if (this.peer === myPeer) {
+            this.signalingReconnectAttempts = 0
+            if (this.signalingReconnectTimer) {
+              clearTimeout(this.signalingReconnectTimer)
+              this.signalingReconnectTimer = null
+            }
+            useGameStore.getState().setConnected(true)
+            useGameStore.getState().setConnectionStatus('connected')
+            this.recheckZoneCalls()
+          }
+          return
+        }
         // Stale open (a newer run replaced this peer): quietly drop it.
         if (this.peer !== myPeer) {
           try {
@@ -123,18 +143,33 @@ export class PeerManager {
           return
         }
         resolved = true
+        this.signalingReconnectAttempts = 0
+        if (this.signalingReconnectTimer) {
+          clearTimeout(this.signalingReconnectTimer)
+          this.signalingReconnectTimer = null
+        }
         if (hostTimeout) clearTimeout(hostTimeout)
         console.log('[P2P] Room created with Host ID:', id)
         diagLog('room', 'create-open', { roomCode: this.roomCode, hostPeerId: id })
         useGameStore.getState().setRoomSession(this.roomCode!, true, options)
         useGameStore.getState().setConnected(true)
+        useGameStore.getState().setConnectionStatus('connected')
         this.setupPeerListeners()
         this.startHeartbeat()
         resolve(this.roomCode!)
       })
 
       this.peer.on('error', async (err: any) => {
-        if (resolved) return
+        if (resolved) {
+          if (this.peer !== myPeer) return
+          console.warn('[P2P] Runtime error on host peer:', err)
+          const errType = err?.type || ''
+          if (errType === 'network' || errType === 'server-error' || errType === 'socket-error' || errType === 'socket-closed') {
+            useGameStore.getState().setConnectionStatus('reconnecting')
+            this.scheduleSignalingReconnect()
+          }
+          return
+        }
         // Stale error from a replaced peer: ignore entirely.
         if (this.peer !== myPeer) return
         if (hostTimeout) clearTimeout(hostTimeout)
@@ -184,6 +219,7 @@ export class PeerManager {
   public async joinRoom(roomCode: string, localPlayer: Player, retryCount: number = 0): Promise<void> {
     this.roomCode = roomCode.trim().toUpperCase()
     this.isHost = false
+    this.isIntentionalDisconnect = false
     const clientPeerId = `gather-v2-${this.roomCode}-peer-${Math.random().toString(36).substring(2, 7)}`
     const hostPeerId = `gather-v2-${this.roomCode}-host`
 
@@ -231,10 +267,14 @@ export class PeerManager {
             )
             resolve()
           } else {
+            useGameStore.getState().setConnected(false)
+            useGameStore.getState().setConnectionStatus('disconnected')
             reject(new Error(`Host da sala ${this.roomCode} não respondeu.`))
           }
         } catch (err) {
           console.error('[P2P AutoHost] Error promoting to host:', err)
+          useGameStore.getState().setConnected(false)
+          useGameStore.getState().setConnectionStatus('disconnected')
           reject(err)
         }
       }
@@ -252,13 +292,29 @@ export class PeerManager {
         config: SHARED_RTC_CONFIG,
       })
       this.peer = myPeer
+      this.setupSignalingListeners(myPeer)
 
       this.peer.on('open', (id) => {
         console.log('[P2P] Joined peer network with ID:', id)
-        if (isResolved || this.peer !== myPeer) return
+        if (isResolved) {
+          // Re-opened after signaling reconnect
+          if (this.peer === myPeer) {
+            this.signalingReconnectAttempts = 0
+            if (this.signalingReconnectTimer) {
+              clearTimeout(this.signalingReconnectTimer)
+              this.signalingReconnectTimer = null
+            }
+            useGameStore.getState().setConnected(true)
+            useGameStore.getState().setConnectionStatus('connected')
+            this.recheckZoneCalls()
+          }
+          return
+        }
+        if (this.peer !== myPeer) return
         diagLog('room', 'join-open', { roomCode: this.roomCode, clientPeerId: id })
         useGameStore.getState().setRoomSession(this.roomCode!, false)
         useGameStore.getState().setConnected(true)
+        useGameStore.getState().setConnectionStatus('connecting')
         this.setupPeerListeners()
         this.startHeartbeat()
 
@@ -280,7 +336,13 @@ export class PeerManager {
             if (fallbackTimer) clearTimeout(fallbackTimer)
             if (joinTimeout) clearTimeout(joinTimeout)
             isResolved = true
+            this.signalingReconnectAttempts = 0
+            if (this.signalingReconnectTimer) {
+              clearTimeout(this.signalingReconnectTimer)
+              this.signalingReconnectTimer = null
+            }
             diagLog('room', 'join-host-open', { roomCode: this.roomCode })
+            useGameStore.getState().setConnectionStatus('connected')
             resolve()
           }
         })
@@ -304,36 +366,98 @@ export class PeerManager {
 
       this.peer.on('error', (err: any) => {
         console.warn('[P2P] Peer network warning/error:', err)
-        if (!isResolved) {
-          // Stale error from a replaced peer: ignore entirely.
+        if (isResolved) {
           if (this.peer !== myPeer) return
-          diagLog('room', 'join-error', {
-            roomCode: this.roomCode,
-            type: err?.type || null,
-            message: String(err?.message || err || '').slice(0, 160),
-          })
-          if (
-            err?.type === 'peer-unavailable' ||
-            err?.message?.includes('Could not connect to peer') ||
-            err?.type === 'unavailable-id' ||
-            err?.type === 'server-error'
-          ) {
-            triggerAutoHost()
-          } else {
-            isResolved = true
-            if (fallbackTimer) clearTimeout(fallbackTimer)
-            if (joinTimeout) clearTimeout(joinTimeout)
-            try {
-              if (this.peer) {
-                this.peer.destroy()
-                this.peer = null
-              }
-            } catch (e) {}
-            reject(new Error(`Falha de conexão P2P: ${err?.type || err?.message || 'erro de rede'}`))
+          const errType = err?.type || ''
+          if (errType === 'network' || errType === 'server-error' || errType === 'socket-error' || errType === 'socket-closed') {
+            useGameStore.getState().setConnectionStatus('reconnecting')
+            this.scheduleSignalingReconnect()
           }
+          return
+        }
+
+        // Stale error from a replaced peer: ignore entirely.
+        if (this.peer !== myPeer) return
+        diagLog('room', 'join-error', {
+          roomCode: this.roomCode,
+          type: err?.type || null,
+          message: String(err?.message || err || '').slice(0, 160),
+        })
+        if (
+          err?.type === 'peer-unavailable' ||
+          err?.message?.includes('Could not connect to peer') ||
+          err?.type === 'unavailable-id' ||
+          err?.type === 'server-error'
+        ) {
+          triggerAutoHost()
+        } else {
+          isResolved = true
+          if (fallbackTimer) clearTimeout(fallbackTimer)
+          if (joinTimeout) clearTimeout(joinTimeout)
+          try {
+            if (this.peer) {
+              this.peer.destroy()
+              this.peer = null
+            }
+          } catch (e) {}
+          useGameStore.getState().setConnected(false)
+          useGameStore.getState().setConnectionStatus('disconnected')
+          useGameStore.getState().setRoomSession('', false)
+          reject(new Error(`Falha de conexão P2P: ${err?.type || err?.message || 'erro de rede'}`))
         }
       })
     })
+  }
+
+  private setupSignalingListeners(myPeer: Peer) {
+    myPeer.on('disconnected', () => {
+      console.warn(`[P2P Signaling] Disconnected from server (Peer ID: ${myPeer.id})`)
+      diagLog('room', 'peer-disconnected', { roomCode: this.roomCode, peerId: myPeer.id })
+
+      if (this.isIntentionalDisconnect || !this.roomCode || this.peer !== myPeer) return
+
+      useGameStore.getState().setConnectionStatus('reconnecting')
+      this.scheduleSignalingReconnect()
+    })
+
+    myPeer.on('close', () => {
+      console.log(`[P2P Signaling] Peer connection closed (Peer ID: ${myPeer.id})`)
+      diagLog('room', 'peer-closed', { roomCode: this.roomCode, peerId: myPeer.id })
+      if (!this.isIntentionalDisconnect && this.roomCode && this.peer === myPeer) {
+        useGameStore.getState().setConnectionStatus('disconnected')
+      }
+    })
+  }
+
+  public scheduleSignalingReconnect() {
+    if (this.signalingReconnectTimer || this.isIntentionalDisconnect || !this.roomCode) return
+
+    this.signalingReconnectAttempts++
+    const delay = Math.min(8000, 1000 * Math.pow(1.5, Math.min(5, this.signalingReconnectAttempts - 1)))
+    console.log(`[P2P Signaling] Scheduling reconnect attempt #${this.signalingReconnectAttempts} in ${delay}ms...`)
+
+    this.signalingReconnectTimer = setTimeout(() => {
+      this.signalingReconnectTimer = null
+      if (!this.peer || this.isIntentionalDisconnect || !this.roomCode) return
+
+      if (!this.peer.destroyed) {
+        console.log('[P2P Signaling] Calling this.peer.reconnect()...')
+        try {
+          this.peer.reconnect()
+        } catch (err) {
+          console.warn('[P2P Signaling] peer.reconnect() error:', err)
+          this.scheduleSignalingReconnect()
+        }
+      } else {
+        console.log('[P2P Signaling] Peer destroyed, attempting full re-join...')
+        const localPlayer = useGameStore.getState().localPlayer
+        if (this.isHost) {
+          this.createRoom(this.roomCode!, localPlayer).catch(() => {})
+        } else {
+          this.joinRoom(this.roomCode!, localPlayer).catch(() => {})
+        }
+      }
+    }, delay)
   }
 
   private setupPeerListeners() {
@@ -346,208 +470,26 @@ export class PeerManager {
 
     // Incoming Media Call (WebRTC Audio/Video)
     this.peer.on('call', (call) => {
-      console.log('[P2P Media] Incoming call from:', call.peer)
-      const myId = this.peer ? this.peer.id : ''
-      const existing = this.mediaCalls.get(call.peer)
-      if (existing && existing !== call) {
-        // Glare: both sides dialed on zone entry. Converge on ONE call —
-        // the smaller peer id's OUTGOING call wins (see resolveCallGlare).
-        const verdict = resolveCallGlare(
-          myId,
-          call.peer,
-          (existing as unknown as { __dir?: 'in' | 'out' }).__dir
-        )
-        if (verdict === 'drop-incoming') {
-          diagLog('p2p', 'call.duplicate-dropped', { fromPeer: call.peer })
-          try {
-            call.close()
-          } catch {}
-          return
-        }
-        diagLog('p2p', 'call.duplicate-replaced', { fromPeer: call.peer })
-        // Drop the map entry BEFORE closing so the loser's 'close' handler
-        // (guarded by map identity below) cannot wipe the winner's tile.
-        this.mediaCalls.delete(call.peer)
-        try {
-          ;(existing as unknown as { close?: () => void }).close?.()
-        } catch {}
-        // Fall through: answer the winner, overwrite the map entry below.
-      }
-      const localStream = useMediaStore.getState().localStream
-      const isSharing = useMediaStore.getState().isScreenSharing
-      const screenStream = useMediaStore.getState().localScreenStream
-
-      // Answer WITH the real stream in the single PeerJS negotiation.
-      // (Never attach tracks directly on the pc afterwards — PeerJS ignores
-      // later `negotiationneeded`, so that would leave the caller with BLACK
-      // video. See MediaCallHandler.applyEncoderCaps.)
-      useGameStore.getState().setCallState(call.peer, 'connecting')
-
-      // Seed adaptive buffer for this brand-new connection so it starts
-      // at the floor and grows only if the network actually needs it.
-      DynamicBufferManager.getInstance().resetForNewCall()
-
-      let streamToAnswer: MediaStream
-
-      if (isSharing && screenStream && screenStream.getVideoTracks()[0]) {
-        const combined = new MediaStream()
-        if (localStream) {
-          localStream.getAudioTracks().forEach((t) => combined.addTrack(t))
-        }
-        screenStream.getVideoTracks().forEach((t) => combined.addTrack(t))
-        streamToAnswer = combined
-      } else if (localStream) {
-        streamToAnswer = localStream
-      } else {
-        streamToAnswer = new MediaStream()
-        diagLog('p2p', 'call.answer-empty-no-local-stream', { fromPeer: call.peer })
-      }
-
-      diagLog('p2p', 'call.answer', {
-        fromPeer: call.peer,
-        sharing: isSharing,
-        tracks: summarizeStream(streamToAnswer),
-      })
-      call.answer(streamToAnswer)
-
-      const pc = (call as any).peerConnection as RTCPeerConnection
-      if (pc) {
-        prioritizeH264HardwareCodec(pc)
-        if (pc.addEventListener) {
-          pc.addEventListener('negotiationneeded', () => {
-            prioritizeH264HardwareCodec(pc)
-          })
-        }
-      }
-      // Inbound track arrival + mute/unmute transitions (receiver-side
-      // visibility — 'stream' alone never re-fires on replaceTrack).
-      MediaCallHandler.watchRemoteTracks(pc, call.peer, 'in')
-
-      // Configure receiver jitter buffer. The DynamicBufferManager runs
-      // every 1.5s and will overwrite this with the optimal adaptive value
-      // — we just seed it with the floor here so the very first packet
-      // doesn't go through with a 5s+ legacy default. Audio is left
-      // undefined on purpose: applyReceiverBuffer then reads the adaptive
-      // engine's current audio value (1ms on a fresh call).
-      const applyBuffer = (audioMs?: number, videoMs?: number) => {
-        const v = videoMs ?? MediaCallHandler.DEFAULT_LIVE_BUFFER_MS
-        if (audioMs === undefined) {
-          MediaCallHandler.applyReceiverBuffer(pc, v)
-        } else {
-          MediaCallHandler.applyReceiverBuffer(pc, v, audioMs)
-        }
-      }
-
-      try {
-        if (pc && pc.addEventListener) {
-          pc.addEventListener('track', () => {
-            setTimeout(applyBuffer, 50)
-          })
-        }
-      } catch (e) {}
-
-      let settled = false
-      let iceTimeout: any = null
-      const markConnected = (reason: string) => {
-        if (settled) return
-        settled = true
-        if (iceTimeout) {
-          clearTimeout(iceTimeout)
-          iceTimeout = null
-        }
-        console.log(`[P2P Media] Connected incoming call from ${call.peer} (${reason})`)
-        diagLog('p2p', 'call.incoming-connected', { fromPeer: call.peer, reason })
-        // Prove the sender side is actually transmitting (bytesSent).
-        MediaCallHandler.logSenderSnapshot(this.mediaCalls, 'incoming-connected')
-        if (pc) MediaCallHandler.applyEncoderCaps(pc)
-        applyBuffer()
-        useGameStore.getState().setCallState(call.peer, 'connected')
-      }
-      const markFailed = (reason: string) => {
-        if (settled) return
-        settled = true
-        if (iceTimeout) {
-          clearTimeout(iceTimeout)
-          iceTimeout = null
-        }
-        console.warn(`[P2P Media] Incoming call from ${call.peer} failed (${reason})`)
-        diagLog('p2p', 'call.incoming-failed', {
-          fromPeer: call.peer,
-          reason,
-          iceState: (pc as RTCPeerConnection | null)?.iceConnectionState,
-        })
-        useGameStore.getState().setCallState(call.peer, 'failed')
-      }
-
-      if (pc && pc.addEventListener) {
-        pc.addEventListener('iceconnectionstatechange', () => {
-          const s = pc.iceConnectionState
-          if (s === 'connected' || s === 'completed') {
-            markConnected('ice=' + s)
-          } else if (s === 'failed') {
-            markFailed('ice=failed')
+      MediaCallHandler.handleIncomingCall({
+        call,
+        myId: this.peer ? this.peer.id : '',
+        mediaCalls: this.mediaCalls,
+        endMediaCallWithPeer: (pid) => this.endMediaCallWithPeer(pid),
+        onCallConnected: () => {},
+        attemptRedialIfEligible: () => {
+          const remotePlayer = useGameStore.getState().remotePlayers[call.peer]
+          if (remotePlayer) {
+            this.checkZoneCallEligibility(remotePlayer)
           }
-        })
-        pc.addEventListener('connectionstatechange', () => {
-          const s = pc.connectionState
-          if (s === 'connected') {
-            markConnected('pc=connected')
-          } else if (s === 'failed') {
-            markFailed('pc=failed')
-          }
-        })
-      }
-
-      // Late-race safety net only: settle 'connected' if the transport is
-      // provably up — never fake it.
-      iceTimeout = setTimeout(() => {
-        try {
-          const s = pc?.iceConnectionState
-          if (s === 'connected' || s === 'completed') markConnected('late-ice=' + s)
-        } catch (e) {}
-      }, ICE_CONNECT_TIMEOUT_MS)
-
-      call.on('stream', (remoteStream) => {
-        console.log('[P2P Media] Received remote stream from:', call.peer)
-        // A losing glare duplicate can still fire after being replaced:
-        // only the map's current call may drive the tile and the state.
-        if (this.mediaCalls.get(call.peer) !== call) {
-          diagLog('p2p', 'call.remote-stream-stale', { fromPeer: call.peer })
-          return
-        }
-        markConnected('remote-stream')
-        applyBuffer()
-        diagLog('p2p', 'call.remote-stream', {
-          fromPeer: call.peer,
-          tracks: summarizeStream(remoteStream),
-        })
-        useMediaStore.getState().setPeerStream(call.peer, remoteStream)
+        },
       })
-
-      call.on('close', () => {
-        if (iceTimeout) clearTimeout(iceTimeout)
-        if (this.mediaCalls.get(call.peer) === call) {
-          useGameStore.getState().setCallState(call.peer, 'idle')
-          useMediaStore.getState().removePeerStream(call.peer)
-        }
-      })
-
-      call.on('error', () => {
-        if (iceTimeout) clearTimeout(iceTimeout)
-        if (this.mediaCalls.get(call.peer) === call) {
-          useGameStore.getState().setCallState(call.peer, 'failed')
-          useMediaStore.getState().removePeerStream(call.peer)
-        }
-      })
-
-      ;(call as unknown as { __dir?: 'in' | 'out' }).__dir = 'in'
-      this.mediaCalls.set(call.peer, call)
     })
   }
 
   private setupDataConnection(conn: DataConnection) {
     conn.on('open', () => {
       console.log('[P2P Data] Connected to peer:', conn.peer)
+      useGameStore.getState().setConnectionStatus('connected')
       this.connections.set(conn.peer, conn)
       this.peerLastSeen.set(conn.peer, Date.now())
 
@@ -693,6 +635,7 @@ export class PeerManager {
   private handleHostDisconnected(hostPeerId: string) {
     console.log('[P2P Failover] Host disconnected from room:', this.roomCode)
     if (!this.roomCode) return
+    useGameStore.getState().setConnectionStatus('reconnecting')
 
     // Identify remaining candidates
     const remainingPeers = Array.from(this.connections.keys()).filter((pid) => pid !== hostPeerId)
@@ -747,6 +690,7 @@ export class PeerManager {
     this.peer.on('open', (id) => {
       console.log('[P2P Failover] Successfully claimed Host ID:', id)
       useGameStore.getState().setConnected(true)
+      useGameStore.getState().setConnectionStatus('connected')
       this.setupPeerListeners()
       this.startHeartbeat()
 
@@ -775,6 +719,7 @@ export class PeerManager {
   private reconnectToHost(hostPeerId: string) {
     if (!this.peer || this.peer.destroyed) return
     console.log('[P2P Failover] Attempting to reconnect to new host endpoint:', hostPeerId)
+    useGameStore.getState().setConnectionStatus('reconnecting')
     const localPlayer = useGameStore.getState().localPlayer
     const conn = this.peer.connect(hostPeerId, {
       metadata: { player: localPlayer },
@@ -886,6 +831,21 @@ export class PeerManager {
 
   public endMediaCallWithPeer(peerId: string) {
     MediaCallHandler.endMediaCall(this.mediaCalls, peerId)
+  }
+
+  /**
+   * Manually retry zone call with peer (clears fail state and dials again)
+   */
+  public retryZoneCall(peerId: string) {
+    const remotePlayer = useGameStore.getState().remotePlayers[peerId]
+    if (remotePlayer) {
+      MediaCallHandler.retryCall(
+        remotePlayer,
+        this.peer,
+        this.mediaCalls,
+        (pid) => this.endMediaCallWithPeer(pid)
+      )
+    }
   }
 
   /**
@@ -1044,6 +1004,12 @@ export class PeerManager {
   }
 
   public disconnect() {
+    this.isIntentionalDisconnect = true
+    if (this.signalingReconnectTimer) {
+      clearTimeout(this.signalingReconnectTimer)
+      this.signalingReconnectTimer = null
+    }
+    this.signalingReconnectAttempts = 0
     this.stopHeartbeat()
     PublicRoomsService.getInstance().stopHosting()
 
@@ -1088,6 +1054,7 @@ export class PeerManager {
     this.isHost = false
 
     useGameStore.getState().setConnected(false)
+    useGameStore.getState().setConnectionStatus('disconnected')
     useGameStore.getState().setRoomSession('', false)
     useGameStore.getState().clearRemotePlayers()
     // clearRemotePlayers already clears callStates (defined in same set()).

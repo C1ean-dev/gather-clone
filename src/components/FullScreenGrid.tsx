@@ -33,7 +33,7 @@ const FullScreenGridInner: React.FC = () => {
   const isScreenSharing = useMediaStore((s) => s.isScreenSharing)
   const localAudioLevel = useMediaStore((s) => s.localAudioLevel)
 
-  const { localPlayer, remotePlayers, addReaction } = useGameStore()
+  const { localPlayer, remotePlayers, callStates, addReaction } = useGameStore()
   const { mapData } = useMapStore()
 
   const [handRaised, setHandRaised] = useState(false)
@@ -77,9 +77,11 @@ const FullScreenGridInner: React.FC = () => {
         isLocal: false,
         isScreenSharing: p.isScreenSharing,
         isSpeaking: false,
-      shirtColor: p.avatar.shirtColor,
-      statusEmoji: p.statusEmoji,
-    })),
+        shirtColor: p.avatar.shirtColor,
+        statusEmoji: p.statusEmoji,
+        callState: callStates[p.id] || p.callState || 'idle',
+        onRetryCall: () => PeerManager.getInstance().retryZoneCall(p.id),
+      })),
     ]
   }, [
     remotePlayers,
@@ -91,6 +93,7 @@ const FullScreenGridInner: React.FC = () => {
     isMuted,
     isCameraOff,
     isLocalSpeaking,
+    callStates,
   ])
 
   // If someone is screen sharing and no one is explicitly focused, default focus to the active screen share

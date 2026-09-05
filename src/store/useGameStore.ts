@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { Player, PresenceStatus, ReactionItem, AvatarConfig, UserRole, PlayerPermissions } from '../types/game'
+import { Player, PresenceStatus, ReactionItem, AvatarConfig, UserRole, PlayerPermissions, ConnectionStatus } from '../types/game'
 import { DEFAULT_AVATAR } from '../engine/Constants'
 import { PublicRoomsService } from '../services/publicRoomsService'
 
@@ -113,8 +113,8 @@ interface GameStore {
   // Zone call connection state (per-peer, surfaced for the 'connecting' indicator).
   // Stored separately from Player so React subscribers can avoid re-rendering on
   // every move packet just because callState flipped.
-  callStates: Record<string, 'idle' | 'connecting' | 'connected' | 'failed'>
-  setCallState: (peerId: string, state: 'idle' | 'connecting' | 'connected' | 'failed') => void
+  callStates: Record<string, 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'>
+  setCallState: (peerId: string, state: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed') => void
   clearCallStates: () => void
 
   // Session / Room State
@@ -123,6 +123,8 @@ interface GameStore {
   isHost: boolean
   connectionHostId: string | null
   isConnected: boolean
+  connectionStatus: ConnectionStatus
+  setConnectionStatus: (status: ConnectionStatus) => void
   isRoomPublic: boolean
   roomName: string
   roomDescription: string
@@ -457,6 +459,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   isHost: false,
   connectionHostId: null,
   isConnected: false,
+  connectionStatus: 'disconnected',
+  setConnectionStatus: (status) => set({ connectionStatus: status }),
   isRoomPublic: false,
   roomName: 'Espaço Principal',
   roomDescription: 'Sala aberta e compartilhada',
@@ -513,7 +517,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   setConnected: (isConnected) => {
-    set({ isConnected })
+    set({ isConnected, connectionStatus: isConnected ? 'connected' : 'disconnected' })
     if (!isConnected) {
       PublicRoomsService.getInstance().stopHosting()
     }

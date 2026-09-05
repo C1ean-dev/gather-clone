@@ -173,6 +173,13 @@ export class MediaCallHandler {
     const isSharing = useMediaStore.getState().isScreenSharing
     const screenStream = useMediaStore.getState().localScreenStream
     const localStream = useMediaStore.getState().localStream
+    const isMuted = useMediaStore.getState().isMuted
+
+    if (localStream) {
+      localStream.getAudioTracks().forEach((t) => {
+        t.enabled = !isMuted
+      })
+    }
 
     if (isSharing && screenStream && screenStream.getVideoTracks()[0]) {
       const combined = new MediaStream()
@@ -359,6 +366,344 @@ export class MediaCallHandler {
    * 'connected' on ICE-connected or first remote track, and to 'failed' if
    * ICE definitively fails.
    */
+  public static readonly callRetryCounts = new Map<string, number>()
+  public static readonly callRetryTimers = new Map<string, any>()
+  public static readonly iceDisconnectTimers = new Map<string, any>()
+
+  static clearCallRetryTimer(peerId: string) {
+    const timer = this.callRetryTimers.get(peerId)
+    if (timer) {
+      clearTimeout(timer)
+      this.callRetryTimers.delete(peerId)
+    }
+  }
+
+  static clearIceDisconnectTimer(peerId: string) {
+    const timer = this.iceDisconnectTimers.get(peerId)
+    if (timer) {
+      clearTimeout(timer)
+      this.iceDisconnectTimers.delete(peerId)
+    }
+  }
+
+  /**
+   * Monitor WebRTC call lifecycle (ICE states, transport, auto-recovery on failure).
+   */
+  static setupCallLifecycle({
+    call,
+    peerId,
+    direction,
+    remotePlayerName,
+    mediaCalls,
+    endMediaCallWithPeer,
+    onCallConnected,
+    attemptRedialIfEligible,
+  }: {
+    call: MediaConnection
+    peerId: string
+    direction: 'in' | 'out'
+    remotePlayerName?: string
+    mediaCalls: Map<string, MediaConnection>
+    endMediaCallWithPeer: (peerId: string) => void
+    onCallConnected?: (peerId: string) => void
+    attemptRedialIfEligible?: () => void
+  }) {
+    const pc = (call as any).peerConnection as RTCPeerConnection | undefined
+    if (pc) {
+      try {
+        prioritizeH264HardwareCodec(pc)
+        if (pc.addEventListener) {
+          pc.addEventListener('negotiationneeded', () => {
+            prioritizeH264HardwareCodec(pc)
+          })
+        }
+      } catch (e) {}
+
+      try {
+        if (typeof (pc as any).setConfiguration === 'function') {
+          ;(pc as any).setConfiguration(SHARED_RTC_CONFIG)
+        }
+      } catch (e) {}
+
+      MediaCallHandler.watchRemoteTracks(pc, peerId, direction)
+    }
+
+    const applyBuffer = () => {
+      if (!pc) return
+      const bufs = DynamicBufferManager.getInstance().getBuffers()
+      MediaCallHandler.applyReceiverBuffer(pc, bufs.video.currentMs, bufs.audio.currentMs)
+    }
+
+    try {
+      if (pc && pc.addEventListener) {
+        pc.addEventListener('track', () => {
+          setTimeout(applyBuffer, 50)
+        })
+      }
+    } catch (e) {}
+
+    DynamicBufferManager.getInstance().resetForNewCall()
+
+    let isConnected = false
+    let iceTimeout: any = null
+    let disconnectGraceTimer: any = null
+
+    const clearLocalTimers = () => {
+      if (iceTimeout) {
+        clearTimeout(iceTimeout)
+        iceTimeout = null
+      }
+      if (disconnectGraceTimer) {
+        clearTimeout(disconnectGraceTimer)
+        disconnectGraceTimer = null
+      }
+    }
+
+    const markConnected = (reason: string) => {
+      clearLocalTimers()
+      MediaCallHandler.clearIceDisconnectTimer(peerId)
+      MediaCallHandler.callRetryCounts.delete(peerId)
+
+      if (!isConnected) {
+        isConnected = true
+        console.log(`[Zone Call] Connected (${direction}) with ${remotePlayerName || peerId} (${reason})`)
+        diagLog('p2p', direction === 'out' ? 'call.outgoing-connected' : 'call.incoming-connected', {
+          withPeer: peerId,
+          fromPeer: peerId,
+          reason,
+        })
+        MediaCallHandler.logSenderSnapshot(mediaCalls, direction === 'out' ? 'outgoing-connected' : 'incoming-connected')
+        if (pc) MediaCallHandler.applyEncoderCaps(pc)
+        applyBuffer()
+        useGameStore.getState().setCallState(peerId, 'connected')
+        onCallConnected?.(peerId)
+      }
+    }
+
+    const handleCallFailure = (reason: string) => {
+      clearLocalTimers()
+      MediaCallHandler.clearIceDisconnectTimer(peerId)
+      if (mediaCalls.get(peerId) !== call) return
+
+      isConnected = false
+      console.warn(`[Zone Call] Call (${direction}) with ${remotePlayerName || peerId} degraded/failed (${reason})`)
+      diagLog('p2p', direction === 'out' ? 'call.outgoing-failed' : 'call.incoming-failed', {
+        withPeer: peerId,
+        fromPeer: peerId,
+        reason,
+        iceState: (pc as RTCPeerConnection | null)?.iceConnectionState,
+      })
+
+      endMediaCallWithPeer(peerId)
+
+      const localPlayer = useGameStore.getState().localPlayer
+      const remotePlayer = useGameStore.getState().remotePlayers[peerId]
+      const stillInSameZone =
+        localPlayer.currentZoneId !== null &&
+        localPlayer.currentZoneId !== undefined &&
+        remotePlayer?.currentZoneId === localPlayer.currentZoneId
+
+      if (stillInSameZone) {
+        const retries = (MediaCallHandler.callRetryCounts.get(peerId) || 0) + 1
+        if (retries <= 3) {
+          MediaCallHandler.callRetryCounts.set(peerId, retries)
+          useGameStore.getState().setCallState(peerId, 'reconnecting')
+          const backoff = Math.min(3000, 1000 * Math.pow(1.5, retries - 1))
+          console.log(`[Zone Call] Scheduling auto-recovery with ${remotePlayerName || peerId} (attempt ${retries}/3 in ${backoff}ms)...`)
+
+          MediaCallHandler.clearCallRetryTimer(peerId)
+          const retryTimer = setTimeout(() => {
+            MediaCallHandler.callRetryTimers.delete(peerId)
+            attemptRedialIfEligible?.()
+          }, backoff)
+          MediaCallHandler.callRetryTimers.set(peerId, retryTimer)
+        } else {
+          MediaCallHandler.callRetryCounts.delete(peerId)
+          useGameStore.getState().setCallState(peerId, 'failed')
+          console.warn(`[Zone Call] Auto-recovery retries exhausted for ${remotePlayerName || peerId}`)
+        }
+      } else {
+        MediaCallHandler.callRetryCounts.delete(peerId)
+        useGameStore.getState().setCallState(peerId, 'idle')
+      }
+    }
+
+    if (pc && pc.addEventListener) {
+      pc.addEventListener('iceconnectionstatechange', () => {
+        const s = pc.iceConnectionState
+        if (s === 'connected' || s === 'completed') {
+          markConnected('ice=' + s)
+        } else if (s === 'disconnected') {
+          if (isConnected) {
+            useGameStore.getState().setCallState(peerId, 'reconnecting')
+            if (!disconnectGraceTimer) {
+              disconnectGraceTimer = setTimeout(() => {
+                disconnectGraceTimer = null
+                if (['disconnected', 'failed'].includes(pc.iceConnectionState)) {
+                  handleCallFailure('ice=disconnected-timeout')
+                }
+              }, 3500)
+            }
+          }
+        } else if (s === 'failed') {
+          handleCallFailure('ice=failed')
+        }
+      })
+
+      pc.addEventListener('connectionstatechange', () => {
+        const s = pc.connectionState
+        if (s === 'connected') {
+          markConnected('pc=connected')
+        } else if (s === 'failed' || s === 'closed') {
+          handleCallFailure('pc=' + s)
+        }
+      })
+    }
+
+    iceTimeout = setTimeout(() => {
+      try {
+        const s = pc?.iceConnectionState
+        if (s === 'connected' || s === 'completed') {
+          markConnected('late-ice=' + s)
+        }
+      } catch (e) {}
+    }, ICE_CONNECT_TIMEOUT_MS)
+
+    call.on('stream', (remoteStream) => {
+      if (mediaCalls.get(peerId) !== call) {
+        diagLog('p2p', 'call.remote-stream-stale', { fromPeer: peerId })
+        return
+      }
+      if (pc?.iceConnectionState !== 'failed' && pc?.connectionState !== 'failed') {
+        markConnected('remote-stream')
+      }
+      applyBuffer()
+      diagLog('p2p', 'call.remote-stream', {
+        fromPeer: peerId,
+        tracks: summarizeStream(remoteStream),
+      })
+      useMediaStore.getState().setPeerStream(peerId, remoteStream)
+    })
+
+    call.on('close', () => {
+      clearLocalTimers()
+      diagLog('p2p', 'call.closed', {
+        withPeer: peerId,
+        current: mediaCalls.get(peerId) === call,
+      })
+      if (mediaCalls.get(peerId) === call) {
+        handleCallFailure('call-closed')
+      }
+    })
+
+    call.on('error', (err) => {
+      clearLocalTimers()
+      diagLog('p2p', 'call.error', {
+        withPeer: peerId,
+        current: mediaCalls.get(peerId) === call,
+        error: String((err as any)?.message || err || ''),
+      })
+      if (mediaCalls.get(peerId) === call) {
+        handleCallFailure('call-error')
+      }
+    })
+  }
+
+  /**
+   * Handle incoming call on receiver side with same lifecycle and recovery.
+   */
+  static handleIncomingCall({
+    call,
+    myId,
+    mediaCalls,
+    endMediaCallWithPeer,
+    onCallConnected,
+    attemptRedialIfEligible,
+  }: {
+    call: MediaConnection
+    myId: string
+    mediaCalls: Map<string, MediaConnection>
+    endMediaCallWithPeer: (peerId: string) => void
+    onCallConnected?: (peerId: string) => void
+    attemptRedialIfEligible?: () => void
+  }) {
+    console.log('[P2P Media] Incoming call from:', call.peer)
+    const existing = mediaCalls.get(call.peer)
+    if (existing && existing !== call) {
+      const verdict = resolveCallGlare(
+        myId,
+        call.peer,
+        (existing as unknown as { __dir?: 'in' | 'out' }).__dir
+      )
+      if (verdict === 'drop-incoming') {
+        diagLog('p2p', 'call.duplicate-dropped', { fromPeer: call.peer })
+        try {
+          call.close()
+        } catch {}
+        return
+      }
+      diagLog('p2p', 'call.duplicate-replaced', { fromPeer: call.peer })
+      mediaCalls.delete(call.peer)
+      try {
+        ;(existing as unknown as { close?: () => void }).close?.()
+      } catch {}
+    }
+
+    const localStream = useMediaStore.getState().localStream
+    const isSharing = useMediaStore.getState().isScreenSharing
+    const screenStream = useMediaStore.getState().localScreenStream
+    const isMuted = useMediaStore.getState().isMuted
+
+    if (localStream) {
+      localStream.getAudioTracks().forEach((t) => {
+        t.enabled = !isMuted
+      })
+    }
+
+    useGameStore.getState().setCallState(call.peer, 'connecting')
+
+    let streamToAnswer: MediaStream
+
+    if (isSharing && screenStream && screenStream.getVideoTracks()[0]) {
+      const combined = new MediaStream()
+      if (localStream) {
+        localStream.getAudioTracks().forEach((t) => combined.addTrack(t))
+      }
+      screenStream.getVideoTracks().forEach((t) => combined.addTrack(t))
+      streamToAnswer = combined
+    } else if (localStream) {
+      streamToAnswer = localStream
+    } else {
+      streamToAnswer = new MediaStream()
+      diagLog('p2p', 'call.answer-empty-no-local-stream', { fromPeer: call.peer })
+    }
+
+    diagLog('p2p', 'call.answer', {
+      fromPeer: call.peer,
+      sharing: isSharing,
+      tracks: summarizeStream(streamToAnswer),
+    })
+    call.answer(streamToAnswer)
+    ;(call as unknown as { __dir?: 'in' | 'out' }).__dir = 'in'
+    mediaCalls.set(call.peer, call)
+
+    const remotePlayer = useGameStore.getState().remotePlayers[call.peer]
+
+    MediaCallHandler.setupCallLifecycle({
+      call,
+      peerId: call.peer,
+      direction: 'in',
+      remotePlayerName: remotePlayer?.name,
+      mediaCalls,
+      endMediaCallWithPeer,
+      onCallConnected,
+      attemptRedialIfEligible,
+    })
+  }
+
+  /**
+   * Check if local player and remote peer are in the same Private Zone and manage MediaCall.
+   */
   static checkZoneCallEligibility(
     remotePlayer: Player,
     peer: Peer | null,
@@ -382,7 +727,6 @@ export class MediaCallHandler {
 
         useGameStore.getState().setCallState(remotePlayer.id, 'connecting')
 
-        // Dial WITH the real stream — single negotiation, fully PeerJS-driven.
         const streamToSend = MediaCallHandler.buildOutboundStream()
         diagLog('p2p', 'call.dial', {
           toPeer: remotePlayer.id,
@@ -390,164 +734,33 @@ export class MediaCallHandler {
           zone: localPlayer.currentZoneId,
           tracks: summarizeStream(streamToSend),
         })
+
         const call = peer.call(remotePlayer.id, streamToSend)
         if (!call) {
           useGameStore.getState().setCallState(remotePlayer.id, 'failed')
           diagLog('p2p', 'call.dial-nocall', { toPeer: remotePlayer.id })
           return
         }
-        // Role tag for glare resolution (see resolveCallGlare).
+
         ;(call as unknown as { __dir?: CallDirection }).__dir = 'out'
-
-        const pc = (call as any).peerConnection as RTCPeerConnection
-        if (pc) {
-          try {
-            prioritizeH264HardwareCodec(pc)
-            if (pc.addEventListener) {
-              pc.addEventListener('negotiationneeded', () => {
-                prioritizeH264HardwareCodec(pc)
-              })
-            }
-          } catch (e) {}
-
-          try {
-            if (typeof (pc as any).setConfiguration === 'function') {
-              ;(pc as any).setConfiguration(SHARED_RTC_CONFIG)
-            }
-          } catch (e) {}
-          // Inbound track arrival + mute/unmute transitions (receiver-side
-          // visibility for "why is the tile black" — 'stream' alone is not
-          // enough since replaceTrack never re-fires it).
-          MediaCallHandler.watchRemoteTracks(pc, remotePlayer.id, 'out')
-        }
-
-        // Seed from the adaptive engine (just reset to 1ms/1ms below), NOT
-        // from the stale store value — liveBufferDelay may still hold a high
-        // number from a previous bad network, which would front-load this
-        // brand-new call with latency it doesn't need.
-        const applyBuffer = () => {
-          const bufs = DynamicBufferManager.getInstance().getBuffers()
-          MediaCallHandler.applyReceiverBuffer(pc, bufs.video.currentMs, bufs.audio.currentMs)
-        }
-
-        try {
-          if (pc && pc.addEventListener) {
-            pc.addEventListener('track', () => {
-              setTimeout(applyBuffer, 50)
-            })
-          }
-        } catch (e) {}
-
-        // Seed adaptive buffer state for this brand-new connection so it
-        // starts at the floor (1ms audio, 1ms video) and only grows if
-        // the network actually shows jitter / loss.
-        DynamicBufferManager.getInstance().resetForNewCall()
-
-        let settled = false
-        let iceTimeout: any = null
-        const markConnected = (reason: string) => {
-          if (settled) return
-          settled = true
-          if (iceTimeout) {
-            clearTimeout(iceTimeout)
-            iceTimeout = null
-          }
-          console.log(`[Zone Call] Connected with ${remotePlayer.name} (${reason})`)
-          diagLog('p2p', 'call.outgoing-connected', { withPeer: remotePlayer.id, reason })
-          // Prove the sender side is actually transmitting (bytesSent).
-          MediaCallHandler.logSenderSnapshot(mediaCalls, 'outgoing-connected')
-          if (pc) MediaCallHandler.applyEncoderCaps(pc)
-          applyBuffer()
-          useGameStore.getState().setCallState(remotePlayer.id, 'connected')
-          onCallConnected?.(remotePlayer.id)
-        }
-        const markFailed = (reason: string) => {
-          if (settled) return
-          settled = true
-          if (iceTimeout) {
-            clearTimeout(iceTimeout)
-            iceTimeout = null
-          }
-          console.warn(`[Zone Call] Failed with ${remotePlayer.name} (${reason})`)
-          diagLog('p2p', 'call.outgoing-failed', {
-            withPeer: remotePlayer.id,
-            reason,
-            iceState: (pc as RTCPeerConnection | null)?.iceConnectionState,
-          })
-          useGameStore.getState().setCallState(remotePlayer.id, 'failed')
-        }
-
-        if (pc && pc.addEventListener) {
-          pc.addEventListener('iceconnectionstatechange', () => {
-            const s = pc.iceConnectionState
-            if (s === 'connected' || s === 'completed') {
-              markConnected('ice=' + s)
-            } else if (s === 'failed') {
-              markFailed('ice=failed')
-            }
-          })
-          pc.addEventListener('connectionstatechange', () => {
-            const s = pc.connectionState
-            if (s === 'connected') {
-              markConnected('pc=connected')
-            } else if (s === 'failed') {
-              markFailed('pc=failed')
-            }
-          })
-        }
-
-        // Safety net for the race where ICE connected BEFORE our listeners
-        // were attached (practically impossible, but free to check): only
-        // settle when the transport is provably up — never fake 'connected'.
-        iceTimeout = setTimeout(() => {
-          try {
-            const s = pc?.iceConnectionState
-            if (s === 'connected' || s === 'completed') markConnected('late-ice=' + s)
-          } catch (e) {}
-        }, ICE_CONNECT_TIMEOUT_MS)
-
-        call.on('stream', (remoteStream) => {
-          // A losing glare duplicate can still fire after being replaced:
-          // only the map's current call may drive the tile and the state.
-          if (mediaCalls.get(remotePlayer.id) !== call) {
-            diagLog('p2p', 'call.remote-stream-stale', { fromPeer: remotePlayer.id })
-            return
-          }
-          // First remote track = media provably flowing end-to-end.
-          markConnected('remote-stream')
-          applyBuffer()
-          diagLog('p2p', 'call.remote-stream', {
-            fromPeer: remotePlayer.id,
-            tracks: summarizeStream(remoteStream),
-          })
-          useMediaStore.getState().setPeerStream(remotePlayer.id, remoteStream)
-        })
-        call.on('close', () => {
-          if (iceTimeout) clearTimeout(iceTimeout)
-          diagLog('p2p', 'call.closed', {
-            withPeer: remotePlayer.id,
-            current: mediaCalls.get(remotePlayer.id) === call,
-          })
-          if (mediaCalls.get(remotePlayer.id) === call) {
-            useGameStore.getState().setCallState(remotePlayer.id, 'idle')
-            useMediaStore.getState().removePeerStream(remotePlayer.id)
-          }
-        })
-        call.on('error', () => {
-          if (iceTimeout) clearTimeout(iceTimeout)
-          diagLog('p2p', 'call.error', {
-            withPeer: remotePlayer.id,
-            current: mediaCalls.get(remotePlayer.id) === call,
-          })
-          if (mediaCalls.get(remotePlayer.id) === call) {
-            useGameStore.getState().setCallState(remotePlayer.id, 'failed')
-            useMediaStore.getState().removePeerStream(remotePlayer.id)
-          }
-        })
         mediaCalls.set(remotePlayer.id, call)
+
+        MediaCallHandler.setupCallLifecycle({
+          call,
+          peerId: remotePlayer.id,
+          direction: 'out',
+          remotePlayerName: remotePlayer.name,
+          mediaCalls,
+          endMediaCallWithPeer,
+          onCallConnected,
+          attemptRedialIfEligible: () => {
+            const curRemote = useGameStore.getState().remotePlayers[remotePlayer.id]
+            if (curRemote) {
+              MediaCallHandler.checkZoneCallEligibility(curRemote, peer, mediaCalls, endMediaCallWithPeer, onCallConnected)
+            }
+          },
+        })
       } else if (!existingCall) {
-        // Same zone, should be calling, but can't: no peer yet or no local
-        // media. This silent skip is a classic "nobody hears nobody" cause.
         diagLog('p2p', 'call.dial-skipped', {
           withPeer: remotePlayer.id,
           hasPeer: !!peer,
@@ -559,10 +772,30 @@ export class MediaCallHandler {
       if (existingCall) {
         console.log(`[Zone Call] Leaving zone with ${remotePlayer.name}, terminating media call`)
         diagLog('p2p', 'call.terminated-left-zone', { withPeer: remotePlayer.id })
+        MediaCallHandler.callRetryCounts.delete(remotePlayer.id)
+        MediaCallHandler.clearCallRetryTimer(remotePlayer.id)
+        MediaCallHandler.clearIceDisconnectTimer(remotePlayer.id)
         useGameStore.getState().setCallState(remotePlayer.id, 'idle')
         endMediaCallWithPeer(remotePlayer.id)
       }
     }
+  }
+
+  /**
+   * Manually trigger retry for a peer in the same zone.
+   */
+  static retryCall(
+    remotePlayer: Player,
+    peer: Peer | null,
+    mediaCalls: Map<string, MediaConnection>,
+    endMediaCallWithPeer: (peerId: string) => void,
+    onCallConnected?: (peerId: string) => void
+  ) {
+    MediaCallHandler.callRetryCounts.delete(remotePlayer.id)
+    MediaCallHandler.clearCallRetryTimer(remotePlayer.id)
+    MediaCallHandler.clearIceDisconnectTimer(remotePlayer.id)
+    endMediaCallWithPeer(remotePlayer.id)
+    MediaCallHandler.checkZoneCallEligibility(remotePlayer, peer, mediaCalls, endMediaCallWithPeer, onCallConnected)
   }
 
   /**
@@ -698,6 +931,8 @@ export class MediaCallHandler {
   }
 
   static endMediaCall(mediaCalls: Map<string, MediaConnection>, peerId: string) {
+    MediaCallHandler.clearCallRetryTimer(peerId)
+    MediaCallHandler.clearIceDisconnectTimer(peerId)
     const call = mediaCalls.get(peerId)
     if (call) {
       try {
@@ -710,6 +945,11 @@ export class MediaCallHandler {
   }
 
   static endAllMediaCalls(mediaCalls: Map<string, MediaConnection>) {
+    MediaCallHandler.callRetryTimers.forEach((t) => clearTimeout(t))
+    MediaCallHandler.callRetryTimers.clear()
+    MediaCallHandler.callRetryCounts.clear()
+    MediaCallHandler.iceDisconnectTimers.forEach((t) => clearTimeout(t))
+    MediaCallHandler.iceDisconnectTimers.clear()
     const peerIds: string[] = []
     mediaCalls.forEach((call, peerId) => {
       try {

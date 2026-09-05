@@ -15,6 +15,8 @@ export interface ParticipantData {
   isSpeaking?: boolean
   shirtColor?: string
   statusEmoji?: string
+  callState?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'
+  onRetryCall?: () => void
 }
 
 interface Props {
@@ -149,6 +151,30 @@ export const GridParticipantTile: React.FC<Props> = ({
           </div>
         )}
 
+        {/* Reconnecting Badge in sidebar */}
+        {!user.isLocal && !isLive && user.callState === 'reconnecting' && (
+          <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1 px-1.5 py-0.5 bg-amber-500 text-white rounded text-[8px] font-bold shadow animate-pulse">
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+            <span>RECONECTANDO</span>
+          </div>
+        )}
+
+        {/* Failed overlay in sidebar */}
+        {!user.isLocal && !isLive && user.callState === 'failed' && (
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-1 text-center">
+            <span className="text-[10px] text-rose-400 font-bold mb-1">Chamada caiu</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                user.onRetryCall?.()
+              }}
+              className="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[9px] rounded font-bold"
+            >
+              Reconectar
+            </button>
+          </div>
+        )}
+
         {/* Small Bottom Name Tag */}
         <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between px-2 py-0.5 bg-black/70 backdrop-blur-md rounded-lg text-[10px] text-white">
           <span className="truncate font-semibold">
@@ -224,15 +250,42 @@ export const GridParticipantTile: React.FC<Props> = ({
         </>
       )}
 
-      {/* Top Badges: LIVE indicator + Action Buttons */}
+      {/* Top Badges: LIVE indicator + Reconnecting + Action Buttons */}
       <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none z-10">
         {isLive ? (
           <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-600/95 text-white rounded-xl text-xs font-bold shadow-lg flex-shrink-0 animate-pulse pointer-events-auto">
             <Radio className="w-3.5 h-3.5" />
             <span>TRANSMISSÃO AO VIVO DE TELA</span>
           </div>
+        ) : !user.isLocal && user.callState === 'reconnecting' ? (
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/95 text-white rounded-xl text-xs font-bold shadow-lg flex-shrink-0 animate-pulse pointer-events-auto">
+            <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+            <span>RECONECTANDO ÁUDIO/VÍDEO...</span>
+          </div>
+        ) : !user.isLocal && user.callState === 'connecting' ? (
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-500/95 text-white rounded-xl text-xs font-bold shadow-lg flex-shrink-0 animate-pulse pointer-events-auto">
+            <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+            <span>CONECTANDO ÁUDIO/VÍDEO...</span>
+          </div>
         ) : (
           <div />
+        )}
+
+        {/* Failed state overlay for main tile */}
+        {!user.isLocal && !isLive && user.callState === 'failed' && (
+          <div className="absolute inset-0 bg-black/85 backdrop-blur-md z-30 flex flex-col items-center justify-center p-4 text-center pointer-events-auto">
+            <span className="text-base text-rose-400 font-bold mb-1">Conexão de áudio/vídeo perdida</span>
+            <p className="text-xs text-slate-300 mb-3 max-w-xs">A chamada com este participante caiu devido a instabilidade na rede.</p>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                user.onRetryCall?.()
+              }}
+              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg transition-all active:scale-95 cursor-pointer"
+            >
+              Reconectar Chamada
+            </button>
+          </div>
         )}
 
         {/* Action buttons on hover */}

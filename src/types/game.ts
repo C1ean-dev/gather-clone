@@ -143,10 +143,13 @@ export interface Player {
    * - `idle`     : no zone call active (default, also used when player leaves zone)
    * - `connecting` : zone call was created, ICE/codecs still negotiating
    * - `connected` : at least one media track is flowing end-to-end
+   * - `reconnecting` : connection dropped or ICE restarted, attempt in progress
    * - `failed`   : connection attempt gave up (timeout / ICE failed)
    */
-  callState?: 'idle' | 'connecting' | 'connected' | 'failed'
+  callState?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'
 }
+
+export type ConnectionStatus = 'connected' | 'connecting' | 'reconnecting' | 'disconnected'
 
 export interface ReactionItem {
   id: string

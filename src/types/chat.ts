@@ -10,6 +10,14 @@ export interface Channel {
   zoneId?: string      // for zone chat
 }
 
+export interface ChatAttachment {
+  id: string
+  name: string
+  size: number
+  type: string // MIME type e.g. 'image/png', 'application/pdf'
+  dataUrl: string // base64 data url for direct download or image rendering
+}
+
 export interface ChatMessage {
   id: string
   senderId: string
@@ -19,4 +27,6 @@ export interface ChatMessage {
   timestamp: number
   avatarConfig?: any
   reactions?: Record<string, string[]> // emoji -> array of userIds
+  attachment?: ChatAttachment
 }
+

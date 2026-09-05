@@ -57,6 +57,7 @@ export const TopNavBar: React.FC<Props> = ({
   const totalUnread = useChatStore((s) => s.channels.reduce((acc, c) => acc + c.unreadCount, 0))
   const isMuted = useMediaStore((s) => s.isMuted)
   const toggleMute = useMediaStore((s) => s.toggleMute)
+  const connectionStatus = useGameStore((s) => s.connectionStatus)
 
   const [copied, setCopied] = useState(false)
   const [autoSavedNotice, setAutoSavedNotice] = useState(false)
@@ -152,6 +153,29 @@ export const TopNavBar: React.FC<Props> = ({
                 Dono
               </span>
             )}
+          </button>
+        )}
+
+        {/* Network / Connection Health Badge */}
+        {connectionStatus === 'reconnecting' && (
+          <div
+            className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/15 border border-amber-500/40 rounded-xl text-xs font-semibold text-amber-300 animate-pulse"
+            title="Conexão com a rede P2P instável. Tentando reconectar automaticamente..."
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+            <span>Reconectando...</span>
+          </div>
+        )}
+
+        {connectionStatus === 'disconnected' && roomId && (
+          <button
+            onClick={() => PeerManager.getInstance().scheduleSignalingReconnect()}
+            className="flex items-center gap-1.5 px-3 py-1 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 rounded-xl text-xs font-semibold text-rose-300 transition-all cursor-pointer shadow-sm active:scale-95"
+            title="Conexão com o servidor perdida. Clique para tentar reconectar agora."
+          >
+            <span className="w-2 h-2 rounded-full bg-rose-500" />
+            <span>Desconectado</span>
+            <span className="underline ml-1 font-bold">Reconectar</span>
           </button>
         )}
       </div>

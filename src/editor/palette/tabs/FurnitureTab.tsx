@@ -62,7 +62,7 @@ export const FurnitureTab: React.FC<Props> = ({
   return (
     <div className="space-y-3">
       {/* Dynamic Category Pills */}
-      <div className="flex items-center gap-1 overflow-x-auto pb-1">
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 max-w-full">
         {categories.map((cat) => {
           const isActive = furnitureCategory === cat
           const catCount = allFurniture.filter((f) => f.category === cat).length
@@ -123,67 +123,80 @@ export const FurnitureTab: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Item Grid */}
+      {/* Item Grid - Compact Square Tiles */}
       {filteredFurniture.length > 0 ? (
-        <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto p-1">
+        <div className="grid grid-cols-3 gap-2 max-h-80 overflow-y-auto p-0.5">
           {filteredFurniture.map((item) => {
             const isSelected = selectedFurnitureDefId === item.id && activeTool === 'place_furniture'
-            const isCustom = item.isCustom
             return (
               <div
                 key={item.id}
-                className={`relative p-2.5 rounded-xl border flex flex-col items-center gap-1.5 text-left transition-all group ${
+                onClick={() => {
+                  setSelectedFurnitureDefId(item.id)
+                  setActiveTool('place_furniture')
+                }}
+                className={`group relative aspect-square rounded-xl border flex flex-col items-center justify-between p-1.5 transition-all select-none cursor-pointer ${
                   isSelected
-                    ? 'border-indigo-500 bg-indigo-500/15 shadow-lg shadow-indigo-500/10 ring-2 ring-indigo-500/30'
-                    : 'border-[#2a3142] bg-[#12151d]/50 hover:border-slate-500'
+                    ? 'border-indigo-500 bg-indigo-500/20 shadow-md shadow-indigo-500/20 ring-2 ring-indigo-500/40'
+                    : 'border-[#2a3142] bg-[#12151d]/60 hover:border-slate-500 hover:bg-[#181d28]'
                 }`}
+                title={`${item.name} (${item.width}×${item.height} tiles • ${item.isObstacle ? 'Obstáculo' : 'Livre'})`}
               >
-                {/* Top Action Buttons (Edit & Delete) */}
-                <div className="absolute top-1.5 right-1.5 flex items-center gap-1 z-10">
-                  {openEditModal && (
+                {/* Top Indicators & Actions */}
+                <div className="w-full flex items-center justify-between z-10 pointer-events-none">
+                  <span className="text-[9px] font-mono font-bold px-1 py-0.5 rounded bg-black/60 text-slate-300 backdrop-blur-xs leading-none">
+                    {item.width}×{item.height}
+                  </span>
+
+                  <div className="flex items-center gap-0.5 pointer-events-auto">
+                    {openEditModal && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openEditModal(item.id, 'compose')
+                        }}
+                        className="p-1 rounded-md bg-blue-500/30 hover:bg-blue-500/60 text-blue-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        title={`Editar mobília "${item.name}"`}
+                      >
+                        <Pencil className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        openEditModal(item.id, 'compose')
+                        setAssetToDelete({ id: item.id, name: item.name })
                       }}
-                      className="p-1 rounded-md bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 hover:text-blue-200 opacity-80 hover:opacity-100 transition-all shadow-sm"
-                      title={`Editar mobília "${item.name}"`}
+                      className="p-1 rounded-md bg-rose-500/30 hover:bg-rose-500/60 text-rose-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                      title={`Excluir mobília "${item.name}"`}
                     >
-                      <Pencil className="w-3 h-3" />
+                      <Trash2 className="w-2.5 h-2.5" />
                     </button>
-                  )}
 
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setAssetToDelete({ id: item.id, name: item.name })
-                    }}
-                    className="p-1 rounded-md bg-rose-500/20 hover:bg-rose-500/40 text-rose-400 hover:text-rose-200 opacity-80 hover:opacity-100 transition-all shadow-sm"
-                    title={`Excluir mobília "${item.name}"`}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
+                    {item.isObstacle ? (
+                      <span
+                        className="text-[10px] leading-none opacity-80 group-hover:hidden"
+                        title="Obstáculo com colisão"
+                      >
+                        🛡️
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
 
-                <button
-                  onClick={() => {
-                    setSelectedFurnitureDefId(item.id)
-                    setActiveTool('place_furniture')
-                  }}
-                  className="w-full flex flex-col items-center gap-1.5"
-                >
-                  <div className="w-full h-12 rounded-lg overflow-hidden border border-white/10 shadow-inner bg-[#181d28] flex items-center justify-center">
-                    <PixelArtThumbnail type="furniture" id={item.id} size={48} />
+                {/* Center Sprite Thumbnail */}
+                <div className="flex-1 flex items-center justify-center w-full min-h-0 overflow-hidden py-0.5">
+                  <PixelArtThumbnail type="furniture" id={item.id} size={48} />
+                </div>
+
+                {/* Bottom Label */}
+                <div className="w-full text-center px-0.5">
+                  <div className="text-[11px] font-semibold text-slate-200 truncate leading-tight">
+                    {item.name}
                   </div>
-                  <div className="w-full">
-                    <div className="text-xs font-semibold text-slate-200 truncate">{item.name}</div>
-                    <div className="text-[10px] text-slate-400">
-                      {item.width}x{item.height} tiles • {item.isObstacle ? '🛡️ Obstáculo' : 'Livre'}
-                    </div>
-                  </div>
-                </button>
+                </div>
               </div>
             )
           })}

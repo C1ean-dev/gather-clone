@@ -24,6 +24,7 @@ import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
 import { useChatStore } from '../store/useChatStore'
 import { MediaManager } from '../media/MediaManager'
+import { PeerManager } from '../p2p/PeerManager'
 import { ScreenShareModal } from './ScreenShareModal'
 import { attachStreamToVideo } from '../media/attachVideoElement'
 
@@ -36,6 +37,8 @@ interface VideoTileProps {
   isScreenSharing?: boolean
   isScreenTrack?: boolean
   color?: string
+  callState?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'
+  onRetryCall?: () => void
   onClick?: () => void
 }
 
@@ -48,6 +51,8 @@ const VideoTile: React.FC<VideoTileProps> = ({
   isScreenSharing,
   isScreenTrack,
   color,
+  callState,
+  onRetryCall,
   onClick,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -124,6 +129,36 @@ const VideoTile: React.FC<VideoTileProps> = ({
         <div className="absolute top-1.5 left-1.5 flex items-center gap-1 px-1.5 py-0.5 bg-rose-600 text-white rounded text-[8px] font-bold shadow animate-pulse">
           <Radio className="w-2.5 h-2.5" />
           <span>{isScreenTrack ? 'TELA AO VIVO' : 'AO VIVO'}</span>
+        </div>
+      )}
+
+      {/* Call State Badges */}
+      {!isLocal && !isScreenTrack && callState === 'reconnecting' && (
+        <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1 px-1.5 py-0.5 bg-amber-500/90 text-white rounded text-[8px] font-bold shadow animate-pulse">
+          <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+          <span>RECONECTANDO</span>
+        </div>
+      )}
+
+      {!isLocal && !isScreenTrack && callState === 'connecting' && (
+        <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1 px-1.5 py-0.5 bg-indigo-500/90 text-white rounded text-[8px] font-bold shadow animate-pulse">
+          <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+          <span>CONECTANDO</span>
+        </div>
+      )}
+
+      {!isLocal && !isScreenTrack && callState === 'failed' && (
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-1 text-center">
+          <span className="text-[10px] text-rose-400 font-bold mb-1">Chamada caiu</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onRetryCall?.()
+            }}
+            className="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[9px] rounded-lg font-bold transition-all cursor-pointer shadow active:scale-95"
+          >
+            Reconectar
+          </button>
         </div>
       )}
 
@@ -373,7 +408,7 @@ const MiniCallOverlayInner: React.FC = () => {
   const toggleMute = useMediaStore((s) => s.toggleMute)
   const toggleCamera = useMediaStore((s) => s.toggleCamera)
 
-  const { localPlayer, remotePlayers } = useGameStore()
+  const { localPlayer, remotePlayers, callStates } = useGameStore()
   const { mapData } = useMapStore()
 
   const isChatOpen = useChatStore((state) => state.isChatOpen)
@@ -393,6 +428,10 @@ const MiniCallOverlayInner: React.FC = () => {
   // Filter remote participants who are in the same zone
   const peersInSameZone = Object.values(remotePlayers).filter(
     (p) => p.currentZoneId === localPlayer.currentZoneId
+  )
+
+  const isAnyReconnecting = peersInSameZone.some(
+    (p) => callStates[p.id] === 'reconnecting'
   )
 
   // Find if there is an active screen share in this zone (local or remote)
@@ -468,6 +507,12 @@ const MiniCallOverlayInner: React.FC = () => {
               <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded-full">
                 {peersInSameZone.length + 1} online
               </span>
+              {isAnyReconnecting && (
+                <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                  Reconectando
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-1">
@@ -531,6 +576,8 @@ const MiniCallOverlayInner: React.FC = () => {
                 isScreenSharing={peer.isScreenSharing}
                 isScreenTrack={peer.isScreenSharing}
                 color={peer.avatar.shirtColor}
+                callState={callStates[peer.id] || peer.callState || 'idle'}
+                onRetryCall={() => PeerManager.getInstance().retryZoneCall(peer.id)}
                 onClick={() => setGridCallOpen(true)}
               />
             ))}
