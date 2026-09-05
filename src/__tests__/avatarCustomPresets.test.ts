@@ -114,5 +114,49 @@ describe('Custom Avatar Presets & Persistence', () => {
     expect(avatar.customComponents?.jacket).toBeUndefined()
     expect(avatar.jacketType).toBe('none')
   })
+
+  it('should support multi-frame directional walk cycles in custom assets and avatar components', () => {
+    const store = useCustomAssetsStore.getState()
+    const multiFrameAsset: CustomAsset = {
+      id: 'avatar_walk_cycle_test_456',
+      name: 'Personagem Aventureiro',
+      type: 'avatar',
+      category: 'Avatares',
+      avatarSlot: 'other',
+      width: 1,
+      height: 1,
+      isObstacle: false,
+      frames: ['data:image/png;base64,down0', 'data:image/png;base64,up0', 'data:image/png;base64,left0', 'data:image/png;base64,right0'],
+      directionalFrames: {
+        down: ['data:image/png;base64,down0', 'data:image/png;base64,down1', 'data:image/png;base64,down2', 'data:image/png;base64,down3'],
+        up: ['data:image/png;base64,up0', 'data:image/png;base64,up1', 'data:image/png;base64,up2', 'data:image/png;base64,up3'],
+        left: ['data:image/png;base64,left0', 'data:image/png;base64,left1', 'data:image/png;base64,left2', 'data:image/png;base64,left3'],
+        right: ['data:image/png;base64,right0', 'data:image/png;base64,right1', 'data:image/png;base64,right2', 'data:image/png;base64,right3'],
+      },
+      frameRateMs: 160,
+      createdAt: Date.now(),
+      creationSource: 'studio',
+    }
+
+    store.addCustomAsset(multiFrameAsset)
+    const stored = useCustomAssetsStore.getState().customAssets.find((a) => a.id === multiFrameAsset.id)
+    expect(stored).toBeDefined()
+    expect(Array.isArray(stored?.directionalFrames?.down)).toBe(true)
+    expect(stored?.directionalFrames?.down).toHaveLength(4)
+    expect(stored?.directionalFrames?.left).toHaveLength(4)
+
+    // Equip onto avatar customComponents
+    const avatar: AvatarConfig = {
+      ...DEFAULT_AVATAR,
+      customComponents: {
+        other: stored?.directionalFrames,
+      },
+    }
+
+    const equippedFrames = avatar.customComponents?.other as Record<string, string[]>
+    expect(equippedFrames.down).toHaveLength(4)
+    expect(equippedFrames.down[1]).toBe('data:image/png;base64,down1')
+  })
 })
+
 

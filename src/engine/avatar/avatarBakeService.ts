@@ -1,22 +1,7 @@
 import {
   Direction,
   AvatarConfig,
-  HairStyleType,
-  TopType,
-  JacketType,
-  BottomType,
-  ShoesType,
-  HatType,
-  GlassesType,
-  OtherType,
-  FacialHairType,
-  EyeType,
-  SkinDetailType,
 } from '../../types/game'
-import { HairRenderer } from './hairRenderer'
-import { ClothingRenderer } from './clothingRenderer'
-import { FaceRenderer } from './faceRenderer'
-import { AccessoryRenderer } from './accessoryRenderer'
 import { AvatarAtlasManager } from './AvatarAtlasManager'
 
 /**
@@ -25,7 +10,7 @@ import { AvatarAtlasManager } from './AvatarAtlasManager'
 export function bakeAvatarPreset(
   category: string,
   presetId: string,
-  avatarConfig?: Partial<AvatarConfig>,
+  _avatarConfig?: Partial<AvatarConfig>,
   direction: Direction = 'down'
 ): string {
   if (!presetId || presetId === 'none') {
@@ -47,11 +32,7 @@ export function bakeAvatarPreset(
   ctx.imageSmoothingEnabled = false
   ctx.clearRect(0, 0, 32, 32)
 
-  // Standard center and base positions for a 32x32 character tile
-  const centerX = 16
-  const baseY = 25
-
-  // 1. Check if subtexture exists in AvatarAtlasManager
+  // 2. Check if subtexture exists in AvatarAtlasManager
   let searchDir = direction
   let flipX = false
   if (direction === 'left') {
@@ -86,144 +67,6 @@ export function bakeAvatarPreset(
       return canvas.toDataURL('image/png')
     }
   }
-
-  // 2. Fallback to procedural renderer
-  ctx.save()
-  switch (category) {
-    case 'hair':
-      HairRenderer.drawHair(
-        ctx,
-        centerX,
-        baseY,
-        direction,
-        presetId as HairStyleType,
-        avatarConfig?.hairColor || '#212529'
-      )
-      break
-
-    case 'top':
-      ClothingRenderer.drawTorsoAndTop(
-        ctx,
-        centerX,
-        baseY,
-        direction,
-        presetId as TopType,
-        avatarConfig?.topColor || '#212529',
-        'rgba(0,0,0,0)'
-      )
-      break
-
-    case 'jacket':
-      ClothingRenderer.drawJacket(
-        ctx,
-        centerX,
-        baseY,
-        direction,
-        presetId as JacketType,
-        avatarConfig?.jacketColor || '#4c6ef5'
-      )
-      break
-
-    case 'bottom':
-      ClothingRenderer.drawLegsAndShoes(
-        ctx,
-        centerX,
-        baseY,
-        direction,
-        presetId as BottomType,
-        avatarConfig?.bottomColor || '#212529',
-        'none',
-        '#000',
-        0,
-        false,
-        'rgba(0,0,0,0)'
-      )
-      break
-
-    case 'shoes':
-      ClothingRenderer.drawLegsAndShoes(
-        ctx,
-        centerX,
-        baseY,
-        direction,
-        'none',
-        '#000',
-        presetId as ShoesType,
-        avatarConfig?.shoesColor || '#e03131',
-        0,
-        false,
-        'rgba(0,0,0,0)'
-      )
-      break
-
-    case 'hat':
-      AccessoryRenderer.drawHat(
-        ctx,
-        centerX,
-        baseY,
-        direction,
-        presetId as HatType,
-        avatarConfig?.hatColor || '#fa5252'
-      )
-      break
-
-    case 'glasses':
-      AccessoryRenderer.drawGlasses(
-        ctx,
-        centerX,
-        baseY,
-        direction,
-        presetId as GlassesType,
-        avatarConfig?.glassesColor || '#343a40'
-      )
-      break
-
-    case 'other':
-      AccessoryRenderer.drawOther(
-        ctx,
-        centerX,
-        baseY,
-        direction,
-        presetId as OtherType,
-        avatarConfig?.otherColor || '#20c997'
-      )
-      break
-
-    case 'facialHair':
-      FaceRenderer.drawFacialHair(
-        ctx,
-        centerX,
-        baseY,
-        direction,
-        presetId as FacialHairType,
-        avatarConfig?.facialHairColor || '#212529'
-      )
-      break
-
-    case 'eyes':
-      FaceRenderer.drawHeadAndFace(
-        ctx,
-        centerX,
-        baseY,
-        direction,
-        'rgba(0,0,0,0)',
-        'smooth',
-        presetId as EyeType,
-        avatarConfig?.eyeColor || '#111'
-      )
-      break
-
-    case 'skin':
-      FaceRenderer.drawSkinDetails(
-        ctx,
-        centerX,
-        baseY,
-        direction,
-        presetId as SkinDetailType
-      )
-      break
-  }
-  ctx.restore()
 
   return canvas.toDataURL('image/png')
 }

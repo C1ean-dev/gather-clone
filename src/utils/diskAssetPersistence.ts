@@ -48,7 +48,7 @@ export async function saveAssetFileToDisk(
  */
 export async function savePetAtlasToDisk(
   cleanBase: string,
-  directionalFrames: Record<Direction, string>
+  directionalFrames: Record<Direction, string | string[]>
 ): Promise<{ pngDataUrl: string; xmlContent: string }> {
   const width = 32
   const height = 32
@@ -76,7 +76,8 @@ export async function savePetAtlasToDisk(
       })
 
     for (const d of directions) {
-      const frameSrc = directionalFrames[d.dir]
+      const rawSrc = directionalFrames[d.dir]
+      const frameSrc = Array.isArray(rawSrc) ? rawSrc[0] : rawSrc
       if (frameSrc) {
         try {
           const img = await loadImage(frameSrc)

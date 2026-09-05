@@ -7,6 +7,7 @@ import {
   Download,
   Upload,
   Scissors,
+  Paintbrush,
   Heart,
   Ban,
   Sparkles,
@@ -402,22 +403,33 @@ export const PetSelectorPanel: React.FC<Props> = ({
                     : 'border-[#383a40] bg-[#1e1f22] hover:border-slate-500'
                 }`}
               >
-                {/* Edit Button */}
-                <div
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleEditAsset(asset)
-                  }}
-                  title={
-                    detectAssetCreationSource(asset) === 'slicer' ||
-                    detectAssetCreationSource(asset) === 'atlas'
-                      ? `Editar ${asset.name} no Fatiador de Imagem`
-                      : `Editar ${asset.name} no Estúdio Pixel Art`
-                  }
-                  className="absolute top-1.5 left-1.5 w-6 h-6 rounded-lg bg-[#2b2d31]/90 hover:bg-[#3b82f6] text-slate-300 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-10 shadow-md cursor-pointer"
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </div>
+                {/* Pintar Pixels no Estúdio Pixel Art */}
+                {onEditPreset && (
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEditPreset('pet', asset.id, asset.name)
+                    }}
+                    title={`Pintar / Editar Pixels de ${asset.name} no Estúdio Pixel Art`}
+                    className="absolute top-1.5 left-1.5 w-6 h-6 rounded-lg bg-[#2b2d31]/90 hover:bg-[#3b82f6] text-slate-300 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-10 shadow-md cursor-pointer"
+                  >
+                    <Paintbrush className="w-3.5 h-3.5 text-blue-400" />
+                  </div>
+                )}
+
+                {/* Fatiar Folha de Sprites (se possuir spritesheet fonte) */}
+                {(detectAssetCreationSource(asset) === 'slicer' || detectAssetCreationSource(asset) === 'atlas') && (
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleEditAsset(asset)
+                    }}
+                    title={`Fatiar / Recortar Folha de Sprites de ${asset.name}`}
+                    className="absolute top-1.5 left-8 w-6 h-6 rounded-lg bg-[#2b2d31]/90 hover:bg-indigo-600 text-slate-300 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-10 shadow-md cursor-pointer"
+                  >
+                    <Scissors className="w-3.5 h-3.5 text-indigo-300" />
+                  </div>
+                )}
 
                 {/* Delete Button */}
                 <div
@@ -449,7 +461,7 @@ export const PetSelectorPanel: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Bottom Customization: Compact Name & Color Palette (matching ColorPalettePicker) */}
+      {/* Bottom Customization: Compact Name & Color Palette */}
       {currentPet.type !== 'none' && (
         <div className="pt-3 border-t border-[#383a40] flex items-center justify-between gap-3 shrink-0">
           {/* Pet Name input */}

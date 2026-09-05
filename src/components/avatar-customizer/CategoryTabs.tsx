@@ -1,29 +1,10 @@
 import React from 'react'
 import {
-  Smile,
-  Eye,
-  Sparkles,
-  User,
-  Shirt,
-  Layers,
-  Footprints,
-  Crown,
-  Glasses,
   UserCircle,
   Cat,
 } from 'lucide-react'
 
 export type CategoryKey =
-  | 'skin'
-  | 'eyes'
-  | 'hair'
-  | 'facialHair'
-  | 'top'
-  | 'jacket'
-  | 'bottom'
-  | 'shoes'
-  | 'hat'
-  | 'glasses'
   | 'other'
   | 'pet'
 
@@ -33,16 +14,6 @@ interface Props {
 }
 
 export const CATEGORIES = [
-  { id: 'skin', label: 'Maquiagem', icon: Smile },
-  { id: 'eyes', label: 'Olhos', icon: Eye },
-  { id: 'hair', label: 'Cabelo', icon: Sparkles },
-  { id: 'facialHair', label: 'Pelos faciais', icon: User },
-  { id: 'top', label: 'Parte de cima', icon: Shirt },
-  { id: 'jacket', label: 'Jaqueta', icon: Layers },
-  { id: 'bottom', label: 'Parte de baixo', icon: Footprints },
-  { id: 'shoes', label: 'Sapatos', icon: Footprints },
-  { id: 'hat', label: 'Chapéu', icon: Crown },
-  { id: 'glasses', label: 'Óculos', icon: Glasses },
   { id: 'other', label: 'Personagem', icon: UserCircle },
   { id: 'pet', label: 'Pet / Mascote', icon: Cat },
 ]

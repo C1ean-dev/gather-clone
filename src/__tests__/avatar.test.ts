@@ -14,7 +14,8 @@ describe('Avatar Customizer & Pixel Art Renderer - Expected Behaviors', () => {
     expect(DEFAULT_AVATAR.shoesType).toBe('none')
     expect(DEFAULT_AVATAR.hatType).toBe('none')
     expect(DEFAULT_AVATAR.glassesType).toBe('none')
-    expect(DEFAULT_AVATAR.otherType).toBe('none')
+    expect(DEFAULT_AVATAR.otherType).toBe('avatar_other_sliced_1788355059618_ozg3')
+    expect(DEFAULT_AVATAR.customAvatarId).toBe('avatar_other_sliced_1788355059618_ozg3')
   })
 
   it('should render avatar to a 2D canvas context without errors in all 4 directions', () => {
@@ -111,20 +112,20 @@ describe('Avatar Customizer & Pixel Art Renderer - Expected Behaviors', () => {
     const { AvatarAtlasManager } = await import('../engine/avatar/AvatarAtlasManager')
     AvatarAtlasManager.clearCache()
 
-    const hairXml = `
-      <TextureAtlas imagePath="hair.png">
-        <SubTexture name="hair_messy_down_0" x="10" y="20" width="32" height="32"/>
-        <SubTexture name="hair_messy_up_0" x="42" y="20" width="32" height="32"/>
-        <SubTexture name="hair_messy_right_0" x="74" y="20" width="32" height="32"/>
+    const otherXml = `
+      <TextureAtlas imagePath="characters.png">
+        <SubTexture name="other_hero_down_0" x="10" y="20" width="32" height="32"/>
+        <SubTexture name="other_hero_up_0" x="42" y="20" width="32" height="32"/>
+        <SubTexture name="other_hero_right_0" x="74" y="20" width="32" height="32"/>
       </TextureAtlas>
     `
-    AvatarAtlasManager.registerAtlasXml('hair', hairXml)
+    AvatarAtlasManager.registerAtlasXml('other', otherXml)
     const mockImg = {
       complete: true,
       naturalWidth: 96,
       naturalHeight: 64,
     } as unknown as HTMLImageElement
-    AvatarAtlasManager.setImage('hair', mockImg)
+    AvatarAtlasManager.setImage('other', mockImg)
 
     const drawCalls: any[] = []
     const mockCtx = {
@@ -159,7 +160,7 @@ describe('Avatar Customizer & Pixel Art Renderer - Expected Behaviors', () => {
       isMoving: false,
       avatar: {
         ...DEFAULT_AVATAR,
-        hairStyle: 'messy',
+        otherType: 'hero',
       },
       status: 'available',
       lastUpdated: Date.now(),
@@ -178,18 +179,18 @@ describe('Avatar Customizer & Pixel Art Renderer - Expected Behaviors', () => {
     const { AvatarAtlasManager } = await import('../engine/avatar/AvatarAtlasManager')
     AvatarAtlasManager.clearCache()
 
-    const hairXml = `
-      <TextureAtlas imagePath="hair.png">
-        <SubTexture name="hair_messy_right_0" x="74" y="20" width="32" height="32"/>
+    const otherXml = `
+      <TextureAtlas imagePath="characters.png">
+        <SubTexture name="other_hero_right_0" x="74" y="20" width="32" height="32"/>
       </TextureAtlas>
     `
-    AvatarAtlasManager.registerAtlasXml('hair', hairXml)
+    AvatarAtlasManager.registerAtlasXml('other', otherXml)
     const mockImg = {
       complete: true,
       naturalWidth: 96,
       naturalHeight: 64,
     } as unknown as HTMLImageElement
-    AvatarAtlasManager.setImage('hair', mockImg)
+    AvatarAtlasManager.setImage('other', mockImg)
 
     let scaledX = 1
     const mockCtx = {
@@ -224,7 +225,7 @@ describe('Avatar Customizer & Pixel Art Renderer - Expected Behaviors', () => {
       isMoving: false,
       avatar: {
         ...DEFAULT_AVATAR,
-        hairStyle: 'messy',
+        otherType: 'hero',
       },
       status: 'available',
       lastUpdated: Date.now(),
@@ -277,6 +278,44 @@ describe('Avatar Customizer & Pixel Art Renderer - Expected Behaviors', () => {
     }
 
     expect(() => AvatarRenderer.drawPlayer(mockCtx, fakePlayer, false, 0)).not.toThrow()
+  })
+
+  it('should support rendering retro character in all 4 directions', () => {
+    const mockCtx = {
+      save: () => {},
+      restore: () => {},
+      beginPath: () => {},
+      closePath: () => {},
+      fill: () => {},
+      stroke: () => {},
+      ellipse: () => {},
+      arc: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      fillRect: () => {},
+      strokeRect: () => {},
+      roundRect: () => {},
+      fillText: () => {},
+      translate: () => {},
+      scale: () => {},
+      drawImage: () => {},
+      measureText: () => ({ width: 40 }),
+    } as unknown as CanvasRenderingContext2D
+
+    for (const dir of ['down', 'left', 'right', 'up'] as const) {
+      const testPlayer: Player = {
+        id: 'test-retro-player',
+        name: 'RetroTester',
+        x: 0,
+        y: 0,
+        direction: dir,
+        isMoving: true,
+        avatar: { ...DEFAULT_AVATAR },
+        status: 'available',
+        lastUpdated: Date.now(),
+      }
+      expect(() => AvatarRenderer.drawPlayer(mockCtx, testPlayer, false, 0)).not.toThrow()
+    }
   })
 })
 

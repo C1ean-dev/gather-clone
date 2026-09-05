@@ -21,13 +21,16 @@ import {
   ChevronRight,
   ArrowRightLeft,
   GripVertical,
-  Move,
   Pipette,
   Wand2,
+  Paintbrush,
 } from 'lucide-react'
 import { AvatarComponentSlot, Direction } from '../../types/game'
 import { CustomAsset } from '../../types/customAsset'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
+import { useGameStore } from '../../store/useGameStore'
+import { DEFAULT_AVATAR } from '../../engine/Constants'
+import { AvatarPixelArtModal } from '../../editor/avatar/AvatarPixelArtModal'
 import { generateSparrowXml, downloadFile, PackedSubTexture } from '../../engine/avatar/avatarAtlasExporter'
 import { cropContentDataUrl } from '../../engine/avatar/avatarBakeService'
 import {
@@ -209,6 +212,135 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
   // Walk Cycle Animation Preview State
   const [isPlayingWalk, setIsPlayingWalk] = useState<boolean>(true)
   const [walkTick, setWalkTick] = useState<number>(0)
+
+  // Pixel Art Studio Direct Integration ("Pintar")
+  const [isPixelStudioOpen, setIsPixelStudioOpen] = useState<boolean>(false)
+
+  const getCurrentDirectionalFrames = useCallback((): Record<Direction, string[]> => {
+    const p = presets[activePresetIndex] || presets[0]
+
+    const getDirectionList = (dir: Direction): string[] => {
+      const slots = p?.directions?.[dir] || []
+      const urls = slots.map((s) => s.dataUrl).filter(Boolean)
+      if (urls.length > 0) return urls
+
+      if (editingAsset?.directionalFrames?.[dir]) {
+        const raw = editingAsset.directionalFrames[dir]
+        if (Array.isArray(raw)) {
+          const filtered = raw.filter(Boolean)
+          if (filtered.length > 0) return filtered
+        } else if (raw) {
+          return [raw]
+        }
+      }
+
+      if (dir === 'down' && editingAsset?.frames?.[0]) {
+        return [editingAsset.frames[0]]
+      }
+
+      return ['']
+    }
+
+    return {
+      down: getDirectionList('down'),
+      up: getDirectionList('up'),
+      left: getDirectionList('left'),
+      right: getDirectionList('right'),
+    }
+  }, [presets, activePresetIndex, editingAsset])
+
+  const handleSaveFromStudio = async (
+    newDirectionalFrames: Record<Direction, string | string[]>,
+    newName: string
+  ) => {
+    const toArray = (v?: string | string[]): string[] => {
+      if (!v) return []
+      return Array.isArray(v) ? v.filter(Boolean) : [v]
+    }
+
+    const downFrames = toArray(newDirectionalFrames.down)
+    const upFrames = toArray(newDirectionalFrames.up)
+    const leftFrames = toArray(newDirectionalFrames.left)
+    const rightFrames = toArray(newDirectionalFrames.right)
+
+    setPresets((prev) =>
+      prev.map((p, idx) => {
+        if (idx !== activePresetIndex) return p
+        return {
+          ...p,
+          name: newName || p.name,
+          directions: {
+            down: downFrames.map((url, i) => ({
+              x: p.directions.down[i]?.x || 0,
+              y: p.directions.down[i]?.y || 0,
+              w: p.directions.down[i]?.w || 32,
+              h: p.directions.down[i]?.h || 32,
+              dataUrl: url,
+            })),
+            up: upFrames.map((url, i) => ({
+              x: p.directions.up[i]?.x || 0,
+              y: p.directions.up[i]?.y || 0,
+              w: p.directions.up[i]?.w || 32,
+              h: p.directions.up[i]?.h || 32,
+              dataUrl: url,
+            })),
+            left: leftFrames.map((url, i) => ({
+              x: p.directions.left[i]?.x || 0,
+              y: p.directions.left[i]?.y || 0,
+              w: p.directions.left[i]?.w || 32,
+              h: p.directions.left[i]?.h || 32,
+              dataUrl: url,
+            })),
+            right: rightFrames.map((url, i) => ({
+              x: p.directions.right[i]?.x || 0,
+              y: p.directions.right[i]?.y || 0,
+              w: p.directions.right[i]?.w || 32,
+              h: p.directions.right[i]?.h || 32,
+              dataUrl: url,
+            })),
+          },
+        }
+      })
+    )
+
+    if (editingAsset) {
+      const store = useCustomAssetsStore.getState()
+      const firstDown = downFrames[0] || ''
+      const firstUp = upFrames[0] || ''
+      const firstLeft = leftFrames[0] || ''
+      const firstRight = rightFrames[0] || ''
+
+      const thumbnail = await cropContentDataUrl(firstDown || firstUp || firstLeft || firstRight || '')
+
+      store.updateCustomAsset(editingAsset.id, {
+        name: newName || editingAsset.name,
+        thumbnail,
+        directionalFrames: newDirectionalFrames,
+        frames: [firstDown, firstUp, firstLeft, firstRight],
+      })
+
+      const gameStore = useGameStore.getState()
+      const currentAvatar = gameStore.localPlayer.avatar
+      if (
+        currentAvatar.customAvatarId === editingAsset.id ||
+        currentAvatar.otherType === editingAsset.id ||
+        category === 'other'
+      ) {
+        gameStore.setLocalPlayer({
+          avatar: {
+            ...currentAvatar,
+            customComponents: {
+              ...currentAvatar.customComponents,
+              [category]: newDirectionalFrames,
+            },
+          },
+        })
+      }
+    }
+
+    setSavedSuccessCount(1)
+    setIsPixelStudioOpen(false)
+  }
 
   // Extract and process any rectangular region from source image
   const sliceRegion = useCallback(
@@ -1055,6 +1187,16 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setIsPixelStudioOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-500/25 transition-all cursor-pointer"
+              title="Pintar e editar os pixels deste personagem no Estúdio Pixel Art"
+            >
+              <Paintbrush className="w-4 h-4" />
+              <span>Pintar</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setShowXmlModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#2b2d31] hover:bg-[#383a40] text-slate-300 hover:text-white text-xs font-semibold border border-[#383a40] transition-colors cursor-pointer"
             >
@@ -1657,6 +1799,19 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
                             {frame.w || 16}×{frame.h || 16}
                           </span>
 
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setIsPixelStudioOpen(true)
+                            }}
+                            className="flex items-center gap-1 px-1.5 py-0.5 mt-1 rounded bg-[#1e1f22] hover:bg-[#3b82f6] text-slate-300 hover:text-white text-[9px] font-bold transition-colors cursor-pointer"
+                            title="Pintar e editar pixels no Estúdio Pixel Art"
+                          >
+                            <Paintbrush className="w-2.5 h-2.5 text-blue-400" />
+                            <span>Pintar</span>
+                          </button>
+
                           {/* Move Controls Strip (Move Left, Move Right, Transfer Direction) */}
                           <div className="flex items-center gap-1 mt-1.5 pt-1 border-t border-slate-800/80 w-full justify-center">
                             <button
@@ -1860,6 +2015,19 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Pixel Art Painting Studio Modal */}
+      {isPixelStudioOpen && (
+        <AvatarPixelArtModal
+          isOpen={isPixelStudioOpen}
+          onClose={() => setIsPixelStudioOpen(false)}
+          category={category}
+          presetName={presets[activePresetIndex]?.name || editingAsset?.name || 'Personagem'}
+          initialDirectionalFrames={getCurrentDirectionalFrames()}
+          avatar={useGameStore.getState().localPlayer.avatar || DEFAULT_AVATAR}
+          onSave={handleSaveFromStudio}
+        />
       )}
     </div>
   )

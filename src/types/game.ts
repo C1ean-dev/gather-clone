@@ -12,7 +12,7 @@ export type BottomType = 'none' | 'kimono_skirt' | 'jeans' | 'sweatpants' | 'ski
 export type ShoesType = 'none' | 'sneakers' | 'boots' | 'loafers' | 'sandals'
 export type HatType = 'none' | 'ribbon_bow' | 'cap_forward' | 'cap_backward' | 'beanie' | 'headband'
 export type GlassesType = 'none' | 'round' | 'square' | 'sunglasses' | 'wireframe' | 'glasses'
-export type OtherType = 'none' | 'headphones' | 'mask' | 'badge'
+export type OtherType = 'none' | 'headphones' | 'mask' | 'badge' | 'default' | (string & {})
 
 export type AvatarComponentSlot =
   | 'hair'

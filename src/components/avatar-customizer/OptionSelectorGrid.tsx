@@ -1,19 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Check, Pencil, Plus, Trash2, Download, Upload, Scissors } from 'lucide-react'
+import { Check, Pencil, Plus, Trash2, Download, Upload, Scissors, Paintbrush } from 'lucide-react'
 import {
   AvatarConfig,
   AvatarComponentSlot,
-  SkinDetailType,
-  EyeType,
-  HairStyleType,
-  FacialHairType,
-  TopType,
-  JacketType,
-  BottomType,
-  ShoesType,
-  HatType,
-  GlassesType,
-  OtherType,
 } from '../../types/game'
 import { CategoryKey } from './CategoryTabs'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
@@ -132,109 +121,39 @@ export const OptionSelectorGrid: React.FC<Props> = ({
     }
   }
 
-  const categoryCustomAssets = customAssets.filter(
-    (a) => a.type === 'avatar' && a.avatarSlot === activeCategory
-  )
+  const categoryCustomAssets = customAssets
+    .filter((a) => a.type === 'avatar' && a.avatarSlot === activeCategory)
+    .sort((a, b) => {
+      const isRetroA = a.id === 'avatar_other_sliced_1788355059618_ozg3' || a.name.toLowerCase() === 'retro'
+      const isRetroB = b.id === 'avatar_other_sliced_1788355059618_ozg3' || b.name.toLowerCase() === 'retro'
+      if (isRetroA) return -1
+      if (isRetroB) return 1
+      return 0
+    })
 
   const handleConfirmDelete = (asset: CustomAsset) => {
-    // 1. Delete from custom assets store (syncs nativeAssets.json & P2P)
     deleteCustomAsset(asset.id)
 
-    // 2. If current player is wearing this asset, safely reset to default
     const slot = activeCategory as AvatarComponentSlot
     const currentComp = avatar.customComponents?.[slot]
     const isEquipped =
+      avatar.customAvatarId === asset.id ||
+      avatar.otherType === asset.id ||
       currentComp === asset.directionalFrames ||
       currentComp === asset.frames[0] ||
-      currentComp === asset.id ||
-      (typeof currentComp === 'object' && (currentComp as any)?.down === asset.frames[0])
+      currentComp === asset.id
 
     if (isEquipped) {
-      const updatedComponents = { ...avatar.customComponents }
-      delete updatedComponents[slot]
-
-      const fallbackUpdate: Partial<AvatarConfig> = {
-        customComponents: updatedComponents,
-      }
-
-      switch (slot) {
-        case 'hair': fallbackUpdate.hairStyle = 'none'; break
-        case 'top': fallbackUpdate.topType = 'none'; break
-        case 'jacket': fallbackUpdate.jacketType = 'none'; break
-        case 'bottom': fallbackUpdate.bottomType = 'none'; break
-        case 'shoes': fallbackUpdate.shoesType = 'none'; break
-        case 'hat': fallbackUpdate.hatType = 'none'; break
-        case 'glasses': fallbackUpdate.glassesType = 'none'; break
-        case 'other': fallbackUpdate.otherType = 'none'; break
-        case 'facialHair': fallbackUpdate.facialHair = 'none'; break
-        case 'eyes': fallbackUpdate.eyeType = 'normal'; break
-        case 'skin': fallbackUpdate.skinDetail = 'smooth'; break
-      }
-
       onChangeAvatar({
         ...avatar,
-        ...fallbackUpdate,
+        customSkinUrl: undefined,
+        customAvatarId: 'avatar_other_sliced_1788355059618_ozg3',
+        otherType: 'avatar_other_sliced_1788355059618_ozg3',
+        customComponents: {},
       })
     }
 
     setDeletingAsset(null)
-  }
-
-  const selectNativePreset = (update: Partial<AvatarConfig>) => {
-    const updatedComponents = { ...avatar.customComponents }
-    delete updatedComponents[activeCategory as AvatarComponentSlot]
-    onChangeAvatar({
-      ...avatar,
-      ...update,
-      customComponents: updatedComponents,
-    })
-  }
-
-  const renderCard = (
-    item: { id: string; label: string },
-    isSelected: boolean,
-    iconContent: React.ReactNode,
-    onSelect: () => void
-  ) => {
-    // If a customComponent for this activeCategory is equipped, no native preset is considered selected
-    const isCustomEquipped = !!avatar.customComponents?.[activeCategory as AvatarComponentSlot]
-    const effectiveSelected = !isCustomEquipped && isSelected
-
-    return (
-      <button
-        key={item.id}
-        onClick={onSelect}
-        className={`group relative flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square ${
-          effectiveSelected
-            ? 'border-[#3b82f6] bg-[#3b82f6]/20 shadow-md ring-2 ring-[#3b82f6]/30'
-            : 'border-[#383a40] bg-[#1e1f22] hover:border-slate-500'
-        }`}
-      >
-        {onEditPreset && item.id !== 'none' && (
-          <div
-            onClick={(e) => {
-              e.stopPropagation()
-              onEditPreset(activeCategory as AvatarComponentSlot, item.id, item.label)
-            }}
-            title={`Editar ${item.label} no Estúdio Pixel Art`}
-            className="absolute top-1.5 left-1.5 w-6 h-6 rounded-lg bg-[#2b2d31]/90 hover:bg-[#3b82f6] text-slate-300 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-10 shadow-md cursor-pointer"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-          </div>
-        )}
-
-        {iconContent}
-
-        <span className="text-[11px] font-semibold text-slate-200 truncate max-w-[80px]">
-          {item.label}
-        </span>
-        {effectiveSelected && (
-          <div className="absolute top-1.5 right-1.5 w-4 h-4 bg-[#3b82f6] text-white rounded-full flex items-center justify-center">
-            <Check className="w-2.5 h-2.5" />
-          </div>
-        )}
-      </button>
-    )
   }
 
   const renderCreateCard = () => {
@@ -258,6 +177,9 @@ export const OptionSelectorGrid: React.FC<Props> = ({
     return categoryCustomAssets.map((asset) => {
       const currentComp = avatar.customComponents?.[activeCategory as AvatarComponentSlot]
       const isSelected =
+        avatar.customAvatarId === asset.id ||
+        avatar.otherType === asset.id ||
+        (!avatar.customAvatarId && (!avatar.otherType || avatar.otherType === 'default') && (asset.id === 'avatar_other_sliced_1788355059618_ozg3' || asset.name.toLowerCase() === 'retro')) ||
         currentComp === asset.directionalFrames ||
         currentComp === asset.frames[0] ||
         currentComp === asset.id ||
@@ -269,6 +191,9 @@ export const OptionSelectorGrid: React.FC<Props> = ({
           onClick={() => {
             onChangeAvatar({
               ...avatar,
+              customSkinUrl: undefined,
+              customAvatarId: asset.id,
+              otherType: asset.id,
               customComponents: {
                 ...avatar.customComponents,
                 [activeCategory as AvatarComponentSlot]: asset.directionalFrames || asset.frames[0],
@@ -281,20 +206,31 @@ export const OptionSelectorGrid: React.FC<Props> = ({
               : 'border-[#383a40] bg-[#1e1f22] hover:border-slate-500'
           }`}
         >
+          {/* Pintar Pixels no Estúdio Pixel Art */}
           {onEditPreset && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation()
+                onEditPreset(activeCategory as AvatarComponentSlot, asset.id, asset.name)
+              }}
+              title={`Pintar / Editar Pixels de ${asset.name} no Estúdio Pixel Art`}
+              className="absolute top-1.5 left-1.5 w-6 h-6 rounded-lg bg-[#2b2d31]/90 hover:bg-[#3b82f6] text-slate-300 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-10 shadow-md cursor-pointer"
+            >
+              <Paintbrush className="w-3.5 h-3.5 text-blue-400" />
+            </div>
+          )}
+
+          {/* Fatiar Folha de Sprites (se possuir spritesheet fonte) */}
+          {(detectAssetCreationSource(asset) === 'slicer' || detectAssetCreationSource(asset) === 'atlas') && (
             <div
               onClick={(e) => {
                 e.stopPropagation()
                 handleEditAsset(asset)
               }}
-              title={
-                detectAssetCreationSource(asset) === 'slicer' || detectAssetCreationSource(asset) === 'atlas'
-                  ? `Editar ${asset.name} no Fatiador de Imagem`
-                  : `Editar ${asset.name} no Estúdio Pixel Art`
-              }
-              className="absolute top-1.5 left-1.5 w-6 h-6 rounded-lg bg-[#2b2d31]/90 hover:bg-[#3b82f6] text-slate-300 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-10 shadow-md cursor-pointer"
+              title={`Fatiar / Recortar Folha de Sprites de ${asset.name}`}
+              className="absolute top-1.5 left-8 w-6 h-6 rounded-lg bg-[#2b2d31]/90 hover:bg-indigo-600 text-slate-300 hover:text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-10 shadow-md cursor-pointer"
             >
-              <Pencil className="w-3.5 h-3.5" />
+              <Scissors className="w-3.5 h-3.5 text-indigo-300" />
             </div>
           )}
 
@@ -313,7 +249,7 @@ export const OptionSelectorGrid: React.FC<Props> = ({
           <AutoCroppedThumbnail
             src={asset.thumbnail || asset.frames[0]}
             alt={asset.name}
-            isSkinCategory={activeCategory === 'skin'}
+            isSkinCategory={false}
             skinTone={avatar.skinTone}
           />
 
@@ -334,394 +270,49 @@ export const OptionSelectorGrid: React.FC<Props> = ({
   return (
     <div className="flex-1 overflow-y-auto pr-1">
       {/* Top action bar with Export, Import and Slicer Buttons */}
-      <div className="flex items-center justify-between mb-3 px-1">
-        <span className="text-xs font-bold text-slate-300">Opções & Presets</span>
-        <div className="flex items-center gap-2">
-          {/* Hidden input for direct Spritesheet Slicer */}
-          <input
-            ref={directSlicerInputRef}
-            type="file"
-            accept="image/*,.png"
-            onChange={handleDirectSlicerFile}
-            className="hidden"
-          />
+      {activeCategory === 'other' && (
+        <div className="flex items-center justify-between mb-3 px-1">
+          <span className="text-xs font-bold text-slate-300">Modelos & Presets</span>
+          <div className="flex items-center gap-2">
+            {/* Hidden input for direct Spritesheet Slicer */}
+            <input
+              ref={directSlicerInputRef}
+              type="file"
+              accept="image/*,.png"
+              onChange={handleDirectSlicerFile}
+              className="hidden"
+            />
 
-          <button
-            type="button"
-            onClick={() => directSlicerInputRef.current?.click()}
-            title={`Abrir Fatiador Interativo para recortar frames de uma folha de spritesheet PNG e gerar o arquivo XML`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#383a40] border border-[#383a40] text-indigo-400 hover:text-indigo-300 text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
-          >
-            <Scissors className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Fatiar Imagem</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => directSlicerInputRef.current?.click()}
+              title={`Abrir Fatiador Interativo para recortar frames de uma folha de spritesheet PNG e gerar o arquivo XML`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#383a40] border border-[#383a40] text-indigo-400 hover:text-indigo-300 text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
+            >
+              <Scissors className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Fatiar Imagem</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setIsImportModalOpen(true)}
-            title={`Importar Folha PNG e Arquivo Sparrow XML para a categoria ${activeCategory}`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#383a40] border border-[#383a40] text-emerald-400 hover:text-emerald-300 text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
-          >
-            <Upload className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Importar Atlas</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setIsImportModalOpen(true)}
+              title={`Importar Folha PNG e Arquivo Sparrow XML para personagens`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#383a40] border border-[#383a40] text-emerald-400 hover:text-emerald-300 text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Importar Atlas</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => exportCategoryAtlas(activeCategory, customAssets, avatar)}
-            title={`Exportar Folha PNG e Arquivo Sparrow XML para a categoria ${activeCategory}`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#383a40] border border-[#383a40] text-slate-300 hover:text-white text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5 text-[#3b82f6]" />
-            <span>Exportar Atlas</span>
-          </button>
-        </div>
-      </div>
-
-      {/* CATEGORY: MAQUIAGEM */}
-      {activeCategory === 'skin' && (
-        <div className="grid grid-cols-3 gap-3">
-          {renderCreateCard()}
-          {renderCustomPresetCards()}
-          {[
-            { id: 'smooth', label: 'Lisa / Suave' },
-            { id: 'vitiligo1', label: 'Vitiligo 1' },
-            { id: 'vitiligo2', label: 'Vitiligo 2' },
-            { id: 'freckles', label: 'Sardas' },
-            { id: 'blush', label: 'Blush Rosado' },
-          ].map((item) => {
-            const isSelected = avatar.skinDetail === item.id
-            return renderCard(
-              item,
-              isSelected,
-              <div
-                className="w-12 h-12 rounded-xl flex items-center justify-center relative mb-1.5 shadow-sm"
-                style={{ backgroundColor: avatar.skinTone }}
-              >
-                {item.id === 'vitiligo1' && (
-                  <div className="absolute top-2 left-2 w-4 h-3 bg-white/50 rounded-sm" />
-                )}
-                {item.id === 'vitiligo2' && (
-                  <div className="absolute top-2 right-2 w-4 h-3 bg-white/50 rounded-sm" />
-                )}
-                {item.id === 'freckles' && (
-                  <div className="flex gap-1">
-                    <span className="w-1 h-1 bg-amber-900/60 rounded-full" />
-                    <span className="w-1 h-1 bg-amber-900/60 rounded-full" />
-                  </div>
-                )}
-                {item.id === 'blush' && (
-                  <div className="flex justify-between w-full px-1">
-                    <span className="w-2.5 h-1.5 bg-rose-400/60 rounded-full" />
-                    <span className="w-2.5 h-1.5 bg-rose-400/60 rounded-full" />
-                  </div>
-                )}
-              </div>,
-              () => selectNativePreset({ skinDetail: item.id as SkinDetailType })
-            )
-          })}
-        </div>
-      )}
-
-      {/* CATEGORY: OLHOS */}
-      {activeCategory === 'eyes' && (
-        <div className="grid grid-cols-3 gap-3">
-          {renderCreateCard()}
-          {renderCustomPresetCards()}
-          {[
-            { id: 'normal', label: 'Padrão / Normal' },
-            { id: 'anime', label: 'Brilho Anime' },
-            { id: 'focused', label: 'Focado / Calmo' },
-            { id: 'happy', label: 'Alegre (^.^)' },
-            { id: 'wink', label: 'Piscadela (;.)' },
-            { id: 'closed', label: 'Fechados (--)' },
-          ].map((item) => {
-            const isSelected = (avatar.eyeType || 'normal') === item.id
-            return renderCard(
-              item,
-              isSelected,
-              <div
-                className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center relative shadow-sm"
-                style={{ backgroundColor: avatar.skinTone }}
-              >
-                <div className="flex gap-2.5 items-center">
-                  {item.id === 'normal' && (
-                    <>
-                      <div className="w-2 h-2 rounded-xs" style={{ backgroundColor: avatar.eyeColor || '#111' }} />
-                      <div className="w-2 h-2 rounded-xs" style={{ backgroundColor: avatar.eyeColor || '#111' }} />
-                    </>
-                  )}
-                  {item.id === 'anime' && (
-                    <>
-                      <div className="w-2.5 h-2.5 rounded-xs flex flex-col justify-between" style={{ backgroundColor: avatar.eyeColor || '#111' }}>
-                        <div className="w-1 h-1 bg-white ml-auto" />
-                      </div>
-                      <div className="w-2.5 h-2.5 rounded-xs flex flex-col justify-between" style={{ backgroundColor: avatar.eyeColor || '#111' }}>
-                        <div className="w-1 h-1 bg-white ml-auto" />
-                      </div>
-                    </>
-                  )}
-                  {item.id === 'focused' && (
-                    <>
-                      <div className="w-2.5 h-1" style={{ backgroundColor: avatar.eyeColor || '#111' }} />
-                      <div className="w-2.5 h-1" style={{ backgroundColor: avatar.eyeColor || '#111' }} />
-                    </>
-                  )}
-                  {item.id === 'happy' && (
-                    <>
-                      <div className="w-2 h-1 border-t-2" style={{ borderColor: avatar.eyeColor || '#111' }} />
-                      <div className="w-2 h-1 border-t-2" style={{ borderColor: avatar.eyeColor || '#111' }} />
-                    </>
-                  )}
-                  {item.id === 'wink' && (
-                    <>
-                      <div className="w-2 h-2 rounded-xs" style={{ backgroundColor: avatar.eyeColor || '#111' }} />
-                      <div className="w-2 h-1 border-t-2" style={{ borderColor: avatar.eyeColor || '#111' }} />
-                    </>
-                  )}
-                  {item.id === 'closed' && (
-                    <>
-                      <div className="w-2 h-0.5" style={{ backgroundColor: avatar.eyeColor || '#111' }} />
-                      <div className="w-2 h-0.5" style={{ backgroundColor: avatar.eyeColor || '#111' }} />
-                    </>
-                  )}
-                </div>
-              </div>,
-              () => selectNativePreset({ eyeType: item.id as EyeType })
-            )
-          })}
-        </div>
-      )}
-
-      {/* CATEGORY: CABELO */}
-      {activeCategory === 'hair' && (
-        <div className="grid grid-cols-3 gap-3">
-          {renderCreateCard()}
-          {renderCustomPresetCards()}
-          {[
-            { id: 'none', label: 'Careca / Nenhum' },
-            { id: 'messy', label: 'Messy Anime' },
-            { id: 'long_bangs', label: 'Longo c/ Franja' },
-            { id: 'twin_tails', label: 'Maria Chiquinha' },
-            { id: 'curly_afro', label: 'Afro / Cachos' },
-            { id: 'anime', label: 'Espetado Anime' },
-            { id: 'short_wavy', label: 'Curto Ondulado' },
-            { id: 'ponytail', label: 'Rabo de Cavalo' },
-            { id: 'bob', label: 'Chanel / Bob' },
-            { id: 'buzz', label: 'Raspado' },
-          ].map((item) => {
-            const isSelected =
-              avatar.hairStyle === item.id ||
-              (item.id === 'none' && (!avatar.hairStyle || avatar.hairStyle === 'bald'))
-            return renderCard(
-              item,
-              isSelected,
-              <div
-                className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow-md"
-                style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.hairColor }}
-              >
-                {item.id === 'none' ? '🚫' : '💇'}
-              </div>,
-              () => selectNativePreset({ hairStyle: item.id as HairStyleType })
-            )
-          })}
-        </div>
-      )}
-
-      {/* CATEGORY: PELOS FACIAIS */}
-      {activeCategory === 'facialHair' && (
-        <div className="grid grid-cols-3 gap-3">
-          {renderCreateCard()}
-          {renderCustomPresetCards()}
-          {[
-            { id: 'none', label: 'Nenhum' },
-            { id: 'full_beard', label: 'Barba Cheia' },
-            { id: 'mustache', label: 'Bigode' },
-            { id: 'goatee', label: 'Cavanhaque' },
-            { id: 'stubble', label: 'Sombra / Por Fazer' },
-          ].map((item) => {
-            const isSelected = avatar.facialHair === item.id
-            return renderCard(
-              item,
-              isSelected,
-              <div className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-sm font-bold bg-[#18191c] text-slate-200">
-                {item.id === 'none' ? '🚫' : '🧔'}
-              </div>,
-              () => selectNativePreset({ facialHair: item.id as FacialHairType })
-            )
-          })}
-        </div>
-      )}
-
-      {/* CATEGORY: PARTE DE CIMA (TOPS) */}
-      {activeCategory === 'top' && (
-        <div className="grid grid-cols-3 gap-3">
-          {renderCreateCard()}
-          {renderCustomPresetCards()}
-          {[
-            { id: 'none', label: 'Nenhum' },
-            { id: 'kimono', label: 'Quimono / Yukata' },
-            { id: 'tshirt', label: 'Camiseta Básica' },
-            { id: 'sweater', label: 'Suéter de Lã' },
-            { id: 'dress_shirt', label: 'Camisa Social' },
-            { id: 'hoodie', label: 'Moletom Canguru' },
-            { id: 'tank', label: 'Regata' },
-          ].map((item) => {
-            const isSelected = avatar.topType === item.id || (!avatar.topType && item.id === 'none')
-            return renderCard(
-              item,
-              isSelected,
-              <div
-                className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow"
-                style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.topColor }}
-              >
-                {item.id === 'none' ? '🚫' : '👘'}
-              </div>,
-              () => selectNativePreset({ topType: item.id as TopType })
-            )
-          })}
-        </div>
-      )}
-
-      {/* CATEGORY: JAQUETA */}
-      {activeCategory === 'jacket' && (
-        <div className="grid grid-cols-3 gap-3">
-          {renderCreateCard()}
-          {renderCustomPresetCards()}
-          {[
-            { id: 'none', label: 'Nenhuma' },
-            { id: 'hoodie_open', label: 'Moletom Aberto' },
-            { id: 'cardigan', label: 'Cardigan' },
-            { id: 'blazer', label: 'Blazer Social' },
-            { id: 'denim', label: 'Jaqueta Jeans' },
-          ].map((item) => {
-            const isSelected = avatar.jacketType === item.id
-            return renderCard(
-              item,
-              isSelected,
-              <div
-                className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow"
-                style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.jacketColor }}
-              >
-                {item.id === 'none' ? '🚫' : '🧥'}
-              </div>,
-              () => selectNativePreset({ jacketType: item.id as JacketType })
-            )
-          })}
-        </div>
-      )}
-
-      {/* CATEGORY: PARTE DE BAIXO */}
-      {activeCategory === 'bottom' && (
-        <div className="grid grid-cols-3 gap-3">
-          {renderCreateCard()}
-          {renderCustomPresetCards()}
-          {[
-            { id: 'none', label: 'Nenhum' },
-            { id: 'kimono_skirt', label: 'Saia Quimono Hakama' },
-            { id: 'jeans', label: 'Calça Jeans' },
-            { id: 'sweatpants', label: 'Moletom Jogger' },
-            { id: 'skirt', label: 'Saia Plissada' },
-            { id: 'shorts', label: 'Bermuda / Shorts' },
-          ].map((item) => {
-            const isSelected = avatar.bottomType === item.id || (!avatar.bottomType && item.id === 'none')
-            return renderCard(
-              item,
-              isSelected,
-              <div
-                className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow"
-                style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.bottomColor }}
-              >
-                {item.id === 'none' ? '🚫' : '👖'}
-              </div>,
-              () => selectNativePreset({ bottomType: item.id as BottomType })
-            )
-          })}
-        </div>
-      )}
-
-      {/* CATEGORY: SAPATOS */}
-      {activeCategory === 'shoes' && (
-        <div className="grid grid-cols-3 gap-3">
-          {renderCreateCard()}
-          {renderCustomPresetCards()}
-          {[
-            { id: 'none', label: 'Nenhum / Descalço' },
-            { id: 'sandals', label: 'Sandálias Geta' },
-            { id: 'sneakers', label: 'Tênis Sneaker' },
-            { id: 'boots', label: 'Botas' },
-            { id: 'loafers', label: 'Sapato Social' },
-          ].map((item) => {
-            const isSelected = avatar.shoesType === item.id || (!avatar.shoesType && item.id === 'none')
-            return renderCard(
-              item,
-              isSelected,
-              <div
-                className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow"
-                style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.shoesColor }}
-              >
-                {item.id === 'none' ? '🚫' : '👟'}
-              </div>,
-              () => selectNativePreset({ shoesType: item.id as ShoesType })
-            )
-          })}
-        </div>
-      )}
-
-      {/* CATEGORY: CHAPÉU & LAÇOS */}
-      {activeCategory === 'hat' && (
-        <div className="grid grid-cols-3 gap-3">
-          {renderCreateCard()}
-          {renderCustomPresetCards()}
-          {[
-            { id: 'none', label: 'Nenhum' },
-            { id: 'ribbon_bow', label: 'Laço / Fita' },
-            { id: 'cap_forward', label: 'Boné Frontal' },
-            { id: 'cap_backward', label: 'Boné Virado' },
-            { id: 'beanie', label: 'Gorro de Lã' },
-            { id: 'headband', label: 'Faixa de Cabeça' },
-          ].map((item) => {
-            const isSelected = avatar.hatType === item.id
-            return renderCard(
-              item,
-              isSelected,
-              <div
-                className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow"
-                style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.hatColor }}
-              >
-                {item.id === 'none' ? '🚫' : '🎀'}
-              </div>,
-              () => selectNativePreset({ hatType: item.id as HatType })
-            )
-          })}
-        </div>
-      )}
-
-      {/* CATEGORY: ÓCULOS */}
-      {activeCategory === 'glasses' && (
-        <div className="grid grid-cols-3 gap-3">
-          {renderCreateCard()}
-          {renderCustomPresetCards()}
-          {[
-            { id: 'none', label: 'Nenhum' },
-            { id: 'round', label: 'Redondos' },
-            { id: 'square', label: 'Quadrados' },
-            { id: 'sunglasses', label: 'Escuros' },
-            { id: 'wireframe', label: 'Armação de Metal' },
-          ].map((item) => {
-            const isSelected = avatar.glassesType === item.id
-            return renderCard(
-              item,
-              isSelected,
-              <div
-                className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow"
-                style={{ backgroundColor: item.id === 'none' ? '#18191c' : avatar.glassesColor }}
-              >
-                {item.id === 'none' ? '🚫' : '👓'}
-              </div>,
-              () => selectNativePreset({ glassesType: item.id as GlassesType })
-            )
-          })}
+            <button
+              type="button"
+              onClick={() => exportCategoryAtlas(activeCategory, customAssets, avatar)}
+              title={`Exportar Folha PNG e Arquivo Sparrow XML para personagens`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#18191c] hover:bg-[#383a40] border border-[#383a40] text-slate-300 hover:text-white text-[11px] font-semibold transition-all shadow-xs cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-[#3b82f6]" />
+              <span>Exportar Atlas</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -730,22 +321,6 @@ export const OptionSelectorGrid: React.FC<Props> = ({
         <div className="grid grid-cols-3 gap-3">
           {renderCreateCard()}
           {renderCustomPresetCards()}
-          {[
-            { id: 'none', label: 'Avatar Base (Padrão)' },
-          ].map((item) => {
-            const isSelected = !avatar.customComponents?.other && avatar.otherType === 'none'
-            return renderCard(
-              item,
-              isSelected,
-              <div
-                className="w-10 h-10 rounded-2xl mb-1.5 flex items-center justify-center text-xs font-bold text-white shadow"
-                style={{ backgroundColor: '#18191c' }}
-              >
-                🚫
-              </div>,
-              () => selectNativePreset({ otherType: 'none' })
-            )
-          })}
         </div>
       )}
 
