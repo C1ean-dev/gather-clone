@@ -68,6 +68,7 @@ export interface PrivateZone {
   // Room Specific Configuration, Roles & Access
   admins?: string[]        // Names or User IDs of room administrators
   members?: string[]       // Names or User IDs of authorized room members
+  authorizedPeers?: string[] // Peer IDs dynamically permitted through knocking
   isLocked?: boolean       // Whether room is locked/restricted to non-members
   allowKnock?: boolean     // Whether non-members can knock/request entrance
   welcomeMessage?: string  // Custom greeting displayed upon entering

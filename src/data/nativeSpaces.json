@@ -5,7 +5,7 @@
     "name": "Espaço #2",
     "description": "Novo espaço de trabalho virtual",
     "createdAt": 1788559118170,
-    "updatedAt": 1788571497160,
+    "updatedAt": 1788577508053,
     "mapData": {
       "id": "empty_workspace",
       "name": "Espaço #2",
@@ -5632,7 +5632,8 @@
           "height": 11,
           "hasWalls": true,
           "wallType": "drywall_white",
-          "description": "Zona de chamada privada demarcada com mouse"
+          "description": "Zona de chamada privada demarcada com mouse",
+          "isLocked": true
         }
       ]
     },

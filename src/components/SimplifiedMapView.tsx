@@ -20,6 +20,7 @@ import { MediaManager } from '../media/MediaManager'
 import { PeerManager } from '../p2p/PeerManager'
 import { PrivateZone } from '../types/map'
 import { Player } from '../types/game'
+import { knockOnLockedDoor } from '../utils/doorKnockHelper'
 
 export const SimplifiedMapView: React.FC = () => {
   const { localPlayer, remotePlayers, setLocalPlayer } = useGameStore()
@@ -53,6 +54,12 @@ export const SimplifiedMapView: React.FC = () => {
   // Handle clicking on a room/zone to move into it
   const handleRoomClick = (zone: PrivateZone, e: React.MouseEvent) => {
     e.stopPropagation()
+
+    if (zone.isLocked && !useMapStore.getState().isPeerAuthorizedForZone(zone.id, localPlayer.id, localPlayer.name)) {
+      knockOnLockedDoor(zone)
+      return
+    }
+
     const targetX = Math.floor(zone.x + zone.width / 2)
     const targetY = Math.floor(zone.y + zone.height / 2)
 
@@ -76,6 +83,8 @@ export const SimplifiedMapView: React.FC = () => {
       y: targetY,
       currentZoneId: zone.id,
     })
+
+    useMapStore.getState().checkAndUnlockEmptyZones()
   }
 
   // Click on Corredor Geral floor to move freely
@@ -95,6 +104,11 @@ export const SimplifiedMapView: React.FC = () => {
         targetY >= z.y &&
         targetY < z.y + z.height
     )
+
+    if (targetZone && targetZone.isLocked && !useMapStore.getState().isPeerAuthorizedForZone(targetZone.id, localPlayer.id, localPlayer.name)) {
+      knockOnLockedDoor(targetZone)
+      return
+    }
 
     const newZoneId = targetZone ? targetZone.id : null
     const prevZoneId = localPlayer.currentZoneId
@@ -119,6 +133,8 @@ export const SimplifiedMapView: React.FC = () => {
       y: targetY,
       currentZoneId: newZoneId,
     })
+
+    useMapStore.getState().checkAndUnlockEmptyZones()
   }
 
   // Mouse pan handlers
@@ -203,6 +219,7 @@ export const SimplifiedMapView: React.FC = () => {
           const heightPercent = (zone.height / mapHeight) * 100
 
           const isLocalInside = localPlayer.currentZoneId === zone.id
+          const isAuthorized = !zone.isLocked || useMapStore.getState().isPeerAuthorizedForZone(zone.id, localPlayer.id, localPlayer.name)
           const playersInZone = allRemotePlayers.filter((p) => p.currentZoneId === zone.id)
           const totalInZone = playersInZone.length + (isLocalInside ? 1 : 0)
 
@@ -210,9 +227,16 @@ export const SimplifiedMapView: React.FC = () => {
             <div
               key={zone.id}
               onClick={(e) => handleRoomClick(zone, e)}
+              title={
+                zone.isLocked && !isAuthorized
+                  ? `${zone.name} (Trancada - Clique para bater na porta)`
+                  : `${zone.name} - Clique para entrar`
+              }
               className={`absolute rounded-xl transition-all duration-200 cursor-pointer flex flex-col items-center justify-between p-2.5 group shadow-lg ${
                 isLocalInside
                   ? 'bg-[#182030] border-2 border-emerald-400 shadow-emerald-500/20 ring-4 ring-emerald-500/10 z-10'
+                  : zone.isLocked && !isAuthorized
+                  ? 'bg-[#1a141b]/92 hover:bg-[#251722] border border-rose-500/30 hover:border-rose-400/60'
                   : 'bg-[#131926]/92 hover:bg-[#182030] border border-[#2b3548] hover:border-indigo-400/50'
               }`}
               style={{
@@ -230,6 +254,11 @@ export const SimplifiedMapView: React.FC = () => {
                   <span>{getZoneIcon(zone.name)}</span>
                 )}
                 <span className="truncate">{zone.name}</span>
+                {zone.isLocked && !isAuthorized && (
+                  <span className="text-[9px] bg-rose-500/20 text-rose-300 px-1.5 py-0.2 rounded-full border border-rose-500/30 font-semibold">
+                    Bater
+                  </span>
+                )}
                 {zone.admins && zone.admins.includes(localPlayer.name) && (
                   <Crown className="w-3 h-3 text-amber-400 shrink-0" />
                 )}

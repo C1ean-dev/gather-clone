@@ -17,6 +17,9 @@ export type NetworkMessageType =
   | 'REQUEST_MAP'
   | 'HEARTBEAT'
   | 'HEARTBEAT_ACK'
+  | 'ROOM_LOCK_TOGGLE'
+  | 'ROOM_KNOCK_REQUEST'
+  | 'ROOM_KNOCK_RESPONSE'
 
 export interface NetworkMessage {
   type: NetworkMessageType

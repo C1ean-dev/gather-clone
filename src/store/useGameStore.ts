@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { Player, PresenceStatus, ReactionItem, AvatarConfig, UserRole, PlayerPermissions, ConnectionStatus } from '../types/game'
+import { Player, PresenceStatus, ReactionItem, AvatarConfig, UserRole, PlayerPermissions, ConnectionStatus, RoomKnockRequest, KnockStatus } from '../types/game'
 import { DEFAULT_AVATAR } from '../engine/Constants'
 import { PublicRoomsService } from '../services/publicRoomsService'
 
@@ -158,6 +158,13 @@ interface GameStore {
   mapViewMode: 'immersive' | 'simplified'
   isManualSimplified: boolean
   setMapViewMode: (mode: 'immersive' | 'simplified', isManual?: boolean) => void
+
+  // Door Knocking System
+  pendingKnocks: RoomKnockRequest[]
+  addKnockRequest: (request: RoomKnockRequest) => void
+  removeKnockRequest: (id: string) => void
+  myKnockStatus: Record<string, KnockStatus>
+  setMyKnockStatus: (zoneId: string, status: KnockStatus) => void
 }
 
 const FRIENDS_STORAGE_KEY = 'gather_v2_friends_list'
@@ -583,5 +590,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
   removeReaction: (id) =>
     set((state) => ({
       reactions: state.reactions.filter((r) => r.id !== id),
+    })),
+
+  pendingKnocks: [],
+  addKnockRequest: (request) =>
+    set((state) => ({
+      pendingKnocks: [
+        ...state.pendingKnocks.filter((k) => k.id !== request.id && k.requesterId !== request.requesterId),
+        request,
+      ],
+    })),
+  removeKnockRequest: (id) =>
+    set((state) => ({
+      pendingKnocks: state.pendingKnocks.filter((k) => k.id !== id && k.requesterId !== id),
+    })),
+  myKnockStatus: {},
+  setMyKnockStatus: (zoneId, status) =>
+    set((state) => ({
+      myKnockStatus: {
+        ...state.myKnockStatus,
+        [zoneId]: status,
+      },
     })),
 }))

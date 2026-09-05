@@ -12,6 +12,8 @@ import { AudioSettingsModal } from './components/AudioSettingsModal'
 import { UpdateModal } from './components/UpdateModal'
 import { OnlineUsersMenu } from './components/OnlineUsersMenu'
 import { ConfirmModal } from './components/ConfirmModal'
+import { DoorKnockNotification } from './components/DoorKnockNotification'
+import { DoorKnockPrompt } from './components/DoorKnockPrompt'
 import { useGameStore } from './store/useGameStore'
 import { useMediaStore } from './store/useMediaStore'
 import { useChatStore } from './store/useChatStore'
@@ -127,6 +129,10 @@ export const App: React.FC = () => {
 
       {/* Full-Screen Conference Grid (Gather V2 Grid View) */}
       <FullScreenGrid />
+
+      {/* Door Knock System */}
+      <DoorKnockNotification />
+      <DoorKnockPrompt />
 
       {/* Audio & Video Settings Modal */}
       <AudioSettingsModal />

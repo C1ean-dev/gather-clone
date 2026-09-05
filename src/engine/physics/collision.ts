@@ -2,6 +2,7 @@ import { MapData, PrivateZone } from '../../types/map'
 import { FURNITURE_CATALOG } from '../Constants'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 import { useGameStore } from '../../store/useGameStore'
+import { useMapStore } from '../../store/useMapStore'
 import { useChatStore } from '../../store/useChatStore'
 import { useMediaStore } from '../../store/useMediaStore'
 import { MediaManager } from '../../media/MediaManager'
@@ -139,6 +140,13 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
           return true
         }
       }
+      if (zone.isLocked) {
+        const local = useGameStore.getState()?.localPlayer
+        const isAuth = local && (local.currentZoneId === zone.id || useMapStore.getState()?.isPeerAuthorizedForZone(zone.id, local.id, local.name))
+        if (!isAuth && pMaxX > minX && pMinX < minX + sideWallThickness && pMaxY > doorStartY && pMinY < doorEndY) {
+          return true
+        }
+      }
     } else {
       if (
         pMaxX > minX &&
@@ -183,6 +191,13 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
           return true
         }
       }
+      if (zone.isLocked) {
+        const local = useGameStore.getState()?.localPlayer
+        const isAuth = local && (local.currentZoneId === zone.id || useMapStore.getState()?.isPeerAuthorizedForZone(zone.id, local.id, local.name))
+        if (!isAuth && pMaxX > maxX - sideWallThickness && pMinX < maxX && pMaxY > doorStartY && pMinY < doorEndY) {
+          return true
+        }
+      }
     } else {
       if (
         pMaxX > maxX - sideWallThickness &&
@@ -202,6 +217,15 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
     // E. Right Front Wall Block Collision
     if (pMaxX > doorEndX && pMinX < maxX && pMaxY > frontWallY && pMinY < maxY) {
       return true
+    }
+
+    // F. Locked Room Front Doorway Block Collision
+    if (zone.isLocked) {
+      const local = useGameStore.getState()?.localPlayer
+      const isAuth = local && (local.currentZoneId === zone.id || useMapStore.getState()?.isPeerAuthorizedForZone(zone.id, local.id, local.name))
+      if (!isAuth && pMaxX > doorStartX && pMinX < doorEndX && pMaxY > frontWallY && pMinY < maxY) {
+        return true
+      }
     }
   }
 
@@ -246,6 +270,86 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
 }
 
 /**
+ * Test whether a player at (playerX, playerY) is physically inside a private zone.
+ *
+ * `playerX` and `playerY` represent the top-left coordinate of the 1x1 grid tile
+ * where the avatar is placed. The avatar's physical center is (playerX + 0.5, playerY + 0.5),
+ * and its feet (ground contact point) are at (playerX + 0.5, playerY + 0.75).
+ *
+ * Using top-left (playerX, playerY) previously caused an avatar standing OUTSIDE the room
+ * (e.g. leaning against the south or east wall) to have its top-left coordinate fall
+ * inside the zone bounds, erroneously connecting them to the room call.
+ */
+export function isPlayerInZone(playerX: number, playerY: number, zone: PrivateZone): boolean {
+  if (zone.isLocked) {
+    const local = useGameStore.getState()?.localPlayer
+    if (local) {
+      const isAuthorized =
+        local.currentZoneId === zone.id ||
+        useMapStore.getState()?.isPeerAuthorizedForZone(zone.id, local.id, local.name)
+      if (!isAuthorized) {
+        return false
+      }
+    }
+  }
+
+  const pcx = playerX + 0.5
+  const pcy = playerY + 0.5
+  const feetY = playerY + 0.75
+
+  const minX = zone.x
+  const maxX = zone.x + zone.width
+  const minY = zone.y
+  const maxY = zone.y + zone.height
+
+  // 1. Overall zone horizontal bounds check
+  if (pcx < minX || pcx > maxX) {
+    return false
+  }
+
+  // 2. Overall zone vertical bounds check (center and feet)
+  if (pcy < minY || pcy > maxY || feetY > maxY + 0.05) {
+    return false
+  }
+
+  // 3. For rooms with physical walls (Gather Room Architecture):
+  if (zone.hasWalls !== false) {
+    const h = zone.height
+    const w = zone.width
+    const frontWallH = Math.min(h * 0.24, 1.5)
+    const frontWallY = maxY - frontWallH
+    const doorW = Math.min(w * 0.38, 2.0)
+    const doorStartX = minX + (w - doorW) / 2
+    const doorEndX = doorStartX + doorW
+
+    // A. Front Wall Band:
+    // If the player's center is in the front-wall Y band (frontWallY to maxY),
+    // they can ONLY be inside the zone if they are within the doorway opening!
+    // Leaning on the solid front wall blocks (left or right of the door) is OUTSIDE the room.
+    if (pcy >= frontWallY) {
+      const inDoorway = pcx >= doorStartX && pcx <= doorEndX
+      if (!inDoorway) {
+        return false
+      }
+      // In the doorway, their feet must have crossed the south threshold into the room
+      if (feetY >= maxY) {
+        return false
+      }
+    }
+
+    // B. Back Wall Band:
+    // The back wall is from minY to minY + backWallH (solid wall block).
+    // An avatar above the back wall is outside behind the room.
+    const backWallH = Math.min(h * 0.32, 2.0)
+    if (pcy < minY + backWallH * 0.4) {
+      return false
+    }
+  }
+
+  return true
+}
+
+/**
  * Check if player has entered a Private Zone
  */
 export function checkZonePresence(playerX: number, playerY: number, map: MapData) {
@@ -254,12 +358,7 @@ export function checkZonePresence(playerX: number, playerY: number, map: MapData
   let detectedZoneName: string = ''
 
   for (const zone of map.zones || []) {
-    if (
-      playerX >= zone.x &&
-      playerX <= zone.x + zone.width &&
-      playerY >= zone.y &&
-      playerY <= zone.y + zone.height
-    ) {
+    if (isPlayerInZone(playerX, playerY, zone)) {
       detectedZone = zone.id
       detectedZoneName = zone.name
       break
@@ -282,5 +381,6 @@ export function checkZonePresence(playerX: number, playerY: number, map: MapData
     useGameStore.getState().setCurrentZoneId(detectedZone)
     useChatStore.getState().updateZoneChannel(detectedZoneName)
     PeerManager.getInstance().sendPlayerUpdate({ currentZoneId: detectedZone })
+    useMapStore.getState().checkAndUnlockEmptyZones()
   }
 }

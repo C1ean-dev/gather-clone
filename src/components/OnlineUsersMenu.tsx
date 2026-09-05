@@ -31,6 +31,7 @@ import { useChatStore } from '../store/useChatStore'
 import { useMediaStore } from '../store/useMediaStore'
 import { ConfirmModal } from './ConfirmModal'
 import { Player, UserRole } from '../types/game'
+import { knockOnLockedDoor } from '../utils/doorKnockHelper'
 
 /**
  * Outer gate: subscribes ONLY to isOnlineUsersOpen so 60Hz position updates
@@ -394,6 +395,18 @@ const OnlineUsersMenuInner: React.FC = () => {
                     <div className="grid grid-cols-2 gap-1.5">
                       <button
                         onClick={() => {
+                          if (player.currentZoneId) {
+                            const zone = mapData.zones?.find((z) => z.id === player.currentZoneId)
+                            if (
+                              zone &&
+                              zone.isLocked &&
+                              !useMapStore.getState().isPeerAuthorizedForZone(zone.id, localPlayer.id, localPlayer.name)
+                            ) {
+                              knockOnLockedDoor(zone)
+                              setSelectedUserMenuId(null)
+                              return
+                            }
+                          }
                           teleportToPlayer(player.id)
                           setSelectedUserMenuId(null)
                         }}

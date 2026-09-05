@@ -189,3 +189,14 @@ export interface PublicRoomInfo {
   isOfficial?: boolean
 }
 
+export interface RoomKnockRequest {
+  id: string
+  zoneId: string
+  zoneName: string
+  requesterId: string
+  requesterName: string
+  requesterAvatar?: AvatarConfig
+  timestamp: number
+}
+
+export type KnockStatus = 'idle' | 'knocking' | 'approved' | 'denied'

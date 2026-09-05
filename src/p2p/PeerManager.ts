@@ -1,6 +1,6 @@
 import Peer, { DataConnection, MediaConnection } from 'peerjs'
 import { NetworkMessage } from '../types/p2p'
-import { Player } from '../types/game'
+import { Player, RoomKnockRequest } from '../types/game'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
 import { useMediaStore } from '../store/useMediaStore'
@@ -608,6 +608,7 @@ export class PeerManager {
 
     useGameStore.getState().removeRemotePlayer(peerId)
     this.endMediaCallWithPeer(peerId)
+    useMapStore.getState().checkAndUnlockEmptyZones()
 
     if (this.isHost) {
       if (useGameStore.getState().isRoomPublic) {
@@ -998,6 +999,54 @@ export class PeerManager {
       type: 'REACTION',
       senderId: this.peer.id,
       payload: { reaction },
+      timestamp: Date.now(),
+    }
+    this.broadcast(msg)
+  }
+
+  /**
+   * Broadcast Room Lock Toggle
+   */
+  public sendRoomLockToggle(zoneId: string, isLocked: boolean) {
+    const senderId = this.peer ? this.peer.id : useGameStore.getState().localPlayer.id
+    const msg: NetworkMessage = {
+      type: 'ROOM_LOCK_TOGGLE',
+      senderId,
+      payload: { zoneId, isLocked },
+      timestamp: Date.now(),
+    }
+    this.broadcast(msg)
+  }
+
+  /**
+   * Broadcast Door Knock Request to room occupants
+   */
+  public sendRoomKnockRequest(request: RoomKnockRequest) {
+    const senderId = this.peer ? this.peer.id : useGameStore.getState().localPlayer.id
+    const msg: NetworkMessage = {
+      type: 'ROOM_KNOCK_REQUEST',
+      senderId,
+      payload: request,
+      timestamp: Date.now(),
+    }
+    this.broadcast(msg)
+  }
+
+  /**
+   * Broadcast Door Knock Response (permit/deny)
+   */
+  public sendRoomKnockResponse(
+    zoneId: string,
+    requesterId: string,
+    approved: boolean,
+    approverName: string,
+    requesterName?: string
+  ) {
+    const senderId = this.peer ? this.peer.id : useGameStore.getState().localPlayer.id
+    const msg: NetworkMessage = {
+      type: 'ROOM_KNOCK_RESPONSE',
+      senderId,
+      payload: { zoneId, requesterId, approved, approverName, requesterName },
       timestamp: Date.now(),
     }
     this.broadcast(msg)

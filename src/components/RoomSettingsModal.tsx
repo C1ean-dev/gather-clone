@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   X,
   DoorOpen,
@@ -24,13 +24,14 @@ interface Props {
   zone: PrivateZone
   isOpen: boolean
   onClose: () => void
+  initialTab?: 'general' | 'permissions'
 }
 
-export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose }) => {
+export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose, initialTab }) => {
   const { localPlayer, remotePlayers } = useGameStore()
   const { updateZone } = useMapStore()
 
-  const [activeTab, setActiveTab] = useState<'general' | 'permissions'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'permissions'>(initialTab || 'general')
 
   // Form State
   const [name, setName] = useState(zone.name || 'Nova Sala')
@@ -41,6 +42,20 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose }) =>
   const [allowKnock, setAllowKnock] = useState(zone.allowKnock !== false)
   const [admins, setAdmins] = useState<string[]>(zone.admins || [localPlayer.name])
   const [members, setMembers] = useState<string[]>(zone.members || [])
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialTab) setActiveTab(initialTab)
+      setName(zone.name || 'Nova Sala')
+      setColor(zone.color || '#4c6ef5')
+      setWelcomeMessage(zone.welcomeMessage || '')
+      setDescription(zone.description || '')
+      setIsLocked(!!zone.isLocked)
+      setAllowKnock(zone.allowKnock !== false)
+      setAdmins(zone.admins || [localPlayer.name])
+      setMembers(zone.members || [])
+    }
+  }, [zone, isOpen, initialTab])
 
   // Input fields for adding users
   const [newAdminInput, setNewAdminInput] = useState('')
@@ -83,6 +98,15 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose }) =>
   }
 
   const handleSave = () => {
+    // Keep authorizedPeers synchronized with members & admins
+    const currentAuthorized = zone.authorizedPeers || []
+    const updatedAuthorized = currentAuthorized.filter((p) => {
+      if (zone.members?.includes(p) || zone.admins?.includes(p)) {
+        return members.includes(p) || admins.includes(p)
+      }
+      return true
+    })
+
     const updatedZone: Partial<PrivateZone> = {
       name: name.trim() || 'Sala Privada',
       color,
@@ -92,6 +116,7 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose }) =>
       allowKnock,
       admins,
       members,
+      authorizedPeers: updatedAuthorized,
     }
 
     updateZone(zone.id, updatedZone)

@@ -11,10 +11,17 @@ import {
   Hand,
   MessageSquare,
   LogOut,
+  Lock,
+  Unlock,
+  Shield,
 } from 'lucide-react'
 import { useMediaStore } from '../../store/useMediaStore'
+import { useGameStore } from '../../store/useGameStore'
+import { useMapStore } from '../../store/useMapStore'
+import { PeerManager } from '../../p2p/PeerManager'
 import { MediaManager } from '../../media/MediaManager'
 import { useChatStore } from '../../store/useChatStore'
+import { RoomSettingsModal } from '../RoomSettingsModal'
 
 interface Props {
   handRaised: boolean
@@ -58,18 +65,62 @@ export const CallControlsBar: React.FC<Props> = ({
     }
   }
 
+  const localPlayer = useGameStore((s) => s.localPlayer)
+  const zones = useMapStore((s) => s.mapData.zones)
+  const toggleZoneLock = useMapStore((s) => s.toggleZoneLock)
+  const currentZone = zones?.find((z) => z.id === localPlayer.currentZoneId)
+  const isRoomLocked = !!currentZone?.isLocked
+
+  const [isRoomSettingsOpen, setIsRoomSettingsOpen] = React.useState(false)
+
+  const handleToggleRoomLock = () => {
+    if (!localPlayer.currentZoneId) return
+    const nextLocked = toggleZoneLock(localPlayer.currentZoneId)
+    PeerManager.getInstance().sendRoomLockToggle(localPlayer.currentZoneId, nextLocked)
+  }
+
   return (
-    <div className="flex items-center justify-between px-6 py-2.5 bg-[#12151d]/95 backdrop-blur-xl rounded-2xl border border-[#2a3142] max-w-3xl mx-auto w-full shadow-2xl shrink-0 mt-2">
-      {/* Left Side: Audio Settings */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => useMediaStore.getState().setSettingsModalOpen(true)}
-          className="p-2 rounded-xl bg-slate-800/60 border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-          title="Configurações de Áudio e Voz"
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-        </button>
-      </div>
+    <>
+      <div className="flex items-center justify-between px-6 py-2.5 bg-[#12151d]/95 backdrop-blur-xl rounded-2xl border border-[#2a3142] max-w-3xl mx-auto w-full shadow-2xl shrink-0 mt-2">
+        {/* Left Side: Audio Settings & Room Lock */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => useMediaStore.getState().setSettingsModalOpen(true)}
+            className="p-2 rounded-xl bg-slate-800/60 border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+            title="Configurações de Áudio e Voz"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
+
+          {localPlayer.currentZoneId && (
+            <>
+              <button
+                onClick={handleToggleRoomLock}
+                className={`p-2 rounded-xl border transition-all flex items-center gap-1.5 text-xs font-semibold ${
+                  isRoomLocked
+                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 shadow-lg shadow-amber-500/20'
+                    : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}
+                title={
+                  isRoomLocked
+                    ? 'Sala Trancada (Destrancar para permitir entrada livre)'
+                    : 'Trancar Sala (Exigir que outras pessoas batam na porta)'
+                }
+              >
+                {isRoomLocked ? <Lock className="w-4 h-4 text-amber-400" /> : <Unlock className="w-4 h-4" />}
+                <span className="hidden sm:inline">{isRoomLocked ? 'Trancada' : 'Aberta'}</span>
+              </button>
+
+              <button
+                onClick={() => setIsRoomSettingsOpen(true)}
+                className="p-2 rounded-xl bg-slate-800/60 border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+                title="Gerenciar Usuários com Permissão de Entrada"
+              >
+                <Shield className="w-4 h-4" />
+              </button>
+            </>
+          )}
+        </div>
 
       {/* Center: Main Call Buttons */}
       <div className="flex items-center gap-2.5">
@@ -163,5 +214,15 @@ export const CallControlsBar: React.FC<Props> = ({
         </button>
       </div>
     </div>
-  )
+
+    {currentZone && isRoomSettingsOpen && (
+      <RoomSettingsModal
+        zone={currentZone}
+        isOpen={isRoomSettingsOpen}
+        onClose={() => setIsRoomSettingsOpen(false)}
+        initialTab="permissions"
+      />
+    )}
+  </>
+)
 }

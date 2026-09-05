@@ -96,6 +96,9 @@ export function processNetworkMessage(
         }
         useGameStore.getState().setRemotePlayer(nextPlayer)
         checkZoneCallEligibility(nextPlayer)
+        if (updated?.currentZoneId !== undefined) {
+          useMapStore.getState().checkAndUnlockEmptyZones()
+        }
       }
       break
     }
@@ -156,6 +159,8 @@ export function processNetworkMessage(
         useMapStore.getState().addOrUpdateZone(data.zone)
       } else if (action === 'remove_zone') {
         useMapStore.getState().removeZone(data.id)
+      } else if (action === 'update_zone') {
+        useMapStore.getState().updateZone(data.id, data.partial || data.zone)
       }
       break
     }
@@ -167,6 +172,34 @@ export function processNetworkMessage(
 
     case 'REACTION': {
       useGameStore.getState().addReaction(msg.payload.reaction)
+      break
+    }
+
+    case 'ROOM_LOCK_TOGGLE': {
+      const { zoneId, isLocked } = msg.payload
+      useMapStore.getState().updateZone(zoneId, { isLocked })
+      break
+    }
+
+    case 'ROOM_KNOCK_REQUEST': {
+      const knockReq = msg.payload
+      const local = useGameStore.getState().localPlayer
+      if (local.currentZoneId === knockReq.zoneId) {
+        useGameStore.getState().addKnockRequest(knockReq)
+      }
+      break
+    }
+
+    case 'ROOM_KNOCK_RESPONSE': {
+      const { zoneId, requesterId, approved, requesterName } = msg.payload
+      if (approved) {
+        useMapStore.getState().authorizePeerInZone(zoneId, requesterId, requesterName)
+      }
+      const local = useGameStore.getState().localPlayer
+      if (local.id === requesterId) {
+        useGameStore.getState().setMyKnockStatus(zoneId, approved ? 'approved' : 'denied')
+      }
+      useGameStore.getState().removeKnockRequest(requesterId)
       break
     }
   }

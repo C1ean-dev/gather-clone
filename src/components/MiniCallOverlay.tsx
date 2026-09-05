@@ -18,6 +18,9 @@ import {
   Volume1,
   VolumeX,
   Gauge,
+  Lock,
+  Unlock,
+  Shield,
 } from 'lucide-react'
 import { useMediaStore } from '../store/useMediaStore'
 import { useGameStore } from '../store/useGameStore'
@@ -26,6 +29,7 @@ import { useChatStore } from '../store/useChatStore'
 import { MediaManager } from '../media/MediaManager'
 import { PeerManager } from '../p2p/PeerManager'
 import { ScreenShareModal } from './ScreenShareModal'
+import { RoomSettingsModal } from './RoomSettingsModal'
 import { attachStreamToVideo } from '../media/attachVideoElement'
 
 interface VideoTileProps {
@@ -409,7 +413,7 @@ const MiniCallOverlayInner: React.FC = () => {
   const toggleCamera = useMediaStore((s) => s.toggleCamera)
 
   const { localPlayer, remotePlayers, callStates } = useGameStore()
-  const { mapData } = useMapStore()
+  const { mapData, toggleZoneLock } = useMapStore()
 
   const isChatOpen = useChatStore((state) => state.isChatOpen)
   const activeChannelId = useChatStore((state) => state.activeChannelId)
@@ -418,12 +422,14 @@ const MiniCallOverlayInner: React.FC = () => {
 
   const [isScreenModalOpen, setIsScreenModalOpen] = useState(false)
   const [isFloatingPreviewVisible, setIsFloatingPreviewVisible] = useState(true)
+  const [isRoomSettingsOpen, setIsRoomSettingsOpen] = useState(false)
 
   // Only display if user is in a Private Zone (grid-open gate lives in outer).
   if (!localPlayer.currentZoneId) return null
 
   const currentZone = mapData.zones.find((z) => z.id === localPlayer.currentZoneId)
   const zoneName = currentZone?.name || 'Mesa Privada'
+  const isRoomLocked = !!currentZone?.isLocked
 
   // Filter remote participants who are in the same zone
   const peersInSameZone = Object.values(remotePlayers).filter(
@@ -507,6 +513,12 @@ const MiniCallOverlayInner: React.FC = () => {
               <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded-full">
                 {peersInSameZone.length + 1} online
               </span>
+              {isRoomLocked && (
+                <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded-full font-bold flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5 text-amber-400" />
+                  Trancada
+                </span>
+              )}
               {isAnyReconnecting && (
                 <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded-full font-bold flex items-center gap-1 animate-pulse">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
@@ -638,6 +650,36 @@ const MiniCallOverlayInner: React.FC = () => {
               )}
             </button>
 
+            {/* Lock / Unlock Room */}
+            <button
+              onClick={() => {
+                if (!localPlayer.currentZoneId) return
+                const next = toggleZoneLock(localPlayer.currentZoneId)
+                PeerManager.getInstance().sendRoomLockToggle(localPlayer.currentZoneId, next)
+              }}
+              className={`p-2 rounded-xl text-xs font-medium transition-all ${
+                isRoomLocked
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50 shadow-md shadow-amber-500/20'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+              }`}
+              title={
+                isRoomLocked
+                  ? 'Sala Trancada (Clique para destrancar)'
+                  : 'Trancar Sala (Exigir bater na porta)'
+              }
+            >
+              {isRoomLocked ? <Lock className="w-4 h-4 text-amber-400" /> : <Unlock className="w-4 h-4" />}
+            </button>
+
+            {/* Room Permissions & Allowed Users */}
+            <button
+              onClick={() => setIsRoomSettingsOpen(true)}
+              className="p-2 rounded-xl text-xs font-medium bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-300 transition-colors"
+              title="Gerenciar Usuários com Permissão de Entrada"
+            >
+              <Shield className="w-4 h-4" />
+            </button>
+
             {/* Settings */}
             <button
               onClick={() => useMediaStore.getState().setSettingsModalOpen(true)}
@@ -655,6 +697,16 @@ const MiniCallOverlayInner: React.FC = () => {
         isOpen={isScreenModalOpen}
         onClose={() => setIsScreenModalOpen(false)}
       />
+
+      {/* Room Permissions & Settings Modal */}
+      {currentZone && isRoomSettingsOpen && (
+        <RoomSettingsModal
+          zone={currentZone}
+          isOpen={isRoomSettingsOpen}
+          onClose={() => setIsRoomSettingsOpen(false)}
+          initialTab="permissions"
+        />
+      )}
     </>
   )
 }

@@ -134,6 +134,10 @@ interface MapStore {
   removeZoneAt: (tileX: number, tileY: number) => boolean
   addOrUpdateZone: (zone: PrivateZone) => void
   updateZone: (id: string, partial: Partial<PrivateZone>) => void
+  toggleZoneLock: (id: string) => boolean
+  authorizePeerInZone: (id: string, peerId: string, peerName?: string) => void
+  isPeerAuthorizedForZone: (id: string, peerId: string, playerName?: string) => boolean
+  checkAndUnlockEmptyZones: () => void
   renameZone: (id: string, newName: string) => void
   removeZone: (id: string) => void
   resetEmptyWorkspace: () => void
@@ -448,6 +452,116 @@ export const useMapStore = create<MapStore>((set, get) => ({
       saveMap(updatedMap)
       return { mapData: updatedMap }
     }),
+
+  toggleZoneLock: (id) => {
+    let nextLocked = false
+    set((state) => {
+      const zone = state.mapData.zones.find((z) => z.id === id)
+      if (!zone) return state
+      nextLocked = !zone.isLocked
+      const updatedZones = state.mapData.zones.map((z) =>
+        z.id === id ? { ...z, isLocked: nextLocked } : z
+      )
+      const updatedMap = {
+        ...state.mapData,
+        zones: updatedZones,
+      }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
+    })
+    return nextLocked
+  },
+
+  authorizePeerInZone: (id, peerId, peerName) => {
+    set((state) => {
+      const updatedZones = state.mapData.zones.map((z) => {
+        if (z.id !== id) return z
+        const list = z.authorizedPeers || []
+        const membersList = z.members || []
+
+        const nextAuthorized = [...list]
+        if (peerId && !nextAuthorized.includes(peerId)) {
+          nextAuthorized.push(peerId)
+        }
+        if (peerName && !nextAuthorized.includes(peerName)) {
+          nextAuthorized.push(peerName)
+        }
+
+        const nextMembers = [...membersList]
+        if (peerName && !nextMembers.includes(peerName) && !z.admins?.includes(peerName)) {
+          nextMembers.push(peerName)
+        }
+
+        return {
+          ...z,
+          authorizedPeers: nextAuthorized,
+          members: nextMembers,
+        }
+      })
+      const updatedMap = {
+        ...state.mapData,
+        zones: updatedZones,
+      }
+      saveMap(updatedMap)
+      return { mapData: updatedMap }
+    })
+    autoSaveCurrentSpace()
+  },
+
+  isPeerAuthorizedForZone: (id, peerId, playerName) => {
+    const zone = get().mapData.zones.find((z) => z.id === id)
+    if (!zone) return true
+    if (!zone.isLocked) return true
+
+    // Dynamically authorized via knocking or permanent list
+    if (zone.authorizedPeers && zone.authorizedPeers.includes(peerId)) return true
+    if (playerName && zone.authorizedPeers && zone.authorizedPeers.includes(playerName)) return true
+
+    // Room admins and members
+    if (playerName) {
+      if (zone.admins && zone.admins.includes(playerName)) return true
+      if (zone.members && zone.members.includes(playerName)) return true
+    }
+    if (zone.admins && zone.admins.includes(peerId)) return true
+    if (zone.members && zone.members.includes(peerId)) return true
+
+    return false
+  },
+
+  checkAndUnlockEmptyZones: () => {
+    const { mapData } = get()
+    if (!mapData.zones || mapData.zones.length === 0) return
+
+    const { localPlayer, remotePlayers } = useGameStore.getState()
+    const allPlayers = [localPlayer, ...Object.values(remotePlayers)]
+
+    let changed = false
+    const updatedZones = mapData.zones.map((zone) => {
+      if (!zone.isLocked) return zone
+
+      const occupants = allPlayers.filter((p) => p.currentZoneId === zone.id)
+      if (occupants.length === 0) {
+        changed = true
+        console.log(`[Auto-Unlock] Zone "${zone.name}" (${zone.id}) is now empty. Reverting to public/unlocked.`)
+        PeerManager.getInstance().sendRoomLockToggle(zone.id, false)
+        return {
+          ...zone,
+          isLocked: false,
+        }
+      }
+      return zone
+    })
+
+    if (changed) {
+      const updatedMap = {
+        ...mapData,
+        zones: updatedZones,
+      }
+      saveMap(updatedMap)
+      autoSaveCurrentSpace()
+      set({ mapData: updatedMap })
+    }
+  },
 
   renameZone: (id, newName) =>
     set((state) => {
