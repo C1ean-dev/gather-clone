@@ -927,14 +927,48 @@ export class MediaCallHandler {
    * Replace active audio track (When mixing system audio with microphone)
    */
   static replaceAudioTrack(mediaCalls: Map<string, MediaConnection>, newTrack: MediaStreamTrack | null) {
-    mediaCalls.forEach((call) => {
+    diagLog('p2p', 'audio-replace-request', {
+      callCount: mediaCalls.size,
+      track: newTrack
+        ? {
+            id: shortTrackId(newTrack.id),
+            kind: newTrack.kind,
+            enabled: newTrack.enabled,
+            ready: newTrack.readyState,
+            liveAudio: (newTrack as any).__screenShareLiveAudio === true,
+          }
+        : null,
+    })
+    mediaCalls.forEach((call, peerId) => {
       try {
         const pc = (call as any).peerConnection as RTCPeerConnection
         if (pc) {
           const senders = pc.getSenders()
           const audioSender = senders.find((s) => s.track && s.track.kind === 'audio')
           if (audioSender && newTrack) {
-            audioSender.replaceTrack(newTrack).catch((err) => console.warn('Could not replace audio track:', err))
+            diagLog('p2p', 'audio-replace-sender-found', {
+              toPeer: peerId,
+              previousTrack: audioSender.track
+                ? { id: shortTrackId(audioSender.track.id), ready: audioSender.track.readyState, enabled: audioSender.track.enabled }
+                : null,
+            })
+            audioSender.replaceTrack(newTrack).then(
+              () => {
+                diagLog('p2p', 'audio-replace-ok', { toPeer: peerId, trackId: shortTrackId(newTrack.id) })
+                MediaCallHandler.logSenderSnapshot(mediaCalls, 'audio-replace-ok')
+              },
+              (err) => {
+                const error = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+                diagLog('p2p', 'audio-replace-failed', { toPeer: peerId, error })
+                console.warn('Could not replace audio track:', err)
+              }
+            )
+          } else {
+            diagLog('p2p', 'audio-replace-no-sender', {
+              toPeer: peerId,
+              hasTrack: !!newTrack,
+              senderKinds: senders.map((sender) => sender.track?.kind || null),
+            })
           }
         }
       } catch (err) {

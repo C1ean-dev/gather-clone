@@ -4,6 +4,8 @@
  * the Windows system mix, the microphone, or incoming call audio.
  */
 
+import { diagLog } from '../utils/diagnosticLogger'
+
 type ProcessAudioApi = {
   startProcessAudioCapture: (sourceId: string) => Promise<{ ok: boolean; error?: string }>
   stopProcessAudioCapture: () => Promise<boolean>
@@ -24,6 +26,12 @@ export class ProcessAudioCapture {
   private chunks: Int16Array[] = []
   private chunkOffset = 0
   private bufferedSamples = 0
+  private statsTimer: ReturnType<typeof setInterval> | null = null
+  private receivedBytes = 0
+  private receivedChunks = 0
+  private receivedNonSilentChunks = 0
+  private processCallbacks = 0
+  private outputNonZeroSamples = 0
 
   static isSupported(): boolean {
     if (typeof window === 'undefined') return false
@@ -47,6 +55,13 @@ export class ProcessAudioCapture {
     const processor = audioContext.createScriptProcessor(2048, 0, CHANNELS)
     const destination = audioContext.createMediaStreamDestination()
 
+    diagLog('screenshare-audio', 'web-audio-created', {
+      requestedSampleRate: SAMPLE_RATE,
+      actualSampleRate: audioContext.sampleRate,
+      state: audioContext.state,
+      channels: CHANNELS,
+    })
+
     processor.onaudioprocess = (event) => this.writeAudio(event)
     // The processor is deliberately connected only to the MediaStream
     // destination. This creates an outbound WebRTC track without playing the
@@ -58,16 +73,33 @@ export class ProcessAudioCapture {
     this.destination = destination
     this.unsubscribeData = api.onProcessAudioData((data) => this.enqueue(data))
     this.unsubscribeStatus = api.onProcessAudioStatus((event) => {
+      diagLog('screenshare-audio', `native-status-${event.status}`, event.detail ? { detail: event.detail } : undefined)
       if (event.status === 'error') {
         console.warn('[ProcessAudioCapture]', event.detail || 'Captura nativa interrompida.')
       }
     })
 
+    this.statsTimer = setInterval(() => {
+      diagLog('screenshare-audio', 'pipeline-stats', {
+        receivedBytes: this.receivedBytes,
+        receivedChunks: this.receivedChunks,
+        receivedNonSilentChunks: this.receivedNonSilentChunks,
+        bufferedSamples: this.bufferedSamples,
+        processCallbacks: this.processCallbacks,
+        outputNonZeroSamples: this.outputNonZeroSamples,
+        audioContextState: audioContext.state,
+      })
+    }, 2000)
+
+    diagLog('screenshare-audio', 'native-start-request', { sourceId })
     const result = await api.startProcessAudioCapture(sourceId)
     if (!result.ok) {
+      diagLog('screenshare-audio', 'native-start-failed', { sourceId, error: result.error || 'unknown' })
       this.stop(false)
       throw new Error(result.error || 'Não foi possível iniciar a captura de áudio da aplicação.')
     }
+
+    diagLog('screenshare-audio', 'native-start-ok', { sourceId })
 
     if (audioContext.state === 'suspended') {
       await audioContext.resume().catch(() => {})
@@ -79,10 +111,27 @@ export class ProcessAudioCapture {
       throw new Error('O cliente não criou a faixa de áudio da aplicação.')
     }
     track.enabled = true
+    diagLog('screenshare-audio', 'audio-track-ready', {
+      sourceId,
+      track: {
+        id: track.id,
+        readyState: track.readyState,
+        enabled: track.enabled,
+        settings: typeof track.getSettings === 'function' ? track.getSettings() : undefined,
+      },
+    })
     return track
   }
 
   stop(notifyMain: boolean = true) {
+    diagLog('screenshare-audio', 'pipeline-stop', {
+      notifyMain,
+      receivedBytes: this.receivedBytes,
+      receivedChunks: this.receivedChunks,
+      bufferedSamples: this.bufferedSamples,
+      processCallbacks: this.processCallbacks,
+      outputNonZeroSamples: this.outputNonZeroSamples,
+    })
     const api = (window as any).electronAPI as Partial<ProcessAudioApi> | undefined
     if (notifyMain && api?.stopProcessAudioCapture) {
       api.stopProcessAudioCapture().catch(() => {})
@@ -91,6 +140,10 @@ export class ProcessAudioCapture {
     this.unsubscribeStatus?.()
     this.unsubscribeData = null
     this.unsubscribeStatus = null
+    if (this.statsTimer) {
+      clearInterval(this.statsTimer)
+      this.statsTimer = null
+    }
     this.processor?.disconnect()
     this.processor = null
     this.destination?.stream.getTracks().forEach((track) => track.stop())
@@ -103,6 +156,11 @@ export class ProcessAudioCapture {
     this.chunks = []
     this.chunkOffset = 0
     this.bufferedSamples = 0
+    this.receivedBytes = 0
+    this.receivedChunks = 0
+    this.receivedNonSilentChunks = 0
+    this.processCallbacks = 0
+    this.outputNonZeroSamples = 0
   }
 
   private enqueue(data: Uint8Array) {
@@ -115,6 +173,14 @@ export class ProcessAudioCapture {
     const pcm = new Int16Array(copy.buffer)
     this.chunks.push(pcm)
     this.bufferedSamples += pcm.length
+    this.receivedBytes += alignedLength
+    this.receivedChunks++
+    for (let i = 0; i < pcm.length; i += 8) {
+      if (pcm[i] !== 0) {
+        this.receivedNonSilentChunks++
+        break
+      }
+    }
 
     while (this.bufferedSamples > MAX_BUFFERED_SAMPLES && this.chunks.length > 0) {
       const first = this.chunks.shift()!
@@ -139,12 +205,14 @@ export class ProcessAudioCapture {
   }
 
   private writeAudio(event: AudioProcessingEvent) {
+    this.processCallbacks++
     const output = event.outputBuffer
     const left = output.getChannelData(0)
     const right = output.numberOfChannels > 1 ? output.getChannelData(1) : left
     for (let frame = 0; frame < output.length; frame++) {
       left[frame] = this.readSample()
       right[frame] = this.readSample()
+      if (left[frame] !== 0 || right[frame] !== 0) this.outputNonZeroSamples++
     }
   }
 }

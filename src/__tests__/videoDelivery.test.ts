@@ -508,7 +508,7 @@ describe('Video Delivery & Screen Share Guarantee Tests', () => {
         includeAudio: true,
       })
 
-      expect(setScreenSource).toHaveBeenCalledWith('window:4242:0', true)
+      expect(setScreenSource).toHaveBeenCalledWith('window:4242:0', true, 'auto')
       expect(navigator.mediaDevices.getDisplayMedia).toHaveBeenCalledWith(
         expect.objectContaining({ audio: false })
       )

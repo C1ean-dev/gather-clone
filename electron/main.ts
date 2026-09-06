@@ -15,6 +15,9 @@ const __dirname = path.dirname(__filename)
 let mainWindow: BrowserWindow | null = null
 let processAudioCapture: ReturnType<typeof spawn> | null = null
 let processAudioCaptureSourceId: string | null = null
+let processAudioCaptureBytes = 0
+let processAudioCaptureChunks = 0
+let processAudioCaptureStatsTimer: ReturnType<typeof setInterval> | null = null
 
 // Pre-selected DesktopCapturerSource id for the NEXT getDisplayMedia call.
 // Written by the 'set-screen-source' IPC (renderer picked a thumbnail),
@@ -25,7 +28,7 @@ let processAudioCaptureSourceId: string | null = null
 // for a selected window leaks sound from unrelated applications into a call.
 // The selected process is captured separately by the bundled Windows helper;
 // this Electron request handler remains video-only by design.
-let pendingScreenCapture: { sourceId: string | null; withAudio: boolean } | null = null
+let pendingScreenCapture: { sourceId: string | null; withAudio: boolean; captureMethod: string } | null = null
 let lastSelectedSourceId: string | null = null
 let lastSelectedSourceTime = 0
 
@@ -33,8 +36,36 @@ const GITHUB_REPO = 'C1ean-dev/gather-clone'
 const CURRENT_VERSION = app.getVersion() || '1.0.0'
 
 type ProcessAudioCaptureResult = { ok: true } | { ok: false; error: string }
+type ProcessAudioCaptureInfo = {
+  supported: boolean
+  osRelease: string
+  helperPath: string
+  helperExists: boolean
+  error?: string
+}
+
+function writeMainAudioDiagnostic(event: string, data?: Record<string, unknown>) {
+  const entry = {
+    t: new Date().toISOString(),
+    session: `electron-${process.pid}`,
+    cat: 'screenshare-native',
+    event,
+    ...(data ? { data } : {}),
+  }
+  try {
+    console.info(`[diag:screenshare-native] ${event}`, data ?? '')
+    const dir = getLogsDirectory()
+    const day = new Date().toISOString().slice(0, 10)
+    const filePath = path.join(dir, `call-debug-${day}.log`)
+    rotateDiagLog(filePath)
+    fs.appendFileSync(filePath, `${JSON.stringify(entry)}\n`, 'utf-8')
+  } catch (error) {
+    console.warn('[DiagLog] native audio append failed:', error)
+  }
+}
 
 function emitProcessAudioStatus(status: 'started' | 'stopped' | 'error', detail?: string) {
+  writeMainAudioDiagnostic(`status-${status}`, detail ? { detail } : undefined)
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('process-audio-status', { status, detail })
   }
@@ -47,29 +78,35 @@ function getProcessAudioHelperPath(): string {
   return path.join(__dirname, '..', 'native', 'bin', 'process-audio-capture.exe')
 }
 
-function getProcessLoopbackCompatibilityError(): string | null {
-  if (process.platform !== 'win32') {
-    return 'A captura de áudio por aplicativo está disponível apenas no Windows.'
+function getProcessAudioCaptureInfo(): ProcessAudioCaptureInfo {
+  const helperPath = getProcessAudioHelperPath()
+  const helperExists = fs.existsSync(helperPath)
+  const error = !helperExists ? 'O capturador nativo não foi encontrado.' : undefined
+  return {
+    supported: !error,
+    osRelease: getOsRelease(),
+    helperPath,
+    helperExists,
+    ...(error ? { error } : {}),
   }
-
-  // Application Loopback (the Windows API that captures one process tree
-  // without reading the system mix) starts at Windows build 20348. Refuse to
-  // start on older builds: falling back to system loopback would leak other
-  // applications into the live, which is never an acceptable fallback.
-  const releaseParts = getOsRelease().split('.')
-  const build = Number(releaseParts[releaseParts.length - 1])
-  if (!Number.isFinite(build) || build < 20348) {
-    return `A captura de áudio isolada requer Windows 10 build 20348 ou superior (ou Windows 11). Este computador está no build ${Number.isFinite(build) ? build : 'desconhecido'}.`
-  }
-
-  return null
 }
 
 function stopProcessAudioCapture() {
   const child = processAudioCapture
+  const sourceId = processAudioCaptureSourceId
   processAudioCapture = null
   processAudioCaptureSourceId = null
+  if (processAudioCaptureStatsTimer) {
+    clearInterval(processAudioCaptureStatsTimer)
+    processAudioCaptureStatsTimer = null
+  }
   if (!child || child.killed) return
+  writeMainAudioDiagnostic('stop-request', {
+    sourceId,
+    helperPid: child.pid ?? null,
+    bytes: processAudioCaptureBytes,
+    chunks: processAudioCaptureChunks,
+  })
   try {
     child.kill()
   } catch (error) {
@@ -108,21 +145,23 @@ async function resolveScreenBounds(sourceId: string): Promise<{ x: number; y: nu
 }
 
 async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioCaptureResult> {
-  const compatibilityError = getProcessLoopbackCompatibilityError()
-  if (compatibilityError) return { ok: false, error: compatibilityError }
+  writeMainAudioDiagnostic('start-request', { sourceId, osRelease: getOsRelease(), helperPath: getProcessAudioHelperPath() })
 
   const isWindow = sourceId.startsWith('window:')
   const isScreen = sourceId.startsWith('screen:')
   if (!isWindow && !isScreen) {
+    writeMainAudioDiagnostic('source-id-invalid', { sourceId })
     return { ok: false, error: 'Selecione uma janela ou tela para compartilhar o áudio isolado.' }
   }
 
   const helperPath = getProcessAudioHelperPath()
   if (!fs.existsSync(helperPath)) {
+    writeMainAudioDiagnostic('helper-missing', { helperPath })
     return { ok: false, error: 'O capturador nativo não foi encontrado. Execute npm run native:build.' }
   }
 
   if (processAudioCapture && processAudioCaptureSourceId === sourceId && !processAudioCapture.killed) {
+    writeMainAudioDiagnostic('already-running', { sourceId })
     return { ok: true }
   }
   stopProcessAudioCapture()
@@ -132,6 +171,9 @@ async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioC
     const bounds = await resolveScreenBounds(sourceId)
     if (bounds) {
       spawnArgs.push('--screen-bounds', String(bounds.x), String(bounds.y), String(bounds.width), String(bounds.height))
+      writeMainAudioDiagnostic('screen-bounds', { sourceId, bounds })
+    } else {
+      writeMainAudioDiagnostic('screen-bounds-unresolved', { sourceId })
     }
   }
 
@@ -152,8 +194,23 @@ async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioC
       })
       processAudioCapture = child
       processAudioCaptureSourceId = sourceId
+      processAudioCaptureBytes = 0
+      processAudioCaptureChunks = 0
+      writeMainAudioDiagnostic('helper-spawned', { sourceId, pid: child.pid ?? null, args: spawnArgs })
+
+      if (processAudioCaptureStatsTimer) clearInterval(processAudioCaptureStatsTimer)
+      processAudioCaptureStatsTimer = setInterval(() => {
+        writeMainAudioDiagnostic('pcm-forward-stats', {
+          sourceId,
+          helperPid: child.pid ?? null,
+          bytes: processAudioCaptureBytes,
+          chunks: processAudioCaptureChunks,
+        })
+      }, 2000)
 
       child.stdout?.on('data', (data: Buffer) => {
+        processAudioCaptureBytes += data.byteLength
+        processAudioCaptureChunks++
         if (mainWindow && !mainWindow.isDestroyed()) {
           // The helper writes only 48 kHz stereo signed-16 PCM. Forwarding a
           // Buffer preserves the bytes across Electron IPC without writing it
@@ -164,6 +221,7 @@ async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioC
       child.stderr?.on('data', (data: Buffer) => {
         const detail = data.toString('utf8').trim()
         if (!detail) return
+        writeMainAudioDiagnostic('helper-stderr', { sourceId, detail: detail.slice(0, 2000) })
         if (detail.includes('READY')) {
           emitProcessAudioStatus('started')
           finish({ ok: true })
@@ -172,6 +230,7 @@ async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioC
         console.warn('[ProcessAudio]', detail)
       })
       child.once('error', (error) => {
+        writeMainAudioDiagnostic('helper-error', { sourceId, error: error.message })
         if (processAudioCapture === child) {
           processAudioCapture = null
           processAudioCaptureSourceId = null
@@ -180,6 +239,11 @@ async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioC
         finish({ ok: false, error: error.message })
       })
       child.once('exit', (code, signal) => {
+        writeMainAudioDiagnostic('helper-exit', { sourceId, code, signal, bytes: processAudioCaptureBytes, chunks: processAudioCaptureChunks })
+        if (processAudioCaptureStatsTimer) {
+          clearInterval(processAudioCaptureStatsTimer)
+          processAudioCaptureStatsTimer = null
+        }
         const wasActive = processAudioCapture === child
         if (wasActive) {
           processAudioCapture = null
@@ -191,6 +255,7 @@ async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioC
       })
 
       startupTimeout = setTimeout(() => {
+        writeMainAudioDiagnostic('helper-start-timeout', { sourceId })
         if (processAudioCapture === child) stopProcessAudioCapture()
         finish({ ok: false, error: 'O capturador de áudio não respondeu a tempo.' })
       }, 5_000)
@@ -205,7 +270,7 @@ async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioC
 const instanceArg = process.argv.find((a) => a.startsWith('--instance='))?.split('=')[1]
 const isMultiFlag = process.argv.includes('--multi')
 const instanceId = process.env.INSTANCE || instanceArg || (isMultiFlag ? '2' : '1')
-const isMultiInstance = instanceId !== '1'
+const isMultiInstance = isMultiFlag || instanceId !== '1'
 
 if (isMultiInstance) {
   // Isolate userData directory so Chromium doesn't fight over GPUCache, LevelDB or local storage
@@ -270,6 +335,8 @@ function createWindow() {
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     const now = Date.now()
     const requestedAudio = pendingScreenCapture?.withAudio ?? !!(request as any)?.audio
+    const captureMethod = pendingScreenCapture?.captureMethod || 'auto'
+    console.info(`[Electron] display capture method=${captureMethod}`)
     const wantedId = pendingScreenCapture?.sourceId || (now - lastSelectedSourceTime < 15000 ? lastSelectedSourceId : null)
     pendingScreenCapture = null
 
@@ -309,18 +376,25 @@ function createWindow() {
   // Set by the renderer's ScreenShareModal before calling getDisplayMedia so
   // the EXACT source the user picked is shared (legacy chromeMediaSource
   // constraints were removed in modern Electron/Chromium and no longer work).
-  ipcMain.handle('set-screen-source', (_event, payload: { sourceId?: string | null; withAudio?: boolean }) => {
+  ipcMain.handle('set-screen-source', (_event, payload: { sourceId?: string | null; withAudio?: boolean; captureMethod?: string }) => {
     lastSelectedSourceId = payload?.sourceId ?? null
     lastSelectedSourceTime = Date.now()
     pendingScreenCapture = {
       sourceId: lastSelectedSourceId,
       withAudio: payload?.withAudio ?? true,
+      captureMethod: payload?.captureMethod || 'auto',
     }
+    writeMainAudioDiagnostic('capture-method-selected', { sourceId: lastSelectedSourceId, captureMethod: payload?.captureMethod || 'auto' })
     return true
   })
 
   ipcMain.handle('start-process-audio-capture', (_event, sourceId: string): Promise<ProcessAudioCaptureResult> => {
     return startProcessAudioCapture(sourceId)
+  })
+  ipcMain.handle('get-process-audio-capture-info', () => {
+    const info = getProcessAudioCaptureInfo()
+    writeMainAudioDiagnostic('capability-check', info)
+    return info
   })
   ipcMain.handle('stop-process-audio-capture', () => {
     stopProcessAudioCapture()

@@ -4,13 +4,14 @@ import { RnnoiseProcessor } from './RnnoiseProcessor'
 import { MicCalibrator } from './MicCalibrator'
 import { CallAudioIsolator } from './CallAudioIsolator'
 import { ProcessAudioCapture } from './ProcessAudioCapture'
-import { diagLog, summarizeStream } from '../utils/diagnosticLogger'
+import { diagLog, summarizeStream, summarizeTrack } from '../utils/diagnosticLogger'
 import { useMediaStore } from '../store/useMediaStore'
 import { useGameStore } from '../store/useGameStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { SensitivityMode, AudioProcessorMode } from '../types/audio'
 
 export interface ScreenShareConfig {
+  captureMethod?: 'auto' | 'wgc' | 'dxgi' | 'bitblt' | 'graphics-hook'
   sourceId?: string
   sourceName?: string
   /** Required when sharing a monitor: the window whose audio belongs in the live. */
@@ -825,6 +826,7 @@ export class MediaManager {
         sourceId,
         sourceName,
         audioSourceId,
+        captureMethod = 'auto',
         resolution = '1080p',
         fps = 30,
       } = config
@@ -853,6 +855,16 @@ export class MediaManager {
 
       const electronAPI = (window as any).electronAPI
       const isElectronCapture = Boolean(electronAPI?.setScreenSource)
+      diagLog('screenshare-audio', 'capture-request', {
+        sourceId: sourceId || null,
+        audioSourceId: audioSourceId || null,
+        sourceName: sourceName || null,
+        isElectron: isElectronCapture,
+        includeAudio,
+        resolution,
+        fps,
+        captureMethod,
+      })
       // Browsers that support these hints return source/tab audio instead of
       // the system mix. Electron has no source-scoped audio API for external
       // windows, so it receives video only (see electron/main.ts).
@@ -883,7 +895,7 @@ export class MediaManager {
 
       if (sourceId && electronAPI?.setScreenSource) {
         try {
-          await electronAPI.setScreenSource(sourceId, includeAudio)
+          await electronAPI.setScreenSource(sourceId, includeAudio, captureMethod)
         } catch (ipcErr) {
           console.warn('[MediaManager] set-screen-source IPC failed, capturing primary screen:', ipcErr)
         }
@@ -911,6 +923,12 @@ export class MediaManager {
       // In a browser, the display picker may supply a tab/window audio track.
       let applicationAudioTrack = screenStream.getAudioTracks()[0] || null
       const localStream = useMediaStore.getState().localStream
+      diagLog('screenshare-audio', 'display-capture-ready', {
+        sourceId: sourceId || null,
+        isElectron: isElectronCapture,
+        tracks: summarizeStream(screenStream),
+        microphoneTracks: localStream?.getAudioTracks().length || 0,
+      })
 
       // Tear down any previous isolator before (re)building.
       if (this.callAudioIsolator) {
@@ -922,7 +940,13 @@ export class MediaManager {
       this.processAudioCapture = null
 
       const processAudioSourceId = audioSourceId || sourceId
-      if (isElectronCapture && processAudioSourceId && ProcessAudioCapture.isSupported()) {
+      const nativeAudioSupported = ProcessAudioCapture.isSupported()
+      diagLog('screenshare-audio', 'native-capability', {
+        isElectron: isElectronCapture,
+        sourceId: processAudioSourceId || null,
+        supported: nativeAudioSupported,
+      })
+      if (isElectronCapture && processAudioSourceId && nativeAudioSupported) {
         try {
           this.processAudioCapture = new ProcessAudioCapture()
           applicationAudioTrack = await this.processAudioCapture.start(processAudioSourceId)
@@ -933,6 +957,11 @@ export class MediaManager {
           console.warn('Process-scoped audio capture unavailable:', audioErr)
           diagLog('screenshare', 'process-audio-unavailable', { sourceId: processAudioSourceId, error: errShort(audioErr) })
         }
+      } else if (isElectronCapture) {
+        diagLog('screenshare-audio', 'native-capture-skipped', {
+          sourceId: processAudioSourceId || null,
+          reason: processAudioSourceId ? 'api-unavailable' : 'source-id-missing',
+        })
       }
 
       if (applicationAudioTrack) {
@@ -946,6 +975,11 @@ export class MediaManager {
             localStream?.getAudioTracks().length ? 'app_and_mic' : 'app_only'
           )
           diagLog('screenshare', 'audio-track-sent', { sourceOnly: true, microphonePreserved: true })
+          diagLog('screenshare-audio', 'live-track-created', {
+            sourceId: processAudioSourceId || null,
+            track: summarizeStream(screenStream),
+            audioContextState: this.screenAudioContext?.state || null,
+          })
           PeerManager.getInstance().replaceAudioTrack(liveAudioTrack)
         } catch (audioErr) {
           console.warn('Could not build the isolated live audio track:', audioErr)
@@ -957,6 +991,11 @@ export class MediaManager {
         // the call even if the selected app has no audio or capture failed.
         diagLog('screenshare', 'audio-track-unavailable', {
           reason: isElectronCapture ? 'process-audio-unavailable' : 'no-source-audio-track',
+          microphonePreserved: true,
+        })
+        diagLog('screenshare-audio', 'live-track-missing', {
+          sourceId: processAudioSourceId || null,
+          isElectron: isElectronCapture,
           microphonePreserved: true,
         })
       }
@@ -1020,6 +1059,7 @@ export class MediaManager {
   private createLiveAudioTrack(sourceTrack: MediaStreamTrack, localStream: MediaStream | null): MediaStreamTrack {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
     if (!AudioContextClass) {
+      diagLog('screenshare-audio', 'live-track-web-audio-unavailable', { sourceTrack: summarizeTrack(sourceTrack) })
       return sourceTrack
     }
 
@@ -1040,6 +1080,15 @@ export class MediaManager {
       const microphone = audioContext.createMediaStreamSource(localStream)
       microphone.connect(destination)
     }
+
+    diagLog('screenshare-audio', 'live-track-graph', {
+      contextState: audioContext.state,
+      sampleRate: audioContext.sampleRate,
+      applicationVolume: volume,
+      applicationTrack: summarizeTrack(sourceTrack),
+      microphoneTracks: localStream?.getAudioTracks().length || 0,
+      destinationTracks: destination.stream.getAudioTracks().length,
+    })
 
     this.screenAudioContext = audioContext
     this.screenGainNode = applicationGain

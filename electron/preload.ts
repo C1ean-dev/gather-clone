@@ -21,10 +21,19 @@ export interface ProcessAudioCaptureResult {
   error?: string
 }
 
+export interface ProcessAudioCaptureInfo {
+  supported: boolean
+  osRelease: string
+  helperPath: string
+  helperExists: boolean
+  error?: string
+}
+
 export interface IElectronAPI {
   getSources: () => Promise<Array<{ id: string; name: string; thumbnail: string; appIcon: string | null }>>
-  setScreenSource: (sourceId: string | null, withAudio?: boolean) => Promise<boolean>
+  setScreenSource: (sourceId: string | null, withAudio?: boolean, captureMethod?: string) => Promise<boolean>
   startProcessAudioCapture: (sourceId: string) => Promise<ProcessAudioCaptureResult>
+  getProcessAudioCaptureInfo: () => Promise<ProcessAudioCaptureInfo>
   stopProcessAudioCapture: () => Promise<boolean>
   onProcessAudioData: (callback: (data: Uint8Array) => void) => () => void
   onProcessAudioStatus: (callback: (event: { status: 'started' | 'stopped' | 'error'; detail?: string }) => void) => () => void
@@ -47,12 +56,24 @@ export interface IElectronAPI {
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getSources: () => ipcRenderer.invoke('get-sources'),
-  setScreenSource: (sourceId: string | null, withAudio: boolean = true) =>
-    ipcRenderer.invoke('set-screen-source', { sourceId, withAudio }),
+  setScreenSource: (sourceId: string | null, withAudio: boolean = true, captureMethod = 'auto') =>
+    ipcRenderer.invoke('set-screen-source', { sourceId, withAudio, captureMethod }),
   startProcessAudioCapture: (sourceId: string) => ipcRenderer.invoke('start-process-audio-capture', sourceId),
+  getProcessAudioCaptureInfo: () => ipcRenderer.invoke('get-process-audio-capture-info'),
   stopProcessAudioCapture: () => ipcRenderer.invoke('stop-process-audio-capture'),
   onProcessAudioData: (callback: (data: Uint8Array) => void) => {
-    const handler = (_event: unknown, data: Uint8Array) => callback(new Uint8Array(data))
+    const handler = (_event: unknown, data: Uint8Array | { data?: number[] } | number[]) => {
+      // Electron normally transfers Node Buffers as Uint8Array. Keep a
+      // defensive conversion for older Electron/structured-clone versions
+      // that deserialize a Buffer as { data: number[] }.
+      if (data instanceof Uint8Array) {
+        callback(new Uint8Array(data))
+      } else if (Array.isArray(data)) {
+        callback(Uint8Array.from(data))
+      } else if (data && Array.isArray(data.data)) {
+        callback(Uint8Array.from(data.data))
+      }
+    }
     ipcRenderer.on('process-audio-data', handler)
     return () => ipcRenderer.removeListener('process-audio-data', handler)
   },

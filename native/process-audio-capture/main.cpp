@@ -18,6 +18,7 @@
 #include <memory>
 #include <new>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -49,7 +50,12 @@ class ActivationHandler final : public IActivateAudioInterfaceCompletionHandler,
 
   STDMETHODIMP QueryInterface(REFIID iid, void** object) override {
     if (!object) return E_POINTER;
-    if (iid == IID_IUnknown || iid == __uuidof(IActivateAudioInterfaceCompletionHandler) || iid == __uuidof(IAgileObject)) {
+    if (iid == __uuidof(IAgileObject)) {
+      *object = static_cast<IAgileObject*>(this);
+      AddRef();
+      return S_OK;
+    }
+    if (iid == IID_IUnknown || iid == __uuidof(IActivateAudioInterfaceCompletionHandler)) {
       *object = static_cast<IActivateAudioInterfaceCompletionHandler*>(this);
       AddRef();
       return S_OK;
@@ -94,6 +100,8 @@ bool ParseWindowHandle(const wchar_t* sourceId, HWND* window) {
   return IsWindow(*window) != FALSE;
 }
 
+void PrintError(const wchar_t* message, HRESULT hr);
+
 HRESULT ActivateProcessLoopback(DWORD processId, IAudioClient** audioClient) {
   AUDIOCLIENT_ACTIVATION_PARAMS parameters = {};
   parameters.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
@@ -111,6 +119,7 @@ HRESULT ActivateProcessLoopback(DWORD processId, IAudioClient** audioClient) {
   HRESULT hr = ActivateAudioInterfaceAsync(
       VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, __uuidof(IAudioClient), &activation, handler, &operation);
   if (SUCCEEDED(hr)) hr = handler->WaitForClient(audioClient);
+  if (FAILED(hr)) PrintError(L"Process-loopback activation failed", hr);
   if (operation) operation->Release();
   handler->Release();
   return hr;
@@ -168,13 +177,18 @@ struct ProcessSession {
   }
 };
 
-std::unique_ptr<ProcessSession> CreateProcessSession(DWORD pid, const WAVEFORMATEX& format) {
+std::unique_ptr<ProcessSession> CreateProcessSession(DWORD pid, const WAVEFORMATEX& format, HRESULT* failure = nullptr) {
+  if (failure) *failure = S_OK;
   IAudioClient* client = nullptr;
   HRESULT hr = ActivateProcessLoopback(pid, &client);
-  if (FAILED(hr) || !client) return nullptr;
+  if (FAILED(hr) || !client) {
+    if (failure) *failure = FAILED(hr) ? hr : E_NOINTERFACE;
+    return nullptr;
+  }
 
   HANDLE sampleEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   if (!sampleEvent) {
+    if (failure) *failure = HRESULT_FROM_WIN32(GetLastError());
     client->Release();
     return nullptr;
   }
@@ -184,6 +198,7 @@ std::unique_ptr<ProcessSession> CreateProcessSession(DWORD pid, const WAVEFORMAT
       AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
       0, 0, &format, nullptr);
   if (FAILED(hr)) {
+    if (failure) *failure = hr;
     CloseHandle(sampleEvent);
     client->Release();
     return nullptr;
@@ -191,6 +206,7 @@ std::unique_ptr<ProcessSession> CreateProcessSession(DWORD pid, const WAVEFORMAT
 
   hr = client->SetEventHandle(sampleEvent);
   if (FAILED(hr)) {
+    if (failure) *failure = hr;
     CloseHandle(sampleEvent);
     client->Release();
     return nullptr;
@@ -199,6 +215,7 @@ std::unique_ptr<ProcessSession> CreateProcessSession(DWORD pid, const WAVEFORMAT
   IAudioCaptureClient* capture = nullptr;
   hr = client->GetService(IID_PPV_ARGS(&capture));
   if (FAILED(hr) || !capture) {
+    if (failure) *failure = FAILED(hr) ? hr : E_NOINTERFACE;
     CloseHandle(sampleEvent);
     client->Release();
     return nullptr;
@@ -206,6 +223,7 @@ std::unique_ptr<ProcessSession> CreateProcessSession(DWORD pid, const WAVEFORMAT
 
   hr = client->Start();
   if (FAILED(hr)) {
+    if (failure) *failure = hr;
     capture->Release();
     CloseHandle(sampleEvent);
     client->Release();
@@ -275,9 +293,10 @@ int RunWindowCapture(HWND targetWindow) {
   format.nBlockAlign = format.nChannels * format.wBitsPerSample / 8;
   format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
 
-  auto session = CreateProcessSession(processId, format);
+  HRESULT sessionError = S_OK;
+  auto session = CreateProcessSession(processId, format, &sessionError);
   if (!session) {
-    std::wcerr << L"[process-audio-capture] Could not initialize loopback for process " << processId << L"\n";
+    PrintError((std::wstring(L"Could not initialize loopback for process ") + std::to_wstring(processId)).c_str(), sessionError);
     return 6;
   }
 
@@ -286,6 +305,10 @@ int RunWindowCapture(HWND targetWindow) {
 
   HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
   bool keepCapturing = output && output != INVALID_HANDLE_VALUE;
+  uint64_t bytesWritten = 0;
+  uint64_t nonSilentBytes = 0;
+  uint64_t packetCount = 0;
+  auto lastStats = std::chrono::steady_clock::now();
   while (keepCapturing) {
     const DWORD wait = WaitForSingleObject(session->sampleEvent, 1000);
     if (wait != WAIT_OBJECT_0 && wait != WAIT_TIMEOUT) break;
@@ -303,8 +326,22 @@ int RunWindowCapture(HWND targetWindow) {
       }
 
       const DWORD bytes = frames * format.nBlockAlign;
-      keepCapturing = (flags & AUDCLNT_BUFFERFLAGS_SILENT) ? WriteSilence(output, bytes) : WriteAll(output, data, bytes);
+      const bool silent = (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
+      keepCapturing = silent ? WriteSilence(output, bytes) : WriteAll(output, data, bytes);
+      if (keepCapturing) {
+        bytesWritten += bytes;
+        if (!silent) nonSilentBytes += bytes;
+        packetCount++;
+      }
       session->captureClient->ReleaseBuffer(frames);
+    }
+
+    if (std::chrono::steady_clock::now() - lastStats >= std::chrono::seconds(2)) {
+      std::wcerr << L"[process-audio-capture] STATS mode=window pid=" << processId
+                 << L" bytes=" << bytesWritten << L" nonSilentBytes=" << nonSilentBytes
+                 << L" packets=" << packetCount << L"\n";
+      std::wcerr.flush();
+      lastStats = std::chrono::steady_clock::now();
     }
   }
 
@@ -330,6 +367,8 @@ int RunScreenCapture(int left, int top, int width, int height) {
 
   const DWORD selfPid = GetCurrentProcessId();
   std::map<DWORD, std::unique_ptr<ProcessSession>> sessions;
+  std::map<DWORD, HRESULT> failedSessions;
+  std::set<DWORD> lastDesiredPids;
 
   std::wcerr << L"[process-audio-capture] READY\n";
   std::wcerr.flush();
@@ -344,17 +383,28 @@ int RunScreenCapture(int left, int top, int width, int height) {
   std::vector<int32_t> mixBufferLeft(kMixFrames, 0);
   std::vector<int32_t> mixBufferRight(kMixFrames, 0);
   std::vector<int16_t> outputPcm(kMixFrames * kChannels, 0);
+  uint64_t bytesWritten = 0;
+  uint64_t nonSilentSamples = 0;
+  uint64_t scanCount = 0;
+  auto lastStats = std::chrono::steady_clock::now();
 
   while (keepCapturing) {
     auto now = std::chrono::steady_clock::now();
     if (now - lastScanTime >= std::chrono::milliseconds(300)) {
       lastScanTime = now;
       std::set<DWORD> desiredPids = ScanProcessesOnMonitor(targetMonitor, selfPid);
+      scanCount++;
+      if (desiredPids != lastDesiredPids) {
+        std::wcerr << L"[process-audio-capture] MONITOR_SCAN count=" << scanCount
+                   << L" desiredProcesses=" << desiredPids.size() << L"\n";
+        lastDesiredPids = desiredPids;
+      }
 
       // Stop and remove sessions whose windows left this monitor
       for (auto it = sessions.begin(); it != sessions.end();) {
         if (desiredPids.find(it->first) == desiredPids.end()) {
           it->second->Dispose();
+          failedSessions.erase(it->first);
           it = sessions.erase(it);
         } else {
           ++it;
@@ -364,9 +414,15 @@ int RunScreenCapture(int left, int top, int width, int height) {
       // Start sessions for newly arrived processes on this monitor
       for (DWORD pid : desiredPids) {
         if (sessions.find(pid) == sessions.end()) {
-          auto session = CreateProcessSession(pid, format);
+          HRESULT sessionError = S_OK;
+          auto session = CreateProcessSession(pid, format, &sessionError);
           if (session) {
             sessions[pid] = std::move(session);
+            failedSessions.erase(pid);
+            std::wcerr << L"[process-audio-capture] SESSION_ADD pid=" << pid << L"\n";
+          } else if (failedSessions.find(pid) == failedSessions.end() || failedSessions[pid] != sessionError) {
+            failedSessions[pid] = sessionError;
+            std::wcerr << L"[process-audio-capture] SESSION_SKIP pid=" << pid << L" hr=0x" << std::hex << sessionError << std::dec << L"\n";
           }
         }
       }
@@ -412,6 +468,7 @@ int RunScreenCapture(int left, int top, int width, int height) {
       // Keep WebRTC steady with 10ms silence chunks
       Sleep(10);
       keepCapturing = WriteSilence(output, kMixFrames * kBytesPerFrame);
+      if (keepCapturing) bytesWritten += kMixFrames * kBytesPerFrame;
     } else if (minAvailableFrames >= kMixFrames) {
       // Mix kMixFrames across all sessions
       std::fill(mixBufferLeft.begin(), mixBufferLeft.end(), 0);
@@ -436,9 +493,25 @@ int RunScreenCapture(int left, int top, int width, int height) {
       }
 
       keepCapturing = WriteAll(output, reinterpret_cast<const BYTE*>(outputPcm.data()), kMixFrames * kBytesPerFrame);
+      if (keepCapturing) {
+        bytesWritten += kMixFrames * kBytesPerFrame;
+        for (const auto sample : outputPcm) {
+          if (sample != 0) {
+            nonSilentSamples++;
+          }
+        }
+      }
     } else {
       // Wait briefly for more audio packets
       Sleep(5);
+    }
+
+    if (std::chrono::steady_clock::now() - lastStats >= std::chrono::seconds(2)) {
+      std::wcerr << L"[process-audio-capture] STATS mode=screen sessions=" << sessions.size()
+                 << L" scans=" << scanCount << L" bytes=" << bytesWritten
+                 << L" nonSilentSamples=" << nonSilentSamples << L"\n";
+      std::wcerr.flush();
+      lastStats = std::chrono::steady_clock::now();
     }
   }
 
@@ -464,8 +537,15 @@ int wmain(int argc, wchar_t* argv[]) {
   const bool isScreen = (wcsncmp(sourceId, L"screen:", 7) == 0);
 
   HRESULT ro = RoInitialize(RO_INIT_MULTITHREADED);
+  bool roInitialized = SUCCEEDED(ro);
+  bool coInitialized = false;
   if (FAILED(ro) && ro != RPC_E_CHANGED_MODE) {
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    coInitialized = SUCCEEDED(co);
+    if (FAILED(co)) PrintError(L"COM initialization failed", co);
+  }
+  if (FAILED(ro) && ro != RPC_E_CHANGED_MODE && !coInitialized) {
+    return 5;
   }
 
   int exitCode = 0;
@@ -485,12 +565,14 @@ int wmain(int argc, wchar_t* argv[]) {
     HWND targetWindow = nullptr;
     if (!ParseWindowHandle(sourceId, &targetWindow)) {
       std::wcerr << L"[process-audio-capture] The selected source is not a valid application window.\n";
-      RoUninitialize();
+      if (roInitialized) RoUninitialize();
+      if (coInitialized) CoUninitialize();
       return 3;
     }
     exitCode = RunWindowCapture(targetWindow);
   }
 
-  RoUninitialize();
+  if (roInitialized) RoUninitialize();
+  if (coInitialized) CoUninitialize();
   return exitCode;
 }
