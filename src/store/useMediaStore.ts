@@ -35,9 +35,10 @@ interface MediaStore {
   setGridCallOpen: (open: boolean) => void
   setSettingsModalOpen: (open: boolean) => void
 
-  // Audio Device & Control Settings
+  // Audio & Video Device & Control Settings
   selectedAudioInput: string
   selectedAudioOutput: string
+  selectedVideoInput: string
   inputVolume: number // 0 to 200 (percentage, 100 is unity)
   outputVolume: number // 0 to 100 (percentage)
   sensitivityMode: SensitivityMode
@@ -60,6 +61,7 @@ interface MediaStore {
 
   setSelectedAudioInput: (deviceId: string) => void
   setSelectedAudioOutput: (deviceId: string) => void
+  setSelectedVideoInput: (deviceId: string) => void
   setInputVolume: (vol: number) => void
   setOutputVolume: (vol: number) => void
   setSensitivityMode: (mode: SensitivityMode) => void
@@ -201,6 +203,7 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   // Device & Volume Config
   selectedAudioInput: saved.selectedAudioInput || 'default',
   selectedAudioOutput: saved.selectedAudioOutput || 'default',
+  selectedVideoInput: saved.selectedVideoInput || 'default',
   inputVolume: saved.inputVolume !== undefined ? saved.inputVolume : 100,
   outputVolume: saved.outputVolume !== undefined ? saved.outputVolume : 100,
   sensitivityMode: saved.sensitivityMode || 'auto',
@@ -241,6 +244,16 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   setSelectedAudioOutput: (selectedAudioOutput) => {
     saveAudioSettings({ selectedAudioOutput })
     set({ selectedAudioOutput })
+  },
+  setSelectedVideoInput: (selectedVideoInput) => {
+    if (get().selectedVideoInput === selectedVideoInput) return
+    saveAudioSettings({ selectedVideoInput })
+    set({ selectedVideoInput })
+    try {
+      import('../media/MediaManager').then(({ MediaManager }) => {
+        MediaManager.getInstance().changeVideoInput(selectedVideoInput)
+      }).catch(() => {})
+    } catch {}
   },
   setInputVolume: (inputVolume) => {
     saveAudioSettingsDebounced({ inputVolume })
@@ -336,13 +349,7 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   },
 
   toggleCamera: () => {
-    const { localStream, isCameraOff } = get()
-    const nextCam = !isCameraOff
-    if (localStream) {
-      localStream.getVideoTracks().forEach((track) => {
-        track.enabled = !nextCam
-      })
-    }
+    const nextCam = !get().isCameraOff
     set({ isCameraOff: nextCam })
     try {
       import('../media/MediaManager').then(({ MediaManager }) => {
@@ -352,12 +359,7 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   },
 
   setCameraOff: (isCameraOff) => {
-    const { localStream } = get()
-    if (localStream) {
-      localStream.getVideoTracks().forEach((track) => {
-        track.enabled = !isCameraOff
-      })
-    }
+    if (get().isCameraOff === isCameraOff) return
     set({ isCameraOff })
     try {
       import('../media/MediaManager').then(({ MediaManager }) => {

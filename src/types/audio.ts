@@ -24,6 +24,7 @@ export type AudioProcessorMode = 'classic' | 'soft' | 'rnnoise'
 export interface AudioSettings {
   selectedAudioInput: string
   selectedAudioOutput: string
+  selectedVideoInput?: string
   inputVolume: number // 0 to 200 (percentage, 100 is unity gain)
   outputVolume: number // 0 to 100 (percentage)
   sensitivityMode: SensitivityMode

@@ -286,6 +286,9 @@ export class MediaManager {
    */
   public createDummyVideoTrack(): MediaStreamTrack {
     try {
+      if (typeof document === 'undefined') {
+        return null as any
+      }
       const canvas = document.createElement('canvas')
       canvas.width = 16
       canvas.height = 16
@@ -337,10 +340,21 @@ export class MediaManager {
 
     let stream: MediaStream | null = null
 
+    const videoConstraints: any = video
+      ? {
+          ...(state.selectedVideoInput && state.selectedVideoInput !== 'default'
+            ? { deviceId: { exact: state.selectedVideoInput } }
+            : {}),
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 30 },
+        }
+      : false
+
     // 1. Try with Camera + Mic
     try {
       stream = await safeGetUserMedia({
-        video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } } : false,
+        video: videoConstraints,
         audio: audioConstraints,
       }, 4000)
     } catch (err) {
@@ -374,7 +388,7 @@ export class MediaManager {
       if (video && stream.getVideoTracks().length === 0) {
         try {
           const camOnlyStream = await safeGetUserMedia({
-            video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+            video: videoConstraints,
           }, 3000)
           const camTrack = camOnlyStream.getVideoTracks()[0]
           if (camTrack) {
@@ -451,9 +465,76 @@ export class MediaManager {
   }
 
   /**
-   * Toggle camera on/off. When turning on, if no physical camera track exists yet
-   * (e.g. initial startMedia used dummy canvas), dynamically acquires physical webcam via getUserMedia,
-   * updates localStream and peer senders, and broadcasts presence update to all peers.
+   * Acquire a physical camera track with robust fallbacks (selected deviceId -> ideal -> generic).
+   */
+  private async acquireCameraTrack(deviceId?: string): Promise<MediaStreamTrack | null> {
+    const state = useMediaStore.getState()
+    const targetId = deviceId || (state.selectedVideoInput && state.selectedVideoInput !== 'default' ? state.selectedVideoInput : undefined)
+
+    const safeGetMedia = (constraints: MediaStreamConstraints, timeoutMs: number = 4000): Promise<MediaStream> => {
+      return Promise.race([
+        navigator.mediaDevices.getUserMedia(constraints),
+        new Promise<MediaStream>((_, reject) =>
+          setTimeout(() => reject(new Error('Tempo limite ao acessar a webcam')), timeoutMs)
+        ),
+      ])
+    }
+
+    // 1. Try target device with exact constraint if specified
+    if (targetId) {
+      try {
+        const stream = await safeGetMedia({
+          video: {
+            deviceId: { exact: targetId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+          },
+        })
+        const track = stream?.getVideoTracks?.()?.[0]
+        if (track) {
+          ;(track as any).__isDummy = false
+          return track
+        }
+      } catch (err) {
+        console.warn(`[MediaManager] Failed to acquire camera with exact deviceId (${targetId}):`, err)
+      }
+    }
+
+    // 2. Try target device with ideal constraint or generic resolution
+    try {
+      const stream = await safeGetMedia({
+        video: targetId
+          ? { deviceId: { ideal: targetId }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+          : { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+      })
+      const track = stream?.getVideoTracks?.()?.[0]
+      if (track) {
+        ;(track as any).__isDummy = false
+        return track
+      }
+    } catch (err) {
+      console.warn('[MediaManager] Failed to acquire camera with ideal constraints:', err)
+      // 3. Fallback: simple video: true
+      try {
+        const stream = await safeGetMedia({ video: true }, 2500)
+        const track = stream?.getVideoTracks?.()?.[0]
+        if (track) {
+          ;(track as any).__isDummy = false
+          return track
+        }
+      } catch (lastErr) {
+        console.warn('[MediaManager] All camera acquire attempts failed:', lastErr)
+        diagLog('media', 'camera.acquire-failed', { error: errShort(lastErr) })
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * Toggle camera on/off. When turning on, dynamically acquires physical webcam via getUserMedia,
+   * creates a new MediaStream to notify React consumers, updates peer senders, and broadcasts presence update.
    */
   public async toggleCamera(): Promise<boolean> {
     const nextCameraOff = !useMediaStore.getState().isCameraOff
@@ -462,76 +543,114 @@ export class MediaManager {
   }
 
   public async syncCameraState(isCameraOff: boolean): Promise<void> {
-    if (useMediaStore.getState().isCameraOff !== isCameraOff) {
-      useMediaStore.getState().setCameraOff(isCameraOff)
-    }
+    useMediaStore.setState({ isCameraOff })
 
     if (!isCameraOff) {
       // Turning camera ON
       let activeCamTrack = this.rawUserStream?.getVideoTracks().find((t) => t.readyState === 'live' && !(t as any).__isDummy) || null
 
       if (!activeCamTrack) {
-        try {
-          const camStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
-          })
-          activeCamTrack = camStream.getVideoTracks()[0] || null
-          if (activeCamTrack) {
-            ;(activeCamTrack as any).__isDummy = false
-            // Replace in rawUserStream
-            if (this.rawUserStream) {
-              this.rawUserStream.getVideoTracks().forEach((t) => {
-                t.stop()
-                this.rawUserStream?.removeTrack(t)
-              })
-              this.rawUserStream.addTrack(activeCamTrack)
-            }
+        activeCamTrack = await this.acquireCameraTrack()
+      }
 
-            // Replace in localStream
-            const localStream = useMediaStore.getState().localStream
-            if (localStream) {
-              localStream.getVideoTracks().forEach((t) => {
-                if (t !== activeCamTrack) {
-                  t.stop()
-                  localStream.removeTrack(t)
-                }
-              })
-              localStream.addTrack(activeCamTrack)
-            }
+      if (!activeCamTrack) {
+        // Physical camera failed to start or was denied
+        console.warn('[MediaManager] Could not acquire camera, reverting to camera off')
+        useMediaStore.setState({ isCameraOff: true })
+        try {
+          useGameStore.getState().setLocalPlayer({ isCameraOff: true })
+          PeerManager.getInstance().sendPlayerUpdate({ isCameraOff: true })
+        } catch {}
+        return
+      }
+
+      activeCamTrack.enabled = true
+      ;(activeCamTrack as any).__isDummy = false
+
+      // Update rawUserStream
+      if (this.rawUserStream) {
+        this.rawUserStream.getVideoTracks().forEach((t) => {
+          if (t !== activeCamTrack) {
+            t.stop()
+            this.rawUserStream?.removeTrack(t)
           }
-        } catch (camErr) {
-          console.warn('[MediaManager] Failed to start physical camera:', camErr)
-          diagLog('media', 'camera.acquire-failed', { error: errShort(camErr) })
+        })
+        if (!this.rawUserStream.getVideoTracks().includes(activeCamTrack)) {
+          this.rawUserStream.addTrack(activeCamTrack)
         }
       }
 
-      if (activeCamTrack) {
-        activeCamTrack.enabled = true
-        diagLog('media', 'camera.on', {
-          physical: !(activeCamTrack as any).__isDummy,
-          tracks: summarizeStream(useMediaStore.getState().localStream),
+      // Recreate localStream with the new track to notify React subscribers
+      const currentLocal = useMediaStore.getState().localStream
+      const audioTracks = currentLocal ? currentLocal.getAudioTracks() : (this.rawUserStream ? this.rawUserStream.getAudioTracks() : [])
+      if (currentLocal) {
+        currentLocal.getVideoTracks().forEach((t) => {
+          if (t !== activeCamTrack) {
+            t.stop()
+          }
         })
+      }
+      const newLocalStream = new MediaStream([...audioTracks, activeCamTrack])
+      useMediaStore.getState().setLocalStream(newLocalStream)
+      useMediaStore.setState({ isCameraOff: false })
+
+      diagLog('media', 'camera.on', {
+        physical: true,
+        tracks: summarizeStream(newLocalStream),
+      })
+
+      try {
+        PeerManager.getInstance().logSenderSnapshot('camera-on')
+      } catch {}
+
+      if (!useMediaStore.getState().isScreenSharing) {
         try {
-          // Sender proof: is video RTP actually flowing after re-enable?
-          PeerManager.getInstance().logSenderSnapshot('camera-on')
+          PeerManager.getInstance().replaceVideoTrack(activeCamTrack, false)
         } catch {}
-        if (!useMediaStore.getState().isScreenSharing) {
-          try {
-            PeerManager.getInstance().replaceVideoTrack(activeCamTrack, false)
-          } catch {}
-        }
-      } else {
-        const localStream = useMediaStore.getState().localStream
-        localStream?.getVideoTracks().forEach((t) => (t.enabled = true))
       }
     } else {
       // Turning camera OFF
       diagLog('media', 'camera.off')
-      const localStream = useMediaStore.getState().localStream
-      if (localStream) {
-        localStream.getVideoTracks().forEach((t) => {
-          t.enabled = false
+
+      // Stop physical tracks to turn off hardware camera light
+      if (this.rawUserStream) {
+        this.rawUserStream.getVideoTracks().forEach((t) => {
+          if (!(t as any).__isDummy) {
+            t.stop()
+            this.rawUserStream?.removeTrack(t)
+          }
         })
+      }
+      const currentLocal = useMediaStore.getState().localStream
+      if (currentLocal) {
+        currentLocal.getVideoTracks().forEach((t) => {
+          if (!(t as any).__isDummy) {
+            t.stop()
+          }
+        })
+      }
+
+      // Add dummy video track to keep WebRTC transceivers active
+      let dummyTrack = this.rawUserStream?.getVideoTracks().find((t) => (t as any).__isDummy) || null
+      if (!dummyTrack) {
+        dummyTrack = this.createDummyVideoTrack()
+        if (dummyTrack && this.rawUserStream) {
+          this.rawUserStream.addTrack(dummyTrack)
+        }
+      }
+      if (dummyTrack) {
+        dummyTrack.enabled = false
+      }
+
+      const audioTracks = currentLocal ? currentLocal.getAudioTracks() : (this.rawUserStream ? this.rawUserStream.getAudioTracks() : [])
+      const newLocalStream = new MediaStream([...audioTracks, ...(dummyTrack ? [dummyTrack] : [])])
+      useMediaStore.getState().setLocalStream(newLocalStream)
+      useMediaStore.setState({ isCameraOff: true })
+
+      if (!useMediaStore.getState().isScreenSharing && dummyTrack) {
+        try {
+          PeerManager.getInstance().replaceVideoTrack(dummyTrack, false)
+        } catch {}
       }
     }
 
@@ -541,6 +660,55 @@ export class MediaManager {
     try {
       PeerManager.getInstance().sendPlayerUpdate({ isCameraOff })
     } catch {}
+  }
+
+  /**
+   * Switch Video Input Camera on the fly
+   */
+  public async changeVideoInput(deviceId: string): Promise<boolean> {
+    try {
+      useMediaStore.setState({ selectedVideoInput: deviceId })
+      const isCameraOff = useMediaStore.getState().isCameraOff
+
+      // If camera is currently active, switch to the new camera immediately
+      if (!isCameraOff) {
+        const newCamTrack = await this.acquireCameraTrack(deviceId)
+        if (!newCamTrack) return false
+
+        newCamTrack.enabled = true
+        ;(newCamTrack as any).__isDummy = false
+
+        // Stop old physical tracks
+        if (this.rawUserStream) {
+          this.rawUserStream.getVideoTracks().forEach((t) => {
+            t.stop()
+            this.rawUserStream?.removeTrack(t)
+          })
+          this.rawUserStream.addTrack(newCamTrack)
+        }
+
+        const currentLocal = useMediaStore.getState().localStream
+        if (currentLocal) {
+          currentLocal.getVideoTracks().forEach((t) => {
+            if (t !== newCamTrack) {
+              t.stop()
+            }
+          })
+        }
+
+        const audioTracks = currentLocal ? currentLocal.getAudioTracks() : (this.rawUserStream ? this.rawUserStream.getAudioTracks() : [])
+        const newLocalStream = new MediaStream([...audioTracks, newCamTrack])
+        useMediaStore.getState().setLocalStream(newLocalStream)
+
+        if (!useMediaStore.getState().isScreenSharing) {
+          PeerManager.getInstance().replaceVideoTrack(newCamTrack, false)
+        }
+      }
+      return true
+    } catch (err) {
+      console.warn('[MediaManager] Error changing video input:', err)
+      return false
+    }
   }
 
   /**

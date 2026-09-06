@@ -284,4 +284,12 @@ describe('Audio & Media Store - Expected Behaviors', () => {
     setLiveStreamVolume(-10)
     expect(useMediaStore.getState().liveStreamVolume).toBe(0)
   })
+
+  it('should update and persist selected video input device', () => {
+    const { setSelectedVideoInput } = useMediaStore.getState()
+    expect(useMediaStore.getState().selectedVideoInput).toBe('default')
+
+    setSelectedVideoInput('usb-webcam-device-id-123')
+    expect(useMediaStore.getState().selectedVideoInput).toBe('usb-webcam-device-id-123')
+  })
 })

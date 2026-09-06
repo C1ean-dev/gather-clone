@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, desktopCapturer, session, shell, screen } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
@@ -77,11 +77,44 @@ function stopProcessAudioCapture() {
   }
 }
 
+async function resolveScreenBounds(sourceId: string): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  try {
+    const displays = screen.getAllDisplays()
+    if (!displays || displays.length === 0) return null
+
+    const parts = sourceId.split(':')
+    const candidateId = parts[1]
+
+    const byId = displays.find((d) => String(d.id) === candidateId)
+    if (byId) return byId.bounds
+
+    const idx = parseInt(candidateId, 10)
+    if (!isNaN(idx) && idx >= 0 && idx < displays.length) {
+      return displays[idx].bounds
+    }
+
+    const sources = await desktopCapturer.getSources({ types: ['screen'], fetchWindowIcons: false })
+    const found = sources.find((s) => s.id === sourceId)
+    if (found && (found as any).display_id) {
+      const match = displays.find((d) => String(d.id) === (found as any).display_id)
+      if (match) return match.bounds
+    }
+
+    return screen.getPrimaryDisplay().bounds
+  } catch (err) {
+    console.warn('[Electron] Could not resolve screen bounds for', sourceId, err)
+    return null
+  }
+}
+
 async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioCaptureResult> {
   const compatibilityError = getProcessLoopbackCompatibilityError()
   if (compatibilityError) return { ok: false, error: compatibilityError }
-  if (!sourceId.startsWith('window:')) {
-    return { ok: false, error: 'Selecione uma janela de aplicativo para compartilhar o áudio isolado.' }
+
+  const isWindow = sourceId.startsWith('window:')
+  const isScreen = sourceId.startsWith('screen:')
+  if (!isWindow && !isScreen) {
+    return { ok: false, error: 'Selecione uma janela ou tela para compartilhar o áudio isolado.' }
   }
 
   const helperPath = getProcessAudioHelperPath()
@@ -94,6 +127,14 @@ async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioC
   }
   stopProcessAudioCapture()
 
+  const spawnArgs = ['--source-id', sourceId]
+  if (isScreen) {
+    const bounds = await resolveScreenBounds(sourceId)
+    if (bounds) {
+      spawnArgs.push('--screen-bounds', String(bounds.x), String(bounds.y), String(bounds.width), String(bounds.height))
+    }
+  }
+
   return new Promise<ProcessAudioCaptureResult>((resolve) => {
     let settled = false
     let startupTimeout: ReturnType<typeof setTimeout> | null = null
@@ -105,7 +146,7 @@ async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioC
     }
 
     try {
-      const child = spawn(helperPath, ['--source-id', sourceId], {
+      const child = spawn(helperPath, spawnArgs, {
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       })

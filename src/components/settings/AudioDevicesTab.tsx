@@ -1,5 +1,17 @@
-import React from 'react'
-import { Mic, Headphones, Play, Activity, Radio, CheckCircle2, Sparkles } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import {
+  Mic,
+  Headphones,
+  Play,
+  Activity,
+  Radio,
+  CheckCircle2,
+  Sparkles,
+  Video,
+  VideoOff,
+  Info,
+  AlertTriangle,
+} from 'lucide-react'
 import { useMediaStore } from '../../store/useMediaStore'
 import { MediaManager } from '../../media/MediaManager'
 import { AudioDeviceInfo, SensitivityMode } from '../../types/audio'
@@ -7,6 +19,7 @@ import { AudioDeviceInfo, SensitivityMode } from '../../types/audio'
 interface Props {
   inputDevices: AudioDeviceInfo[]
   outputDevices: AudioDeviceInfo[]
+  videoDevices: AudioDeviceInfo[]
   isPlayingTestSound: boolean
   onPlayTestSound: () => void
 }
@@ -14,6 +27,7 @@ interface Props {
 export const AudioDevicesTab: React.FC<Props> = ({
   inputDevices,
   outputDevices,
+  videoDevices,
   isPlayingTestSound,
   onPlayTestSound,
 }) => {
@@ -21,6 +35,7 @@ export const AudioDevicesTab: React.FC<Props> = ({
   // would re-render the entire settings tab on every tick.
   const selectedAudioInput = useMediaStore((s) => s.selectedAudioInput)
   const selectedAudioOutput = useMediaStore((s) => s.selectedAudioOutput)
+  const selectedVideoInput = useMediaStore((s) => s.selectedVideoInput)
   const inputVolume = useMediaStore((s) => s.inputVolume)
   const outputVolume = useMediaStore((s) => s.outputVolume)
   const sensitivityMode = useMediaStore((s) => s.sensitivityMode)
@@ -32,6 +47,65 @@ export const AudioDevicesTab: React.FC<Props> = ({
   const setOutputVolume = useMediaStore((s) => s.setOutputVolume)
   const setSensitivityMode = useMediaStore((s) => s.setSensitivityMode)
   const setManualSensitivityThreshold = useMediaStore((s) => s.setManualSensitivityThreshold)
+
+  const [isTestingCamera, setIsTestingCamera] = useState(false)
+  const [cameraError, setCameraError] = useState<string | null>(null)
+  const videoPreviewRef = useRef<HTMLVideoElement | null>(null)
+  const cameraTestStreamRef = useRef<MediaStream | null>(null)
+
+  const stopCameraTest = () => {
+    if (cameraTestStreamRef.current) {
+      cameraTestStreamRef.current.getTracks().forEach((t) => t.stop())
+      cameraTestStreamRef.current = null
+    }
+    if (videoPreviewRef.current) {
+      videoPreviewRef.current.srcObject = null
+    }
+    setIsTestingCamera(false)
+  }
+
+  const startCameraTest = async (deviceId?: string) => {
+    stopCameraTest()
+    setCameraError(null)
+    const targetId = deviceId || (selectedVideoInput !== 'default' ? selectedVideoInput : undefined)
+
+    try {
+      const constraints: MediaStreamConstraints = {
+        video: targetId
+          ? { deviceId: { exact: targetId }, width: { ideal: 640 }, height: { ideal: 480 } }
+          : { width: { ideal: 640 }, height: { ideal: 480 } },
+      }
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      cameraTestStreamRef.current = stream
+      setIsTestingCamera(true)
+      if (videoPreviewRef.current) {
+        videoPreviewRef.current.srcObject = stream
+        videoPreviewRef.current.play().catch(() => {})
+      }
+    } catch (err: any) {
+      console.warn('[AudioDevicesTab] Failed to test camera:', err)
+      setCameraError('Não foi possível inicializar a prévia da câmera. Verifique permissões ou selecione outro dispositivo.')
+      setIsTestingCamera(false)
+    }
+  }
+
+  const handleVideoInputChange = async (deviceId: string) => {
+    await MediaManager.getInstance().changeVideoInput(deviceId)
+    if (isTestingCamera) {
+      startCameraTest(deviceId)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      stopCameraTest()
+    }
+  }, [])
+
+  const activeCameraLabel = videoDevices.find((d) => d.deviceId === selectedVideoInput)?.label || ''
+  const isObsVirtualCamera =
+    activeCameraLabel.toLowerCase().includes('obs') ||
+    activeCameraLabel.toLowerCase().includes('virtual')
 
   const handleInputChange = async (deviceId: string) => {
     await MediaManager.getInstance().changeAudioInput(deviceId)
@@ -73,6 +147,77 @@ export const AudioDevicesTab: React.FC<Props> = ({
 
   return (
     <div className="space-y-6">
+      {/* 0. Câmera & Webcam Selector */}
+      <div className="bg-[#12151d]/70 rounded-2xl p-4 border border-[#2a3142] space-y-3.5">
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-2 text-xs font-bold text-slate-200">
+            <Video className="w-4 h-4 text-indigo-400" />
+            <span>Dispositivo de Vídeo (Câmera / Webcam)</span>
+          </label>
+          <button
+            type="button"
+            onClick={() => (isTestingCamera ? stopCameraTest() : startCameraTest())}
+            className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-md ${
+              isTestingCamera
+                ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse'
+                : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+            }`}
+          >
+            {isTestingCamera ? <VideoOff className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+            <span>{isTestingCamera ? 'Parar Teste' : 'Testar Câmera'}</span>
+          </button>
+        </div>
+
+        <select
+          value={selectedVideoInput}
+          onChange={(e) => handleVideoInputChange(e.target.value)}
+          className="w-full bg-[#12151d] border border-[#2a3142] rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 transition-colors"
+        >
+          <option value="default">Câmera Padrão do Sistema</option>
+          {videoDevices.map((d) => (
+            <option key={d.deviceId} value={d.deviceId}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+
+        {isObsVirtualCamera && (
+          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-2.5 text-xs text-amber-300">
+            <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold">OBS Virtual Camera detectada</span>
+              <p className="text-[11px] text-amber-200/80 mt-0.5">
+                Se a imagem estiver preta, abra o OBS Studio e clique em <b>"Iniciar Câmera Virtual"</b>, ou selecione sua webcam física na lista acima.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {cameraError && (
+          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-start gap-2.5 text-xs text-rose-300">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <span>{cameraError}</span>
+          </div>
+        )}
+
+        {/* Live Camera Preview Box */}
+        {isTestingCamera && (
+          <div className="relative w-full aspect-video max-h-56 bg-black rounded-xl overflow-hidden border border-[#2a3142] shadow-inner flex items-center justify-center">
+            <video
+              ref={videoPreviewRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover -scale-x-100"
+            />
+            <div className="absolute top-2 left-2 px-2 py-0.5 bg-emerald-500/90 text-white text-[10px] font-bold rounded-md flex items-center gap-1 shadow">
+              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              <span>PRÉVIA EM TEMPO REAL</span>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* 1. Microfone & Alto-falantes Selectors */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Microfone */}

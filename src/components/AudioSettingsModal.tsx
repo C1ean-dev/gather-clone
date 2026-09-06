@@ -17,6 +17,7 @@ export const AudioSettingsModal: React.FC = () => {
 
   const [inputDevices, setInputDevices] = useState<AudioDeviceInfo[]>([])
   const [outputDevices, setOutputDevices] = useState<AudioDeviceInfo[]>([])
+  const [videoDevices, setVideoDevices] = useState<AudioDeviceInfo[]>([])
   const [activeTab, setActiveTab] = useState<'graphics' | 'devices' | 'advanced'>('graphics')
   const [isPlayingTestSound, setIsPlayingTestSound] = useState(false)
   const [logsExported, setLogsExported] = useState(false)
@@ -44,10 +45,19 @@ export const AudioSettingsModal: React.FC = () => {
           groupId: d.groupId,
         }))
 
+      const videos: AudioDeviceInfo[] = devices
+        .filter((d) => d.kind === 'videoinput')
+        .map((d, idx) => ({
+          deviceId: d.deviceId,
+          label: d.label || `Câmera ${idx + 1}`,
+          groupId: d.groupId,
+        }))
+
       setInputDevices(inputs)
       setOutputDevices(outputs)
+      setVideoDevices(videos)
     } catch (err) {
-      console.warn('Could not enumerate audio devices:', err)
+      console.warn('Could not enumerate audio/video devices:', err)
     }
   }
 
@@ -129,7 +139,7 @@ export const AudioSettingsModal: React.FC = () => {
             }`}
           >
             <Mic className="w-4 h-4" />
-            🎙️ Áudio & Microfone
+            🎙️ Áudio & Câmera
           </button>
           <button
             onClick={() => setActiveTab('advanced')}
@@ -151,6 +161,7 @@ export const AudioSettingsModal: React.FC = () => {
             <AudioDevicesTab
               inputDevices={inputDevices}
               outputDevices={outputDevices}
+              videoDevices={videoDevices}
               isPlayingTestSound={isPlayingTestSound}
               onPlayTestSound={handlePlayTestSound}
             />

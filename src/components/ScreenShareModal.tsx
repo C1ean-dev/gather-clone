@@ -82,7 +82,7 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const currentList = activeTab === 'screen' ? (screens.length > 0 ? screens : sources) : windows
   const selectedSource = sources.find((s) => s.id === selectedSourceId)
   const isSharingWholeScreen = selectedSource?.id.startsWith('screen:')
-  const effectiveAudioSourceId = isSharingWholeScreen ? selectedAudioSourceId : selectedSourceId
+  const effectiveAudioSourceId = isSharingWholeScreen ? selectedSourceId : (selectedAudioSourceId || selectedSourceId)
   const selectedAudioSource = windows.find((source) => source.id === effectiveAudioSourceId)
 
   const handleConfirm = async () => {
@@ -319,24 +319,14 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
           )}
 
           {isElectron && isSharingWholeScreen && (
-            <div className="space-y-2 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3.5">
+            <div className="space-y-1.5 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3.5">
               <div className="flex items-center gap-2 text-xs font-semibold text-emerald-200">
                 <Volume2 className="h-4 w-4 text-emerald-400" />
-                Aplicativo que fornecerá o áudio da live
+                Áudio Dinâmico por Monitor Ativo
               </div>
-              <p className="text-[10px] leading-relaxed text-slate-400">
-                Escolha a janela que está reproduzindo o som. O monitor continua sendo compartilhado inteiro, mas somente este aplicativo entra no áudio.
+              <p className="text-[11px] leading-relaxed text-slate-300">
+                Todos os aplicativos nesta tela serão ouvidos na live. Se você mover uma janela (ex: Spotify, YouTube ou jogo) para outro monitor, o som dela é silenciado imediatamente; ao retornar à tela, volta a reproduzir.
               </p>
-              <select
-                value={selectedAudioSourceId || ''}
-                onChange={(event) => setSelectedAudioSourceId(event.target.value || null)}
-                className="w-full rounded-lg border border-[#2a3142] bg-[#12151d] px-3 py-2 text-xs text-slate-100 outline-none focus:border-indigo-500"
-              >
-                <option value="">Selecione o aplicativo com áudio</option>
-                {windows.map((source) => (
-                  <option key={source.id} value={source.id}>{source.name}</option>
-                ))}
-              </select>
             </div>
           )}
 
@@ -411,7 +401,9 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                     <div className="text-xs font-semibold text-slate-200">Áudio isolado da fonte — sempre ativo</div>
                     <div className="text-[10px] text-slate-400">
                       {isElectron
-                        ? `Captura apenas ${selectedAudioSource?.name || 'a janela escolhida'}; o áudio global do Windows fica bloqueado.`
+                        ? isSharingWholeScreen
+                          ? 'Captura dinâmica do monitor selecionado; aplicativos em outros monitores ficam bloqueados.'
+                          : `Captura apenas ${selectedAudioSource?.name || 'a janela escolhida'}; o áudio global do Windows fica bloqueado.`
                         : 'O seletor do navegador envia apenas o áudio da guia ou janela escolhida.'}
                     </div>
                   </div>
@@ -475,7 +467,7 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
             </button>
             <button
               onClick={handleConfirm}
-              disabled={isElectron && isSharingWholeScreen && !selectedAudioSourceId}
+              disabled={!selectedSourceId}
               className="px-6 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 text-white shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all active:scale-98"
             >
               <ScreenShare className="w-4 h-4" />

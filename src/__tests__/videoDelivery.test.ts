@@ -546,4 +546,69 @@ describe('Video Delivery & Screen Share Guarantee Tests', () => {
       else (globalThis as any).window = prevWindow
     }
   })
+
+  it('should acquire physical camera, create a new MediaStream instance, and update peer senders when camera is toggled on', async () => {
+    const fakeAudioTrack = { id: 'mic-1', kind: 'audio', enabled: true, stop: vi.fn() }
+    const initialStream = new MockMediaStream([fakeAudioTrack])
+    useMediaStore.getState().setLocalStream(initialStream as unknown as MediaStream)
+    useMediaStore.getState().setCameraOff(true)
+
+    const fakeCamTrack = {
+      id: 'cam-track-1',
+      kind: 'video',
+      readyState: 'live',
+      enabled: true,
+      stop: vi.fn(),
+    }
+    const camStream = new MockMediaStream([fakeCamTrack])
+    const gumSpy = vi.spyOn(navigator.mediaDevices, 'getUserMedia').mockImplementation(async () => camStream as unknown as MediaStream)
+    const replaceSpy = vi.spyOn(PeerManager.getInstance(), 'replaceVideoTrack')
+
+    try {
+      await MediaManager.getInstance().syncCameraState(false)
+
+      expect(useMediaStore.getState().isCameraOff).toBe(false)
+      const newStream = useMediaStore.getState().localStream
+      expect(newStream).not.toBe(initialStream)
+      expect(newStream?.getVideoTracks()).toContain(fakeCamTrack)
+      expect(replaceSpy).toHaveBeenCalledWith(fakeCamTrack, false)
+
+      // Now toggle camera OFF
+      await MediaManager.getInstance().syncCameraState(true)
+      expect(useMediaStore.getState().isCameraOff).toBe(true)
+      expect(fakeCamTrack.stop).toHaveBeenCalled()
+    } finally {
+      gumSpy.mockRestore()
+      replaceSpy.mockRestore()
+    }
+  })
+
+  it('should hot-swap camera track when changing video input device', async () => {
+    useMediaStore.getState().setCameraOff(false)
+    const oldCamTrack = { id: 'cam-old', kind: 'video', readyState: 'live', enabled: true, stop: vi.fn() }
+    const newCamTrack = { id: 'cam-new', kind: 'video', readyState: 'live', enabled: true, stop: vi.fn() }
+
+    const initialStream = new MockMediaStream([oldCamTrack])
+    useMediaStore.getState().setLocalStream(initialStream as unknown as MediaStream)
+
+    const gumSpy = vi.spyOn(navigator.mediaDevices, 'getUserMedia').mockImplementation(async (constraints: any) => {
+      if (constraints?.video?.deviceId?.exact === 'device-2') {
+        return new MockMediaStream([newCamTrack]) as unknown as MediaStream
+      }
+      return new MockMediaStream([oldCamTrack]) as unknown as MediaStream
+    })
+
+    const replaceSpy = vi.spyOn(PeerManager.getInstance(), 'replaceVideoTrack')
+    try {
+      const success = await MediaManager.getInstance().changeVideoInput('device-2')
+
+      expect(success).toBe(true)
+      expect(useMediaStore.getState().selectedVideoInput).toBe('device-2')
+      expect(replaceSpy).toHaveBeenCalledWith(newCamTrack, false)
+      expect(oldCamTrack.stop).toHaveBeenCalled()
+    } finally {
+      gumSpy.mockRestore()
+      replaceSpy.mockRestore()
+    }
+  })
 })
