@@ -1,0 +1,224 @@
+import { describe, it, expect } from 'vitest'
+import {
+  fitLayerToBounds,
+  rescaleLayersForNewBoard,
+  snapCoordinateToGrid,
+} from '../utils/imageResize'
+import { CameraManager } from '../engine/camera/CameraManager'
+
+describe('subTileAndLayerFit - Layer Auto-Fit & Sub-Tile Placement Math', () => {
+  describe('fitLayerToBounds', () => {
+    it('scales a 64x64 layer to fit cleanly into 32x32 board without truncation', () => {
+      const layer = {
+        id: 'l1',
+        x: 0,
+        y: 0,
+        width: 64,
+        height: 64,
+      }
+      const fitted = fitLayerToBounds(layer, 32, 32, 'fit')
+      expect(fitted.width).toBe(32)
+      expect(fitted.height).toBe(32)
+      expect(fitted.x).toBe(0)
+      expect(fitted.y).toBe(0)
+    })
+
+    it('scales a 64x64 layer to fit cleanly into 16x16 board without truncation', () => {
+      const layer = {
+        id: 'l1',
+        x: 0,
+        y: 0,
+        width: 64,
+        height: 64,
+      }
+      const fitted = fitLayerToBounds(layer, 16, 16, 'fit')
+      expect(fitted.width).toBe(16)
+      expect(fitted.height).toBe(16)
+      expect(fitted.x).toBe(0)
+      expect(fitted.y).toBe(0)
+    })
+
+    it('scales a 64x64 layer to fit into micro 8x8 or 1x1 board', () => {
+      const layer = {
+        id: 'l1',
+        x: 0,
+        y: 0,
+        width: 64,
+        height: 64,
+      }
+      const fitted8 = fitLayerToBounds(layer, 8, 8, 'fit')
+      expect(fitted8.width).toBe(8)
+      expect(fitted8.height).toBe(8)
+
+      const fitted1 = fitLayerToBounds(layer, 1, 1, 'fit')
+      expect(fitted1.width).toBe(1)
+      expect(fitted1.height).toBe(1)
+    })
+
+    it('preserves aspect ratio and bottom-aligns when dimensions are asymmetric (e.g. 32x64 flask into 16x16)', () => {
+      const layer = {
+        id: 'potion',
+        x: 0,
+        y: 0,
+        width: 32,
+        height: 64,
+      }
+      const fitted = fitLayerToBounds(layer, 16, 16, 'fit')
+      // Scale is min(16/32, 16/64) = 16/64 = 0.25
+      // width = 32 * 0.25 = 8, height = 64 * 0.25 = 16
+      expect(fitted.width).toBe(8)
+      expect(fitted.height).toBe(16)
+      // Centered horizontally: (16 - 8)/2 = 4
+      expect(fitted.x).toBe(4)
+      // Bottom-aligned vertically: 16 - 16 = 0
+      expect(fitted.y).toBe(0)
+    })
+
+    it('scales a 10x10 layer up to fit cleanly into a larger 30x30 board', () => {
+      const layer = {
+        id: 'small',
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+      }
+      const fitted = fitLayerToBounds(layer, 30, 30, 'fit')
+      expect(fitted.width).toBe(30)
+      expect(fitted.height).toBe(30)
+      expect(fitted.x).toBe(0)
+      expect(fitted.y).toBe(0)
+    })
+  })
+
+  describe('rescaleLayersForNewBoard', () => {
+    it('rescales an entire list of composite layers', () => {
+      const layers = [
+        { id: '1', x: 0, y: 0, width: 64, height: 64 },
+        { id: '2', x: 10, y: 10, width: 32, height: 64 },
+      ]
+      const rescaled = rescaleLayersForNewBoard(layers, 16, 16)
+      expect(rescaled).toHaveLength(2)
+      expect(rescaled[0].width).toBe(16)
+      expect(rescaled[0].height).toBe(16)
+      expect(rescaled[1].width).toBe(8)
+      expect(rescaled[1].height).toBe(16)
+    })
+
+    it('allows shrinking down to 1x1 and expanding back to 8x8, 16x16, 32x32, 64x64', () => {
+      const initialLayer = {
+        id: 'flask',
+        x: 0,
+        y: 0,
+        width: 64,
+        height: 64,
+        origWidth: 64,
+        origHeight: 64,
+      }
+
+      // 1. Shrink to 1x1
+      const at1x1 = rescaleLayersForNewBoard([initialLayer], 1, 1, 64, 64)
+      expect(at1x1[0].width).toBe(1)
+      expect(at1x1[0].height).toBe(1)
+      expect(at1x1[0].origWidth).toBe(64)
+      expect(at1x1[0].origHeight).toBe(64)
+
+      // 2. Expand back to 8x8
+      const at8x8 = rescaleLayersForNewBoard(at1x1, 8, 8, 1, 1)
+      expect(at8x8[0].width).toBe(8)
+      expect(at8x8[0].height).toBe(8)
+      expect(at8x8[0].x).toBe(0)
+      expect(at8x8[0].y).toBe(0)
+
+      // 3. Expand further to 32x32
+      const at32x32 = rescaleLayersForNewBoard(at8x8, 32, 32, 8, 8)
+      expect(at32x32[0].width).toBe(32)
+      expect(at32x32[0].height).toBe(32)
+
+      // 4. Expand back to 64x64
+      const at64x64 = rescaleLayersForNewBoard(at32x32, 64, 64, 32, 32)
+      expect(at64x64[0].width).toBe(64)
+      expect(at64x64[0].height).toBe(64)
+    })
+
+    it('correctly preserves 1:2 aspect ratio when shrinking to 1x1 and expanding back to 8x8', () => {
+      const potion32x64 = {
+        id: 'potion',
+        x: 0,
+        y: 0,
+        width: 32,
+        height: 64,
+        origWidth: 32,
+        origHeight: 64,
+      }
+
+      // Shrink to 1x1
+      const at1x1 = rescaleLayersForNewBoard([potion32x64], 1, 1, 32, 64)
+      expect(at1x1[0].width).toBe(1)
+      expect(at1x1[0].height).toBe(1)
+
+      // Expand back to 8x8 -> should be 4x8, centered at x=2, y=0
+      const at8x8 = rescaleLayersForNewBoard(at1x1, 8, 8, 1, 1)
+      expect(at8x8[0].width).toBe(4)
+      expect(at8x8[0].height).toBe(8)
+      expect(at8x8[0].x).toBe(2)
+      expect(at8x8[0].y).toBe(0)
+    })
+  })
+
+  describe('snapCoordinateToGrid', () => {
+    it('snaps to 8px fine grid (0.25 tile)', () => {
+      // 10.1 tiles -> 10.0 (0/4)
+      expect(snapCoordinateToGrid(10.1, 0.25)).toBe(10)
+      // 10.15 tiles -> 10.25 (1/4)
+      expect(snapCoordinateToGrid(10.15, 0.25)).toBe(10.25)
+      // 10.4 tiles -> 10.5 (2/4)
+      expect(snapCoordinateToGrid(10.4, 0.25)).toBe(10.5)
+      // 10.7 tiles -> 10.75 (3/4)
+      expect(snapCoordinateToGrid(10.7, 0.25)).toBe(10.75)
+    })
+
+    it('snaps to 1px fine grid (1/32 tile) when free placement is active', () => {
+      const snap1px = 1 / 32
+      const snapped = snapCoordinateToGrid(5.035, snap1px)
+      // 5.035 * 32 = 161.12 -> round is 161 -> 161 / 32 = 5.03125
+      expect(snapped).toBe(161 / 32)
+    })
+  })
+
+  describe('CameraManager.screenToTile with sub-tile snap', () => {
+    it('returns sub-tile coordinates with 0.25 snap', () => {
+      const cam = new CameraManager()
+      cam.zoom = 1
+      cam.x = 0
+      cam.y = 0
+      const canvas = { width: 800, height: 600 } as HTMLCanvasElement
+
+      // Center of canvas: screenX = 400, screenY = 300 -> worldX = 0, worldY = 0 -> tile (0, 0)
+      const center = cam.screenToTile(canvas, 400, 300, 0.25)
+      expect(center.x).toBe(0)
+      expect(center.y).toBe(0)
+
+      // Shift screenX by 8 pixels: worldX = 8 -> 8 / 32 = 0.25 tile
+      const offset8px = cam.screenToTile(canvas, 408, 300, 0.25)
+      expect(offset8px.x).toBe(0.25)
+      expect(offset8px.y).toBe(0)
+
+      // Shift screenX by 16 pixels: worldX = 16 -> 16 / 32 = 0.5 tile
+      const offset16px = cam.screenToTile(canvas, 416, 300, 0.25)
+      expect(offset16px.x).toBe(0.5)
+      expect(offset16px.y).toBe(0)
+    })
+
+    it('preserves integer tile floor for standard snapStep = 1', () => {
+      const cam = new CameraManager()
+      cam.zoom = 1
+      cam.x = 0
+      cam.y = 0
+      const canvas = { width: 800, height: 600 } as HTMLCanvasElement
+
+      const result = cam.screenToTile(canvas, 408, 300, 1)
+      expect(result.x).toBe(0)
+      expect(result.y).toBe(0)
+    })
+  })
+})

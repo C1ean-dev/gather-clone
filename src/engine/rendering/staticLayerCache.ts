@@ -121,29 +121,14 @@ export function getStaticLayer(map: MapData): StaticLayer | null {
     WallRenderer.drawGatherRoom(ctx, zone, zones)
   }
 
-  // 3. Furniture — static only; animated excluded for dynamic draw.
+  // 3. Furniture — built-in static only; custom assets (high-fidelity/sub-tile) and animated excluded for dynamic draw.
   for (const item of map.furniture || []) {
     const custom = assetById.get(item.defId)
-    if (isAnimatedAsset(custom)) {
+    if (custom || isAnimatedAsset(custom)) {
       animatedFurniture.push(item)
       continue
     }
     FurnitureRenderer.drawFurniture(ctx, item)
-  }
-
-  // Probe unique custom images used by this map: if any is still loading,
-  // flag a one-time refresh so the cache doesn't bake fallback colors forever.
-  const probed = new Set<string>()
-  for (const item of map.furniture || []) {
-    const custom = assetById.get(item.defId)
-    if (custom && !isAnimatedAsset(custom)) {
-      const key = custom.frames?.[0]
-      if (key && !probed.has(key)) {
-        probed.add(key)
-        const img = getCustomAssetImage(key)
-        if (img && (!img.complete || img.naturalWidth === 0)) needsRefresh = true
-      }
-    }
   }
 
   lastAssetRef = customAssets

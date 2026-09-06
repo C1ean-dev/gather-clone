@@ -80,6 +80,8 @@ dist-electron/
 release/
 out/
 .vite/
+native/bin/
+native/process-audio-capture/obj/
 
 # RNNoise WASM bytes module (regenerated from node_modules/@jitsi/rnnoise-wasm
 # by vite.config.ts on every dev/build; tracked so tsc/vitest work standalone)

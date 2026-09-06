@@ -153,7 +153,7 @@ const ChatDrawerInner: React.FC = () => {
           handleFileSelect(e.dataTransfer.files[0])
         }
       }}
-      className={`fixed left-0 bottom-0 w-[440px] max-w-[90vw] bg-[#12151d]/98 backdrop-blur-xl border-r border-[#2a3142] flex flex-col shadow-2xl animate-in slide-in-from-left duration-200 ${
+      className={`fixed left-0 bottom-0 w-[440px] max-w-[90vw] bg-[#12151d] border-r border-[#2a3142] flex flex-col shadow-2xl animate-in slide-in-from-left duration-200 ${
         isGridCallOpen ? 'top-0 z-[60]' : 'top-14 z-50'
       }`}
     >
@@ -167,7 +167,7 @@ const ChatDrawerInner: React.FC = () => {
       )}
 
       {/* Top Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a3142] bg-[#1b202c]/50">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a3142] bg-[#1a1f2c]">
         <div className="flex items-center gap-2">
           <MessageSquare className="w-5 h-5 text-indigo-400" />
           <span className="font-bold text-sm text-slate-100">Chat & Canais</span>
@@ -183,7 +183,7 @@ const ChatDrawerInner: React.FC = () => {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sub-sidebar: Channels & DMs */}
-        <div className="w-36 bg-[#0c0e14]/60 border-r border-[#2a3142] flex flex-col p-2 space-y-4 overflow-y-auto shrink-0">
+        <div className="w-36 bg-[#0d1017] border-r border-[#2a3142] flex flex-col p-2 space-y-4 overflow-y-auto shrink-0">
           {/* Channels Section */}
           <div className="space-y-1">
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-1 flex items-center justify-between">
@@ -254,7 +254,7 @@ const ChatDrawerInner: React.FC = () => {
         {/* Right: Message Stream & Input */}
         <div className="flex-1 flex flex-col bg-[#12151d] overflow-hidden">
           {/* Channel Info Bar */}
-          <div className="px-3 py-2 border-b border-[#2a3142] flex items-center justify-between bg-[#1b202c]/20 shrink-0">
+          <div className="px-3 py-2 border-b border-[#2a3142] flex items-center justify-between bg-[#161a24] shrink-0">
             <div className="flex items-center gap-1.5 truncate">
               <Hash className="w-4 h-4 text-slate-400 shrink-0" />
               <span className="text-xs font-bold text-slate-200 truncate">{activeChannel.name}</span>
@@ -389,7 +389,7 @@ const ChatDrawerInner: React.FC = () => {
           </div>
 
           {/* Message Input & Attachment Bar */}
-          <form onSubmit={handleSendMessage} className="p-3 border-t border-[#2a3142] bg-[#1b202c]/40 shrink-0">
+          <form onSubmit={handleSendMessage} className="p-3 border-t border-[#2a3142] bg-[#161a24] shrink-0">
             {/* Error banner if upload exceeds limit */}
             {uploadError && (
               <div className="mb-2 px-2.5 py-1.5 bg-rose-500/10 border border-rose-500/30 rounded-lg flex items-center justify-between text-xs text-rose-300 animate-in fade-in duration-150">

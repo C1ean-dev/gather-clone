@@ -3,6 +3,8 @@ import { CustomAsset } from '../types/customAsset'
 import { FurnitureDefinition } from '../types/map'
 import { PeerManager } from '../p2p/PeerManager'
 import nativeAssetsData from '../data/nativeAssets.json'
+import { Direction } from '../types/game'
+import { bakeLayersToDataUrl } from '../utils/imageResize'
 
 const ASSETS_STORAGE_KEY = 'gather_v2_custom_user_assets'
 const CATEGORIES_STORAGE_KEY = 'gather_v2_custom_categories'
@@ -78,8 +80,79 @@ const loadSavedCustomAssets = (): CustomAsset[] => {
     if (Array.isArray(asset.frames)) {
       asset.frames.forEach(getCustomAssetImage)
     }
+    if (asset.directionalFrames) {
+      Object.values(asset.directionalFrames).forEach((frames) => {
+        if (Array.isArray(frames)) {
+          frames.forEach((f) => f && getCustomAssetImage(f))
+        } else if (typeof frames === 'string' && frames.length > 0) {
+          getCustomAssetImage(frames)
+        }
+      })
+    }
   })
   return merged
+}
+
+export async function repairMissingDirectionalFrames(assets: CustomAsset[]): Promise<boolean> {
+  if (typeof document === 'undefined') return false
+  let hasChanges = false
+  for (const asset of assets) {
+    if (asset.type !== 'furniture' || !asset.directionalFrameLayers) continue
+
+    const dirs: Direction[] = ['down', 'left', 'up', 'right']
+    let assetChanged = false
+    const dirFrames: Partial<Record<Direction, string | string[]>> = { ...(asset.directionalFrames || {}) }
+
+    for (const d of dirs) {
+      const layersList = asset.directionalFrameLayers[d]
+      if (layersList && layersList.length > 0 && layersList[0].length > 0) {
+        const existing = dirFrames[d]
+        const hasValid =
+          existing &&
+          (Array.isArray(existing)
+            ? existing.length > 0 && typeof existing[0] === 'string' && existing[0].length > 0
+            : typeof existing === 'string' && existing.length > 0)
+
+        if (!hasValid) {
+          const dim = asset.directionalDimensions?.[d]
+          const pW = dim?.pixelWidth || (dim?.width ? dim.width * 32 : (asset.pixelWidth || asset.width * 32))
+          const pH = dim?.pixelHeight || (dim?.height ? dim.height * 32 : (asset.pixelHeight || asset.height * 32))
+
+          try {
+            const baked = await bakeLayersToDataUrl(pW, pH, layersList[0])
+            if (baked) {
+              dirFrames[d] = [baked]
+              getCustomAssetImage(baked)
+              assetChanged = true
+            }
+          } catch (e) {
+            console.error('Failed to auto-bake missing directional frame:', d, e)
+          }
+        }
+      }
+    }
+
+    if (assetChanged) {
+      asset.directionalFrames = dirFrames
+      hasChanges = true
+    }
+
+    if (asset.directionalDimensions?.down) {
+      if (asset.width !== asset.directionalDimensions.down.width || asset.height !== asset.directionalDimensions.down.height) {
+        asset.width = asset.directionalDimensions.down.width
+        asset.height = asset.directionalDimensions.down.height
+        if (asset.directionalDimensions.down.pixelWidth) {
+          asset.pixelWidth = asset.directionalDimensions.down.pixelWidth
+        }
+        if (asset.directionalDimensions.down.pixelHeight) {
+          asset.pixelHeight = asset.directionalDimensions.down.pixelHeight
+        }
+        hasChanges = true
+      }
+    }
+  }
+
+  return hasChanges
 }
 
 const saveCustomAssets = (assets: CustomAsset[]) => {
@@ -163,7 +236,18 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
 
   addCustomAsset: (asset) => {
     // Cache frames
-    asset.frames.forEach(getCustomAssetImage)
+    if (Array.isArray(asset.frames)) {
+      asset.frames.forEach(getCustomAssetImage)
+    }
+    if (asset.directionalFrames) {
+      Object.values(asset.directionalFrames).forEach((frames) => {
+        if (Array.isArray(frames)) {
+          frames.forEach((f) => f && getCustomAssetImage(f))
+        } else if (typeof frames === 'string' && frames.length > 0) {
+          getCustomAssetImage(frames)
+        }
+      })
+    }
     const updated = [...get().customAssets.filter((a) => a.id !== asset.id), asset]
     saveCustomAssets(updated)
 
@@ -188,6 +272,15 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
         const res = { ...a, ...partial }
         if (partial.frames) {
           partial.frames.forEach(getCustomAssetImage)
+        }
+        if (partial.directionalFrames) {
+          Object.values(partial.directionalFrames).forEach((frames) => {
+            if (Array.isArray(frames)) {
+              frames.forEach((f) => f && getCustomAssetImage(f))
+            } else if (typeof frames === 'string' && frames.length > 0) {
+              getCustomAssetImage(frames)
+            }
+          })
         }
         fullAsset = res
         return res
@@ -322,3 +415,15 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
     return [...baseCatalog, ...customFurns]
   },
 }))
+
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    repairMissingDirectionalFrames(useCustomAssetsStore.getState().customAssets).then((changed) => {
+      if (changed) {
+        const updated = [...useCustomAssetsStore.getState().customAssets]
+        useCustomAssetsStore.setState({ customAssets: updated })
+        saveCustomAssets(updated)
+      }
+    })
+  }, 100)
+}

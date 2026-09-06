@@ -49,6 +49,7 @@ export interface PlacedFurniture {
   x: number // tile x
   y: number // tile y
   rotation?: 0 | 90 | 180 | 270
+  direction?: 'down' | 'left' | 'up' | 'right'
   tintColor?: string
 }
 

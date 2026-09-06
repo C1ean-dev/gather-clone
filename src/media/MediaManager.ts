@@ -3,6 +3,7 @@ import { SoftDspProcessor } from './SoftDspProcessor'
 import { RnnoiseProcessor } from './RnnoiseProcessor'
 import { MicCalibrator } from './MicCalibrator'
 import { CallAudioIsolator } from './CallAudioIsolator'
+import { ProcessAudioCapture } from './ProcessAudioCapture'
 import { diagLog, summarizeStream } from '../utils/diagnosticLogger'
 import { useMediaStore } from '../store/useMediaStore'
 import { useGameStore } from '../store/useGameStore'
@@ -12,15 +13,15 @@ import { SensitivityMode, AudioProcessorMode } from '../types/audio'
 export interface ScreenShareConfig {
   sourceId?: string
   sourceName?: string
+  /** Required when sharing a monitor: the window whose audio belongs in the live. */
+  audioSourceId?: string
+  /** Source-only capture is mandatory; this legacy flag is ignored. */
   includeAudio?: boolean
   resolution?: '480p' | '720p' | '1080p'
   fps?: 30 | 60
   /**
-   * When true (default), the microphone is mixed together with the screen
-   * audio and sent as a single track (with voice ducking).
-   * When false, ONLY the captured screen/window audio is sent — the mic
-   * never enters the call. Ideal for sharing a browser video/page: remotes
-   * hear exactly what that screen plays, nothing else.
+   * Kept for backwards compatibility. The microphone remains in the call via
+   * its own input; this flag cannot enable system audio or other applications.
    */
   mixMicrophone?: boolean
   /**
@@ -66,6 +67,8 @@ export class MediaManager {
   private screenDuckInterval: number | null = null
   private callAudioIsolator: CallAudioIsolator | null = null
   private currentProcessorMode: AudioProcessorMode = 'classic'
+
+  private processAudioCapture: ProcessAudioCapture | null = null
 
   // Throttle state for VU-meter forwarding. DSP engines invoke the level
   // callback every rAF (~60Hz); pushing every sample into zustand re-renders
@@ -644,22 +647,22 @@ export class MediaManager {
 
   /**
    * Start Screen Sharing with Customizable Source, Audio, Resolution (480p, 720p, 1080p) and FPS (30, 60)
-   * Audio modes:
-   *   - mixMicrophone=true (default): mic + screen audio mixed with ducking.
-   *   - mixMicrophone=false: ONLY the screen/window audio is sent, untouched
-   *     (no second AudioContext, no ducking — also ~20-40ms less latency).
+   * Audio is source-only. The selected browser tab/window may provide an
+   * audio track in a normal browser; Electron intentionally does not use its
+   * system-wide loopback because that mixes unrelated apps into the live.
    */
   public async startScreenShare(config: ScreenShareConfig = {}): Promise<MediaStream | null> {
     try {
       const {
         sourceId,
         sourceName,
-        includeAudio = true,
+        audioSourceId,
         resolution = '1080p',
         fps = 30,
-        mixMicrophone = true,
-        isolateCallAudio = useMediaStore.getState().screenShareIsolateCallAudio,
       } = config
+      // This policy is intentionally not configurable. The application sound
+      // is source-scoped, while the microphone remains its own call input.
+      const includeAudio = true
 
       if (sourceName) {
         useMediaStore.getState().setScreenShareTargetTitle(sourceName)
@@ -681,13 +684,34 @@ export class MediaManager {
       let screenStream: MediaStream
 
       const electronAPI = (window as any).electronAPI
-      const displayAudioConstraint = includeAudio
+      const isElectronCapture = Boolean(electronAPI?.setScreenSource)
+      // Browsers that support these hints return source/tab audio instead of
+      // the system mix. Electron has no source-scoped audio API for external
+      // windows, so it receives video only (see electron/main.ts).
+      const displayAudioConstraint = includeAudio && !isElectronCapture
         ? {
-            echoCancellation: true,
+            echoCancellation: false,
             noiseSuppression: false,
             autoGainControl: false,
           }
         : false
+      const displayMediaOptions = {
+        video: {
+          width: { ideal: width, max: width },
+          height: { ideal: height, max: height },
+          frameRate: { ideal: fps, max: fps },
+        },
+        audio: displayAudioConstraint,
+        // Chromium capture hints. They are deliberately omitted from the
+        // Electron path, where its display-media handler owns the source.
+        ...(isElectronCapture
+          ? {}
+          : {
+              systemAudio: 'exclude' as const,
+              windowAudio: 'window' as const,
+              selfBrowserSurface: 'exclude' as const,
+            }),
+      }
 
       if (sourceId && electronAPI?.setScreenSource) {
         try {
@@ -696,53 +720,28 @@ export class MediaManager {
           console.warn('[MediaManager] set-screen-source IPC failed, capturing primary screen:', ipcErr)
         }
         try {
-          screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: {
-              width: { ideal: width, max: width },
-              height: { ideal: height, max: height },
-              frameRate: { ideal: fps, max: fps },
-            },
-            audio: displayAudioConstraint,
-          })
+          screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions)
         } catch {
           screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: {
-              width: { ideal: width, max: width },
-              height: { ideal: height, max: height },
-              frameRate: { ideal: fps, max: fps },
-            },
-            audio: includeAudio,
+            ...displayMediaOptions,
+            audio: false,
           })
         }
       } else {
         try {
-          screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: {
-              width: { ideal: width, max: width },
-              height: { ideal: height, max: height },
-              frameRate: { ideal: fps, max: fps },
-            },
-            audio: displayAudioConstraint,
-          })
+          screenStream = await navigator.mediaDevices.getDisplayMedia(displayMediaOptions)
         } catch {
           screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: {
-              width: { ideal: width, max: width },
-              height: { ideal: height, max: height },
-              frameRate: { ideal: fps, max: fps },
-            },
-            audio: includeAudio,
+            ...displayMediaOptions,
+            audio: false,
           })
         }
       }
 
-      // Screen audio routing with CallAudioIsolator:
-      // Eliminates incoming call audio leakage from the outbound screen share.
-      // In "Apenas a Aplicação" mode (mixMicrophone = false), local mic and call voices
-      // are completely isolated, broadcasting 100% pure application sound (Chrome, etc.).
-      // In "Aplicação + Minha Voz" mode (mixMicrophone = true), user's voice is mixed
-      // with ducking while call voices remain blocked.
-      const screenAudioTrack = screenStream.getAudioTracks()[0]
+      // Electron screen capture intentionally has no audio track: its native
+      // helper produces source-scoped process audio instead of system audio.
+      // In a browser, the display picker may supply a tab/window audio track.
+      let applicationAudioTrack = screenStream.getAudioTracks()[0] || null
       const localStream = useMediaStore.getState().localStream
 
       // Tear down any previous isolator before (re)building.
@@ -750,42 +749,55 @@ export class MediaManager {
         this.callAudioIsolator.dispose()
         this.callAudioIsolator = null
       }
+      this.disposeScreenShareAudioPipeline()
+      this.processAudioCapture?.stop()
+      this.processAudioCapture = null
 
-      if (screenAudioTrack) {
-        screenAudioTrack.enabled = true
+      const processAudioSourceId = audioSourceId || sourceId
+      if (isElectronCapture && processAudioSourceId && ProcessAudioCapture.isSupported()) {
         try {
-          const initialScreenVol = useMediaStore.getState().screenShareAudioVolume / 100
-          this.callAudioIsolator = new CallAudioIsolator()
-
-          const cleanAudioTrack = this.callAudioIsolator.init(
-            screenAudioTrack,
-            localStream,
-            {
-              mixMicrophone,
-              isolateCallAudio,
-              initialVolume: initialScreenVol,
-              targetTitle: sourceName,
-            }
-          )
-
-          if (cleanAudioTrack) {
-            cleanAudioTrack.enabled = true
-            diagLog('screenshare', 'audio-track-sent', { isolated: true })
-            PeerManager.getInstance().replaceAudioTrack(cleanAudioTrack)
-          }
-        } catch (mixErr) {
-          console.warn('Audio isolation fallback to raw screen track:', mixErr)
-          screenAudioTrack.enabled = true
-          diagLog('screenshare', 'audio-track-sent', { isolated: false, fallback: errShort(mixErr) })
-          PeerManager.getInstance().replaceAudioTrack(screenAudioTrack)
+          this.processAudioCapture = new ProcessAudioCapture()
+          applicationAudioTrack = await this.processAudioCapture.start(processAudioSourceId)
+          diagLog('screenshare', 'process-audio-started', { sourceId: processAudioSourceId })
+        } catch (audioErr) {
+          this.processAudioCapture?.stop()
+          this.processAudioCapture = null
+          console.warn('Process-scoped audio capture unavailable:', audioErr)
+          diagLog('screenshare', 'process-audio-unavailable', { sourceId: processAudioSourceId, error: errShort(audioErr) })
         }
+      }
+
+      if (applicationAudioTrack) {
+        applicationAudioTrack.enabled = true
+        try {
+          const liveAudioTrack = this.createLiveAudioTrack(applicationAudioTrack, localStream)
+          ;(liveAudioTrack as any).__screenShareLiveAudio = true
+          liveAudioTrack.enabled = true
+          screenStream.addTrack(liveAudioTrack)
+          useMediaStore.getState().setScreenShareAudioMode(
+            localStream?.getAudioTracks().length ? 'app_and_mic' : 'app_only'
+          )
+          diagLog('screenshare', 'audio-track-sent', { sourceOnly: true, microphonePreserved: true })
+          PeerManager.getInstance().replaceAudioTrack(liveAudioTrack)
+        } catch (audioErr) {
+          console.warn('Could not build the isolated live audio track:', audioErr)
+          diagLog('screenshare', 'audio-track-failed', { error: errShort(audioErr) })
+        }
+      } else {
+        // Never substitute the source audio with system loopback. The regular
+        // microphone sender remains untouched so the user stays audible in
+        // the call even if the selected app has no audio or capture failed.
+        diagLog('screenshare', 'audio-track-unavailable', {
+          reason: isElectronCapture ? 'process-audio-unavailable' : 'no-source-audio-track',
+          microphonePreserved: true,
+        })
       }
 
       useMediaStore.getState().setLocalScreenStream(screenStream)
       useMediaStore.getState().setScreenSharing(true)
       useGameStore.getState().setLocalPlayer({ isScreenSharing: true })
       diagLog('screenshare', 'start', {
-        resolution, fps, includeAudio, mixMicrophone,
+        resolution, fps, includeAudio, sourceOnlyAudio: true,
         tracks: summarizeStream(screenStream),
       })
 
@@ -832,11 +844,61 @@ export class MediaManager {
     }
   }
 
+  /**
+   * Combines two already-separated inputs for the single audio sender used by
+   * the current PeerJS call: the isolated application PCM and the user's
+   * microphone. No system output or remote-call stream is ever attached.
+   */
+  private createLiveAudioTrack(sourceTrack: MediaStreamTrack, localStream: MediaStream | null): MediaStreamTrack {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioContextClass) {
+      return sourceTrack
+    }
+
+    const audioContext = new AudioContextClass({ sampleRate: 48000 })
+    const source = audioContext.createMediaStreamSource(new MediaStream([sourceTrack]))
+    const applicationGain = audioContext.createGain()
+    const destination = audioContext.createMediaStreamDestination()
+    const volume = useMediaStore.getState().screenShareAudioVolume / 100
+
+    applicationGain.gain.setValueAtTime(volume, audioContext.currentTime)
+    source.connect(applicationGain)
+    applicationGain.connect(destination)
+
+    // The mic is a separate input, not part of the process capture. It stays
+    // subject to the normal mute state and audio processor before it enters
+    // the live sender.
+    if (localStream?.getAudioTracks().length) {
+      const microphone = audioContext.createMediaStreamSource(localStream)
+      microphone.connect(destination)
+    }
+
+    this.screenAudioContext = audioContext
+    this.screenGainNode = applicationGain
+    if (audioContext.state === 'suspended') {
+      audioContext.resume().catch(() => {})
+    }
+
+    return destination.stream.getAudioTracks()[0] || sourceTrack
+  }
+
+  private disposeScreenShareAudioPipeline() {
+    this.screenGainNode = null
+    const audioContext = this.screenAudioContext
+    this.screenAudioContext = null
+    if (audioContext && audioContext.state !== 'closed') {
+      audioContext.close().catch(() => {})
+    }
+  }
+
   public stopScreenShare() {
     if (this.callAudioIsolator) {
       this.callAudioIsolator.dispose()
       this.callAudioIsolator = null
     }
+    this.disposeScreenShareAudioPipeline()
+    this.processAudioCapture?.stop()
+    this.processAudioCapture = null
     useMediaStore.getState().setScreenShareTargetTitle(null)
 
     const currentScreen = useMediaStore.getState().localScreenStream

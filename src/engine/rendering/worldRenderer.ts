@@ -3,13 +3,15 @@ import { PixelArtRenderer } from '../PixelArtRenderer'
 import { AvatarRenderer } from '../AvatarRenderer'
 import { PetRenderer } from '../pet/PetRenderer'
 import { PetManager, PetState } from '../pet/PetManager'
-import { Player, PetConfig } from '../../types/game'
+import { Player, PetConfig, Direction } from '../../types/game'
+import { PlacedFurniture } from '../../types/map'
 import { useGameStore } from '../../store/useGameStore'
 import { useMapStore } from '../../store/useMapStore'
-import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
+import { useCustomAssetsStore, getCustomAssetImage } from '../../store/useCustomAssetsStore'
 import { useSettingsStore } from '../../store/useSettingsStore'
 import { CameraManager } from '../camera/CameraManager'
 import { getStaticLayer } from './staticLayerCache'
+import { FurnitureRenderer, resolveFurnitureDimensions } from './furnitureRenderer'
 
 export class WorldRenderer {
   static render(
@@ -185,10 +187,9 @@ export class WorldRenderer {
         if (selFurn) {
           const customAsset = useCustomAssetsStore.getState().getAssetById(selFurn.defId)
           const def = customAsset || FURNITURE_CATALOG.find((f) => f.id === selFurn.defId)
-          const fw = (def?.width || 1) * TILE_SIZE
-          const fh = (def?.height || 1) * TILE_SIZE
-          const fx = selFurn.x * TILE_SIZE
-          const fy = selFurn.y * TILE_SIZE
+          const { targetW: fw, targetH: fh } = resolveFurnitureDimensions(selFurn, customAsset, def)
+          const fx = Math.round(selFurn.x * TILE_SIZE)
+          const fy = Math.round(selFurn.y * TILE_SIZE)
 
           ctx.save()
           const pulse = (Math.sin(currentTime / 180) + 1) / 2
@@ -341,17 +342,44 @@ export class WorldRenderer {
         const ty = hoverTile.y
 
         if (activeTool === 'place_furniture') {
+          const placementDir = mapStore.placementDirection || 'down'
           const customAsset = useCustomAssetsStore.getState().getAssetById(mapStore.selectedFurnitureDefId)
           const furnDef = customAsset || FURNITURE_CATALOG.find((f) => f.id === mapStore.selectedFurnitureDefId)
-          const w = (furnDef?.width || 1) * TILE_SIZE
-          const h = (furnDef?.height || 1) * TILE_SIZE
+          const { targetW, targetH } = resolveFurnitureDimensions(
+            { defId: mapStore.selectedFurnitureDefId, direction: placementDir },
+            customAsset,
+            furnDef
+          )
+          const px = Math.round(tx * TILE_SIZE)
+          const py = Math.round(ty * TILE_SIZE)
 
           // Semi-transparent ghost furniture preview
-          ctx.fillStyle = furnDef?.iconColor ? `${furnDef.iconColor}44` : 'rgba(76, 110, 245, 0.3)'
-          ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, w, h)
+          ctx.fillStyle = furnDef?.iconColor ? `${furnDef.iconColor}33` : 'rgba(76, 110, 245, 0.25)'
+          ctx.fillRect(px, py, targetW, targetH)
           ctx.strokeStyle = furnDef?.iconColor || '#4c6ef5'
-          ctx.lineWidth = 2
-          ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, w - 1, h - 1)
+          ctx.lineWidth = 1.5
+          ctx.strokeRect(px + 0.5, py + 0.5, targetW - 1, targetH - 1)
+
+          // Draw the ghost sprite preview reflecting selected direction and rotation
+          const rotMap: Record<Direction, 0 | 90 | 180 | 270> = {
+            down: 0,
+            left: 90,
+            up: 180,
+            right: 270,
+          }
+          const dummyFurn: PlacedFurniture = {
+            id: '__ghost_preview__',
+            defId: mapStore.selectedFurnitureDefId,
+            x: tx,
+            y: ty,
+            direction: placementDir,
+            rotation: rotMap[placementDir],
+          }
+
+          ctx.save()
+          ctx.globalAlpha = 0.65
+          FurnitureRenderer.drawFurniture(ctx, dummyFurn)
+          ctx.restore()
         } else if (activeTool === 'paint_floor') {
           // Floor paint only works inside zones. When the cursor is
           // over a zone, highlight the whole zone footprint so the

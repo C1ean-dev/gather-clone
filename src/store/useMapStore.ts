@@ -1,8 +1,10 @@
 import { create } from 'zustand'
 import { MapData, FloorType, WallType, PlacedFurniture, PrivateZone, EditorTool } from '../types/map'
+import { Direction } from '../types/game'
 import { createEmptyWorkspace, createBlacksmithWorkshopTemplate } from '../editor/templates'
 import { generateWallsAndDoorsForZones, snapAndAlignZone } from '../editor/zoneWallGenerator'
 import { getNextAvailableZoneColor, FURNITURE_CATALOG } from '../engine/Constants'
+import { resolveFurnitureDimensions } from '../engine/rendering/furnitureRenderer'
 import { useSavedSpacesStore } from './useSavedSpacesStore'
 import { useGameStore } from './useGameStore'
 import { useCustomAssetsStore } from './useCustomAssetsStore'
@@ -90,6 +92,9 @@ interface MapStore {
   setSelectedWall: (wall: WallType) => void
   selectedFurnitureDefId: string
   setSelectedFurnitureDefId: (defId: string) => void
+  placementDirection: Direction
+  setPlacementDirection: (dir: Direction) => void
+  rotatePlacementDirection: () => void
 
   // Interactive Furniture Selection & Context Actions
   selectedPlacedFurnitureId: string | null
@@ -198,6 +203,16 @@ export const useMapStore = create<MapStore>((set, get) => ({
 
   selectedFurnitureDefId: 'window_grid_large',
   setSelectedFurnitureDefId: (defId) => set({ selectedFurnitureDefId: defId, activeTool: 'place_furniture' }),
+
+  placementDirection: 'down',
+  setPlacementDirection: (dir) => set({ placementDirection: dir }),
+  rotatePlacementDirection: () =>
+    set((state) => {
+      const order: Direction[] = ['down', 'left', 'up', 'right']
+      const curIdx = order.indexOf(state.placementDirection || 'down')
+      const nextDir = order[(curIdx + 1) % 4]
+      return { placementDirection: nextDir }
+    }),
 
   selectedPlacedFurnitureId: null,
   setSelectedPlacedFurnitureId: (id) => set({ selectedPlacedFurnitureId: id, isMovingFurniture: false }),
@@ -320,10 +335,18 @@ export const useMapStore = create<MapStore>((set, get) => ({
       const remainingFurniture = state.mapData.furniture.filter((f) => {
         const custom = customAssets.find((a) => a.id === f.defId)
         const def = custom || FURNITURE_CATALOG.find((cat) => cat.id === f.defId)
-        const w = def?.width || 1
-        const h = def?.height || 1
-        const isInside = tileX >= f.x && tileX < f.x + w && tileY >= f.y && tileY < f.y + h
-        if (isInside) {
+        const { tileW: w, tileH: h } = resolveFurnitureDimensions(f, custom, def)
+        const isPointInside =
+          tileX >= f.x - 0.05 &&
+          tileX < f.x + w + 0.05 &&
+          tileY >= f.y - 0.05 &&
+          tileY < f.y + h + 0.05
+        const isTileOverlap =
+          Math.floor(tileX) < f.x + w &&
+          Math.floor(tileX) + 1 > f.x &&
+          Math.floor(tileY) < f.y + h &&
+          Math.floor(tileY) + 1 > f.y
+        if (isPointInside || isTileOverlap) {
           removedAny = true
           return false
         }

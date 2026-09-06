@@ -1,9 +1,10 @@
-import React, { useState } from 'react'
-import { Move, Trash2, Palette, X, Check, Pencil } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { Move, Trash2, Palette, X, Check, Pencil, RotateCw } from 'lucide-react'
 import { useMapStore } from '../store/useMapStore'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { FURNITURE_CATALOG } from '../engine/Constants'
 import { PeerManager } from '../p2p/PeerManager'
+import { Direction } from '../types/game'
 
 const TINT_PALETTE = [
   { name: 'Original', color: undefined },
@@ -35,12 +36,45 @@ export const FurnitureContextMenu: React.FC = () => {
 
   const [showColorPalette, setShowColorPalette] = useState<boolean>(false)
 
-  if (!isEditorOpen || !selectedPlacedFurnitureId) {
-    return null
-  }
+  const selectedFurn = selectedPlacedFurnitureId
+    ? mapData.furniture.find((f) => f.id === selectedPlacedFurnitureId)
+    : null
 
-  const selectedFurn = mapData.furniture.find((f) => f.id === selectedPlacedFurnitureId)
-  if (!selectedFurn) {
+  const handleRotate = useCallback(() => {
+    if (!selectedFurn) return
+    const order: Direction[] = ['down', 'left', 'up', 'right']
+    const curDir: Direction = selectedFurn.direction || (
+      selectedFurn.rotation === 90 ? 'left' :
+      selectedFurn.rotation === 180 ? 'up' :
+      selectedFurn.rotation === 270 ? 'right' : 'down'
+    )
+    const nextIdx = (order.indexOf(curDir) + 1) % 4
+    const nextDir = order[nextIdx]
+    const rotMap: Record<Direction, 0 | 90 | 180 | 270> = { down: 0, left: 90, up: 180, right: 270 }
+    const nextRot = rotMap[nextDir]
+
+    updateFurniture(selectedFurn.id, { direction: nextDir, rotation: nextRot })
+    PeerManager.getInstance().sendMapEdit('add_furniture', {
+      furniture: { ...selectedFurn, direction: nextDir, rotation: nextRot },
+    })
+  }, [selectedFurn, updateFurniture])
+
+  // Hotkey R to rotate selected placed furniture
+  useEffect(() => {
+    if (!isEditorOpen || !selectedFurn) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault()
+        handleRotate()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isEditorOpen, selectedFurn, handleRotate])
+
+  if (!isEditorOpen || !selectedPlacedFurnitureId || !selectedFurn) {
     return null
   }
 
@@ -64,6 +98,18 @@ export const FurnitureContextMenu: React.FC = () => {
       furniture: { ...selectedFurn, tintColor: colorHex },
     })
   }
+
+  const dirBadge = (() => {
+    const dir: Direction = selectedFurn.direction || (
+      selectedFurn.rotation === 90 ? 'left' :
+      selectedFurn.rotation === 180 ? 'up' :
+      selectedFurn.rotation === 270 ? 'right' : 'down'
+    )
+    if (dir === 'left') return { label: 'Esquerda', icon: '⬅️' }
+    if (dir === 'up') return { label: 'Costas', icon: '⬆️' }
+    if (dir === 'right') return { label: 'Direita', icon: '➡️' }
+    return { label: 'Frente', icon: '⬇️' }
+  })()
 
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-200">
@@ -136,6 +182,17 @@ export const FurnitureContextMenu: React.FC = () => {
         >
           <Move className="w-3.5 h-3.5" />
           <span>{isMovingFurniture ? 'Clique no mapa para soltar...' : 'Mover'}</span>
+        </button>
+
+        {/* Rotate / Direction Action */}
+        <button
+          type="button"
+          onClick={handleRotate}
+          className="px-3 py-1.5 rounded-xl bg-[#26282e] hover:bg-[#32353b] text-slate-200 border border-[#3b3e45] text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+          title="Girar mobília (tecla R) — Alterna entre as 4 direções"
+        >
+          <RotateCw className="w-3.5 h-3.5 text-amber-400" />
+          <span>Girar <span className="text-amber-300 font-mono text-[11px]">({dirBadge.icon} {dirBadge.label})</span></span>
         </button>
 
         {/* Color Action */}

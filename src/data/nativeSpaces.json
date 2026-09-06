@@ -5,7 +5,7 @@
     "name": "Espaço #2",
     "description": "Novo espaço de trabalho virtual",
     "createdAt": 1788559118170,
-    "updatedAt": 1788641296274,
+    "updatedAt": 1788653413353,
     "mapData": {
       "id": "empty_workspace",
       "name": "Espaço #2",
@@ -5620,7 +5620,62 @@
           "drywall_white"
         ]
       ],
-      "furniture": [],
+      "furniture": [
+        {
+          "id": "furn-sexd6a",
+          "defId": "custom_1788645074523_cmo8b",
+          "x": 26,
+          "y": 13
+        },
+        {
+          "id": "furn-5mf3ci",
+          "defId": "custom_1788645074523_cmo8b",
+          "x": 24,
+          "y": 14
+        },
+        {
+          "id": "furn-h9s6fq",
+          "defId": "custom_1788645074523_cmo8b",
+          "x": 24,
+          "y": 13
+        },
+        {
+          "id": "furn-u7f40s",
+          "defId": "custom_1788645074523_cmo8b",
+          "x": 25,
+          "y": 13
+        },
+        {
+          "id": "furn-mfe11l",
+          "defId": "custom_1788651698225_p0r1r",
+          "x": 24,
+          "y": 12.75
+        },
+        {
+          "id": "furn-b2l7ax",
+          "defId": "custom_1788651698225_p0r1r",
+          "x": 24.75,
+          "y": 12.75
+        },
+        {
+          "id": "furn-9cdbea",
+          "defId": "custom_1788651698225_p0r1r",
+          "x": 24.5,
+          "y": 12.75
+        },
+        {
+          "id": "furn-0810jm",
+          "defId": "custom_1788651698225_p0r1r",
+          "x": 25.25,
+          "y": 12.75
+        },
+        {
+          "id": "furn-c2qdof",
+          "defId": "custom_1788651698225_p0r1r",
+          "x": 23.75,
+          "y": 12.75
+        }
+      ],
       "zones": [
         {
           "id": "zone-roxf9",

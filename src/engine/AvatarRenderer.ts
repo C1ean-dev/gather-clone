@@ -169,6 +169,11 @@ export class AvatarRenderer {
       const img = getCustomAssetImage(avatar.customSkinUrl)
       if (img && img.complete && img.naturalWidth > 0) {
         ctx.save()
+        const isDownscaling = img.naturalWidth > size * 1.2 || img.naturalHeight > size * 1.2
+        ctx.imageSmoothingEnabled = isDownscaling
+        if (isDownscaling) {
+          ctx.imageSmoothingQuality = 'high'
+        }
         if (dir === 'left') {
           ctx.translate(px + size / 2, 0)
           ctx.scale(-1, 1)

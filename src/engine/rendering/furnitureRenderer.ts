@@ -1,54 +1,162 @@
 import { PlacedFurniture, FurnitureDefinition } from '../../types/map'
+import { Direction } from '../../types/game'
+import { CustomAsset } from '../../types/customAsset'
 import { FURNITURE_CATALOG, TILE_SIZE } from '../Constants'
 import { useCustomAssetsStore, getCustomAssetImage } from '../../store/useCustomAssetsStore'
 
 export type FurnitureDef = FurnitureDefinition
 
+export function resolveFurnitureDirection(furn: PlacedFurniture | { direction?: Direction; rotation?: number }): Direction {
+  if (furn.direction) return furn.direction
+  if (furn.rotation === 90) return 'left'
+  if (furn.rotation === 180) return 'up'
+  if (furn.rotation === 270) return 'right'
+  return 'down'
+}
+
+export function resolveFurnitureDimensions(
+  furn: PlacedFurniture | { defId: string; direction?: Direction; rotation?: number },
+  customAsset?: CustomAsset | null,
+  catalogDef?: { width: number; height: number } | FurnitureDef | CustomAsset | null
+): { targetW: number; targetH: number; tileW: number; tileH: number } {
+  const dir = resolveFurnitureDirection(furn as PlacedFurniture)
+  if (customAsset) {
+    let dim = customAsset.directionalDimensions?.[dir]
+    if (!dim) {
+      if (dir === 'right' && customAsset.directionalDimensions?.left) {
+        dim = customAsset.directionalDimensions.left
+      } else if (dir === 'left' && customAsset.directionalDimensions?.right) {
+        dim = customAsset.directionalDimensions.right
+      } else if (customAsset.directionalDimensions?.down) {
+        dim = customAsset.directionalDimensions.down
+      }
+    }
+
+    const targetW = dim?.pixelWidth || (dim ? dim.width * TILE_SIZE : (customAsset.pixelWidth || customAsset.width * TILE_SIZE))
+    const targetH = dim?.pixelHeight || (dim ? dim.height * TILE_SIZE : (customAsset.pixelHeight || customAsset.height * TILE_SIZE))
+    const tileW = dim?.width || (customAsset.pixelWidth ? customAsset.pixelWidth / TILE_SIZE : customAsset.width)
+    const tileH = dim?.height || (customAsset.pixelHeight ? customAsset.pixelHeight / TILE_SIZE : customAsset.height)
+
+    return { targetW, targetH, tileW, tileH }
+  }
+
+  const def = catalogDef || FURNITURE_CATALOG.find((f) => f.id === furn.defId)
+  const tileW = def?.width || 1
+  const tileH = def?.height || 1
+  return {
+    targetW: tileW * TILE_SIZE,
+    targetH: tileH * TILE_SIZE,
+    tileW,
+    tileH,
+  }
+}
+
+export function resolveFurnitureFrames(
+  furn: { direction?: Direction; rotation?: number },
+  customAsset: CustomAsset
+): { frames: string[]; mirrorH: boolean } {
+  const dir = resolveFurnitureDirection(furn)
+  let frameList: string[] = []
+  let mirrorH = false
+
+  const hasValidFrames = (data: string | string[] | undefined): boolean => {
+    if (!data) return false
+    if (Array.isArray(data)) {
+      return data.length > 0 && data.some((f) => typeof f === 'string' && f.trim().length > 0)
+    }
+    return typeof data === 'string' && data.trim().length > 0
+  }
+
+  const toArray = (data: string | string[]): string[] => {
+    return Array.isArray(data) ? data : [data]
+  }
+
+  if (customAsset.directionalFrames) {
+    const dirData = customAsset.directionalFrames[dir]
+    if (hasValidFrames(dirData)) {
+      frameList = toArray(dirData!)
+    } else if (dir === 'right' && hasValidFrames(customAsset.directionalFrames.left)) {
+      // Auto-mirror left sprite to create right sprite
+      frameList = toArray(customAsset.directionalFrames.left!)
+      mirrorH = true
+    } else if (dir === 'left' && hasValidFrames(customAsset.directionalFrames.right)) {
+      // Auto-mirror right sprite to create left sprite
+      frameList = toArray(customAsset.directionalFrames.right!)
+      mirrorH = true
+    } else if (hasValidFrames(customAsset.directionalFrames.down)) {
+      frameList = toArray(customAsset.directionalFrames.down!)
+    }
+  }
+
+  if (frameList.length === 0 && customAsset.frames && customAsset.frames.length > 0) {
+    frameList = customAsset.frames
+  }
+
+  return { frames: frameList, mirrorH }
+}
+
 export class FurnitureRenderer {
   /**
-   * Draw 2D Furniture & Wall Decors
+   * Draw 2D Furniture & Wall Decors with 4-Direction Support
    */
   static drawFurniture(ctx: CanvasRenderingContext2D, furn: PlacedFurniture) {
     // 1. Check custom user element
     const customAsset = useCustomAssetsStore.getState().getAssetById(furn.defId)
-    if (customAsset && customAsset.frames && customAsset.frames.length > 0) {
-      const px = Math.floor(furn.x * TILE_SIZE)
-      const py = Math.floor(furn.y * TILE_SIZE)
-      const w = customAsset.width * TILE_SIZE
-      const h = customAsset.height * TILE_SIZE
+    if (customAsset && ((customAsset.frames && customAsset.frames.length > 0) || customAsset.directionalFrames)) {
+      const { targetW, targetH } = resolveFurnitureDimensions(furn, customAsset)
+      const px = Math.round(furn.x * TILE_SIZE)
+      const py = Math.round(furn.y * TILE_SIZE)
+
+      const { frames: frameList, mirrorH } = resolveFurnitureFrames(furn, customAsset)
 
       ctx.save()
-      ctx.imageSmoothingEnabled = false
 
-      const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
-      const img = getCustomAssetImage(customAsset.frames[frameIdx])
+      // Horizontal mirroring for auto-mirrored side view
+      if (mirrorH) {
+        ctx.translate(px + targetW / 2, 0)
+        ctx.scale(-1, 1)
+        ctx.translate(-(px + targetW / 2), 0)
+      }
+
+      const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % (frameList.length || 1))
+      const frameUrl = frameList[frameIdx]
+      const img = frameUrl ? getCustomAssetImage(frameUrl) : null
+
       if (img && img.complete && img.naturalWidth > 0) {
         const imgW = img.naturalWidth
         const imgH = img.naturalHeight
 
-        if (imgW === w && imgH === h) {
-          ctx.drawImage(img, px, py, w, h)
+        // Enable high-quality smoothing if downscaling a high-resolution sprite
+        const isDownscaling = imgW > targetW * 1.2 || imgH > targetH * 1.2
+        ctx.imageSmoothingEnabled = isDownscaling
+        if (isDownscaling) {
+          ctx.imageSmoothingQuality = 'high'
+        } else {
+          ctx.imageSmoothingEnabled = false
+        }
+
+        if (imgW === targetW && imgH === targetH) {
+          ctx.drawImage(img, px, py, targetW, targetH)
         } else {
           // Calculate proportional scale to fit within bounding box without distortion
-          const scale = Math.min(w / imgW, h / imgH)
-          // If image is smaller than tile box, keep 1:1 crisp scale or integer scale
-          const drawW = Math.round(imgW * (scale < 1 ? scale : 1))
-          const drawH = Math.round(imgH * (scale < 1 ? scale : 1))
-          const offX = px + Math.floor((w - drawW) / 2)
-          const offY = py + (h - drawH) // Bottom-aligned to floor
+          const scale = Math.min(targetW / imgW, targetH / imgH)
+          const drawW = Math.max(1, Math.round(imgW * scale))
+          const drawH = Math.max(1, Math.round(imgH * scale))
+          const offX = px + Math.round((targetW - drawW) / 2)
+          const offY = py + (targetH - drawH) // Bottom-aligned to floor
 
           ctx.drawImage(img, offX, offY, drawW, drawH)
         }
       } else {
         ctx.fillStyle = customAsset.iconColor || '#e03131'
-        ctx.fillRect(px + 2, py + 2, w - 4, h - 4)
+        ctx.fillRect(px + 1, py + 1, Math.max(2, targetW - 2), Math.max(2, targetH - 2))
       }
 
       if (furn.tintColor) {
         ctx.save()
         ctx.fillStyle = furn.tintColor
         ctx.globalAlpha = 0.35
-        ctx.fillRect(px, py, w, h)
+        ctx.fillRect(px, py, targetW, targetH)
         ctx.restore()
       }
 
@@ -65,6 +173,16 @@ export class FurnitureRenderer {
     const h = def.height * TILE_SIZE
 
     ctx.save()
+
+    const rotAngle = furn.rotation !== undefined
+      ? furn.rotation
+      : furn.direction === 'left' ? 90 : furn.direction === 'up' ? 180 : furn.direction === 'right' ? 270 : 0
+
+    if (rotAngle) {
+      ctx.translate(px + w / 2, py + h / 2)
+      ctx.rotate((rotAngle * Math.PI) / 180)
+      ctx.translate(-(px + w / 2), -(py + h / 2))
+    }
 
     switch (def.spriteKey) {
       // ==========================================

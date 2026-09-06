@@ -125,6 +125,11 @@ export class WallRenderer {
       const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
       const img = getCustomAssetImage(customAsset.frames[frameIdx])
       if (img && img.complete && img.naturalWidth > 0) {
+        const isDownscaling = img.naturalWidth > size * 1.2 || img.naturalHeight > size * 1.2
+        ctx.imageSmoothingEnabled = isDownscaling
+        if (isDownscaling) {
+          ctx.imageSmoothingQuality = 'high'
+        }
         ctx.drawImage(img, px, py, size, size)
       } else {
         ctx.fillStyle = customAsset.iconColor || '#212529'

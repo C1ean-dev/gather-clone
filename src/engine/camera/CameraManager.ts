@@ -68,7 +68,12 @@ export class CameraManager {
     this.y = (local?.y ?? 20) * TILE_SIZE
   }
 
-  public screenToTile(canvas: HTMLCanvasElement, screenX: number, screenY: number): { x: number; y: number } {
+  public screenToTile(
+    canvas: HTMLCanvasElement,
+    screenX: number,
+    screenY: number,
+    snapStep: number = 1
+  ): { x: number; y: number } {
     const viewWidth = canvas.width / this.zoom
     const viewHeight = canvas.height / this.zoom
     const offsetX = viewWidth / 2 - this.x
@@ -77,9 +82,40 @@ export class CameraManager {
     const worldX = screenX / this.zoom - offsetX
     const worldY = screenY / this.zoom - offsetY
 
+    const tileX = worldX / TILE_SIZE
+    const tileY = worldY / TILE_SIZE
+
+    if (snapStep <= 0) {
+      return { x: tileX, y: tileY }
+    }
+
+    if (snapStep === 1) {
+      return {
+        x: Math.floor(tileX),
+        y: Math.floor(tileY),
+      }
+    }
+
     return {
-      x: Math.floor(worldX / TILE_SIZE),
-      y: Math.floor(worldY / TILE_SIZE),
+      x: Math.round(tileX / snapStep) * snapStep,
+      y: Math.round(tileY / snapStep) * snapStep,
+    }
+  }
+
+  public screenToWorld(
+    canvas: HTMLCanvasElement,
+    screenX: number,
+    screenY: number
+  ): { x: number; y: number } {
+    const viewWidth = canvas.width / this.zoom
+    const viewHeight = canvas.height / this.zoom
+    const offsetX = viewWidth / 2 - this.x
+    const offsetY = viewHeight / 2 - this.y
+
+    return {
+      x: screenX / this.zoom - offsetX,
+      y: screenY / this.zoom - offsetY,
     }
   }
 }
+

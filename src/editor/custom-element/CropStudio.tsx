@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Upload,
   ZoomIn,
@@ -15,13 +15,15 @@ export interface CroppedClip {
   dataUrl: string
   width: number
   height: number
+  origWidth?: number
+  origHeight?: number
 }
 
 interface Props {
   sourceImage: HTMLImageElement | null
   sourceImageSrc: string
   zoom: number
-  setZoom: (z: number) => void
+  setZoom: (z: number | ((prev: number) => number)) => void
   snapToGrid: boolean
   setSnapToGrid: (snap: boolean) => void
   selection: { x: number; y: number; w: number; h: number }
@@ -35,6 +37,12 @@ interface Props {
   onCanvasMouseMove: (e: React.MouseEvent<HTMLCanvasElement>) => void
   onCanvasMouseUp: () => void
   onCropAndSaveClip: () => void
+  tileWidth?: number
+  tileHeight?: number
+  pixelWidth?: number
+  pixelHeight?: number
+  onSetBoardSizeInTiles?: (w: number, h: number) => void
+  scaleFitMode?: 'fit' | 'stretch'
 }
 
 export const CropStudio: React.FC<Props> = ({
@@ -55,6 +63,12 @@ export const CropStudio: React.FC<Props> = ({
   onCanvasMouseMove,
   onCanvasMouseUp,
   onCropAndSaveClip,
+  tileWidth,
+  tileHeight,
+  pixelWidth,
+  pixelHeight,
+  onSetBoardSizeInTiles,
+  scaleFitMode,
 }) => {
   // Track drag-and-drop hover state so the placeholder gives visual feedback
   // and the canvas wrapper can highlight when the user drags a file over it.
@@ -89,6 +103,30 @@ export const CropStudio: React.FC<Props> = ({
     },
     [onDropFile]
   )
+
+  const stageRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.deltaY < 0) {
+          setZoom((z) => Math.min(10, z + 1))
+        } else if (e.deltaY > 0) {
+          setZoom((z) => Math.max(1, z - 1))
+        }
+      }
+    }
+
+    stage.addEventListener('wheel', handleWheel, { passive: false })
+    return () => {
+      stage.removeEventListener('wheel', handleWheel)
+    }
+  }, [setZoom])
 
   return (
     <div className="flex-1 flex flex-col bg-[#12151d] rounded-2xl border border-[#2b2d31] overflow-hidden">
@@ -167,6 +205,7 @@ export const CropStudio: React.FC<Props> = ({
       {/* Main Image Canvas Stage — always a drop target so the user can drop a
           file whether or not an image is already loaded. */}
       <div
+        ref={stageRef}
         className="flex-1 overflow-auto flex items-center justify-center p-4 relative bg-[#0e1015]"
         onDragOver={handleDragOver}
         onDragEnter={handleDragOver}
@@ -248,6 +287,21 @@ export const CropStudio: React.FC<Props> = ({
                 ({selection.x}, {selection.y})
               </span>
             </span>
+
+            {(pixelWidth || (tileWidth && tileHeight)) && (
+              <>
+                <span className="text-slate-500">•</span>
+                <div className="flex items-center gap-1.5 bg-[#12151d] px-2.5 py-1 rounded-xl border border-[#2b2d31]">
+                  <span className="text-[11px] font-semibold text-slate-400">Mobília Final:</span>
+                  <strong className="font-mono text-emerald-400 text-xs">
+                    {pixelWidth || (tileWidth ? tileWidth * 32 : 32)}×{pixelHeight || (tileHeight ? tileHeight * 32 : 32)}px
+                  </strong>
+                  {tileWidth && tileHeight && (
+                    <span className="text-[10px] text-slate-400 font-mono">({tileWidth}×{tileHeight} tiles)</span>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Action Buttons */}

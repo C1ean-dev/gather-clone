@@ -16,9 +16,18 @@ export interface UpdateProgress {
   total: number
 }
 
+export interface ProcessAudioCaptureResult {
+  ok: boolean
+  error?: string
+}
+
 export interface IElectronAPI {
   getSources: () => Promise<Array<{ id: string; name: string; thumbnail: string; appIcon: string | null }>>
   setScreenSource: (sourceId: string | null, withAudio?: boolean) => Promise<boolean>
+  startProcessAudioCapture: (sourceId: string) => Promise<ProcessAudioCaptureResult>
+  stopProcessAudioCapture: () => Promise<boolean>
+  onProcessAudioData: (callback: (data: Uint8Array) => void) => () => void
+  onProcessAudioStatus: (callback: (event: { status: 'started' | 'stopped' | 'error'; detail?: string }) => void) => () => void
   isElectron: boolean
   checkForUpdates: () => Promise<UpdateInfo>
   downloadAndInstallUpdate: (downloadUrl: string) => Promise<boolean>
@@ -40,6 +49,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSources: () => ipcRenderer.invoke('get-sources'),
   setScreenSource: (sourceId: string | null, withAudio: boolean = true) =>
     ipcRenderer.invoke('set-screen-source', { sourceId, withAudio }),
+  startProcessAudioCapture: (sourceId: string) => ipcRenderer.invoke('start-process-audio-capture', sourceId),
+  stopProcessAudioCapture: () => ipcRenderer.invoke('stop-process-audio-capture'),
+  onProcessAudioData: (callback: (data: Uint8Array) => void) => {
+    const handler = (_event: unknown, data: Uint8Array) => callback(new Uint8Array(data))
+    ipcRenderer.on('process-audio-data', handler)
+    return () => ipcRenderer.removeListener('process-audio-data', handler)
+  },
+  onProcessAudioStatus: (callback: (event: { status: 'started' | 'stopped' | 'error'; detail?: string }) => void) => {
+    const handler = (_event: unknown, event: { status: 'started' | 'stopped' | 'error'; detail?: string }) => callback(event)
+    ipcRenderer.on('process-audio-status', handler)
+    return () => ipcRenderer.removeListener('process-audio-status', handler)
+  },
   isElectron: true,
   checkForUpdates: () => ipcRenderer.invoke('check-update'),
   downloadAndInstallUpdate: (downloadUrl: string) => ipcRenderer.invoke('download-and-install-update', downloadUrl),

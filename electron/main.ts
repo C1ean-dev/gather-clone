@@ -6,22 +6,159 @@ import https from 'https'
 import http from 'http'
 import dgram from 'dgram'
 import { spawn, exec } from 'child_process'
+import { release as getOsRelease } from 'os'
 import { setupSingleInstanceLock } from './singleInstance'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 let mainWindow: BrowserWindow | null = null
+let processAudioCapture: ReturnType<typeof spawn> | null = null
+let processAudioCaptureSourceId: string | null = null
 
 // Pre-selected DesktopCapturerSource id for the NEXT getDisplayMedia call.
 // Written by the 'set-screen-source' IPC (renderer picked a thumbnail),
 // consumed by setDisplayMediaRequestHandler (with a 15s grace window for retries).
+//
+// IMPORTANT: Electron's `audio: 'loopback'` is the complete system output on
+// Windows. It cannot be constrained to a DesktopCapturerSource, so using it
+// for a selected window leaks sound from unrelated applications into a call.
+// The selected process is captured separately by the bundled Windows helper;
+// this Electron request handler remains video-only by design.
 let pendingScreenCapture: { sourceId: string | null; withAudio: boolean } | null = null
 let lastSelectedSourceId: string | null = null
 let lastSelectedSourceTime = 0
 
 const GITHUB_REPO = 'C1ean-dev/gather-clone'
 const CURRENT_VERSION = app.getVersion() || '1.0.0'
+
+type ProcessAudioCaptureResult = { ok: true } | { ok: false; error: string }
+
+function emitProcessAudioStatus(status: 'started' | 'stopped' | 'error', detail?: string) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('process-audio-status', { status, detail })
+  }
+}
+
+function getProcessAudioHelperPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'native', 'process-audio-capture.exe')
+  }
+  return path.join(__dirname, '..', 'native', 'bin', 'process-audio-capture.exe')
+}
+
+function getProcessLoopbackCompatibilityError(): string | null {
+  if (process.platform !== 'win32') {
+    return 'A captura de áudio por aplicativo está disponível apenas no Windows.'
+  }
+
+  // Application Loopback (the Windows API that captures one process tree
+  // without reading the system mix) starts at Windows build 20348. Refuse to
+  // start on older builds: falling back to system loopback would leak other
+  // applications into the live, which is never an acceptable fallback.
+  const releaseParts = getOsRelease().split('.')
+  const build = Number(releaseParts[releaseParts.length - 1])
+  if (!Number.isFinite(build) || build < 20348) {
+    return `A captura de áudio isolada requer Windows 10 build 20348 ou superior (ou Windows 11). Este computador está no build ${Number.isFinite(build) ? build : 'desconhecido'}.`
+  }
+
+  return null
+}
+
+function stopProcessAudioCapture() {
+  const child = processAudioCapture
+  processAudioCapture = null
+  processAudioCaptureSourceId = null
+  if (!child || child.killed) return
+  try {
+    child.kill()
+  } catch (error) {
+    console.warn('[ProcessAudio] failed to stop helper:', error)
+  }
+}
+
+async function startProcessAudioCapture(sourceId: string): Promise<ProcessAudioCaptureResult> {
+  const compatibilityError = getProcessLoopbackCompatibilityError()
+  if (compatibilityError) return { ok: false, error: compatibilityError }
+  if (!sourceId.startsWith('window:')) {
+    return { ok: false, error: 'Selecione uma janela de aplicativo para compartilhar o áudio isolado.' }
+  }
+
+  const helperPath = getProcessAudioHelperPath()
+  if (!fs.existsSync(helperPath)) {
+    return { ok: false, error: 'O capturador nativo não foi encontrado. Execute npm run native:build.' }
+  }
+
+  if (processAudioCapture && processAudioCaptureSourceId === sourceId && !processAudioCapture.killed) {
+    return { ok: true }
+  }
+  stopProcessAudioCapture()
+
+  return new Promise<ProcessAudioCaptureResult>((resolve) => {
+    let settled = false
+    let startupTimeout: ReturnType<typeof setTimeout> | null = null
+    const finish = (result: ProcessAudioCaptureResult) => {
+      if (settled) return
+      settled = true
+      if (startupTimeout) clearTimeout(startupTimeout)
+      resolve(result)
+    }
+
+    try {
+      const child = spawn(helperPath, ['--source-id', sourceId], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      })
+      processAudioCapture = child
+      processAudioCaptureSourceId = sourceId
+
+      child.stdout?.on('data', (data: Buffer) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          // The helper writes only 48 kHz stereo signed-16 PCM. Forwarding a
+          // Buffer preserves the bytes across Electron IPC without writing it
+          // to disk or routing it through the system audio device.
+          mainWindow.webContents.send('process-audio-data', data)
+        }
+      })
+      child.stderr?.on('data', (data: Buffer) => {
+        const detail = data.toString('utf8').trim()
+        if (!detail) return
+        if (detail.includes('READY')) {
+          emitProcessAudioStatus('started')
+          finish({ ok: true })
+          return
+        }
+        console.warn('[ProcessAudio]', detail)
+      })
+      child.once('error', (error) => {
+        if (processAudioCapture === child) {
+          processAudioCapture = null
+          processAudioCaptureSourceId = null
+        }
+        emitProcessAudioStatus('error', error.message)
+        finish({ ok: false, error: error.message })
+      })
+      child.once('exit', (code, signal) => {
+        const wasActive = processAudioCapture === child
+        if (wasActive) {
+          processAudioCapture = null
+          processAudioCaptureSourceId = null
+          const detail = `O capturador de áudio foi encerrado inesperadamente (${code ?? signal ?? 'desconhecido'}).`
+          emitProcessAudioStatus('error', detail)
+          finish({ ok: false, error: detail })
+        }
+      })
+
+      startupTimeout = setTimeout(() => {
+        if (processAudioCapture === child) stopProcessAudioCapture()
+        finish({ ok: false, error: 'O capturador de áudio não respondeu a tempo.' })
+      }, 5_000)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      finish({ ok: false, error: detail })
+    }
+  })
+}
 
 // Multi-instance testing support (--instance=2 or env INSTANCE=2 or --multi)
 const instanceArg = process.argv.find((a) => a.startsWith('--instance='))?.split('=')[1]
@@ -91,49 +228,40 @@ function createWindow() {
   // so capture never silently fails.
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     const now = Date.now()
-    const wantAudio = pendingScreenCapture?.withAudio ?? !!(request as any)?.audio
+    const requestedAudio = pendingScreenCapture?.withAudio ?? !!(request as any)?.audio
     const wantedId = pendingScreenCapture?.sourceId || (now - lastSelectedSourceTime < 15000 ? lastSelectedSourceId : null)
     pendingScreenCapture = null
 
-    const pickAndRespond = (useLoopbackAudio: boolean) => {
-      desktopCapturer
-        .getSources({ types: ['screen', 'window'] })
-        .then((sources) => {
-          if (!sources || sources.length === 0) {
-            callback({})
-            return
-          }
-          const picked = (wantedId && sources.find((s) => s.id === wantedId)) || sources[0]
-          if (useLoopbackAudio && wantAudio) {
-            // System-audio loopback (Windows/macOS). If Electron rejects the
-            // loopback token, retry video-only so capture still succeeds.
-            try {
-              callback({ video: picked, audio: 'loopback' } as any)
-            } catch (loopErr) {
-              console.warn('[Electron] loopback audio rejected, retrying video-only:', loopErr)
-              try {
-                callback({ video: picked })
-              } catch (e2) {
-                console.warn('[Electron] display-media callback failed:', e2)
-              }
-            }
-          } else {
-            try {
-              callback({ video: picked })
-            } catch (err) {
-              console.warn('[Electron] display-media callback failed:', err)
-            }
-          }
-        })
-        .catch((err) => {
-          console.warn('[Electron] setDisplayMediaRequestHandler error:', err)
-          try {
-            callback({})
-          } catch {}
-        })
-    }
+    desktopCapturer
+      .getSources({ types: ['screen', 'window'] })
+      .then((sources) => {
+        if (!sources || sources.length === 0) {
+          callback({})
+          return
+        }
+        const picked = (wantedId && sources.find((s) => s.id === wantedId)) || sources[0]
 
-    pickAndRespond(true)
+        if (requestedAudio) {
+          console.info(
+            '[Electron] System loopback skipped: it would include audio from applications other than the selected source.'
+          )
+        }
+
+        // Never use `audio: loopback` here. It is system-wide audio, rather
+        // than audio belonging to `picked`, and caused the cross-application
+        // sound leak reported during screen sharing.
+        try {
+          callback({ video: picked })
+        } catch (err) {
+          console.warn('[Electron] display-media callback failed:', err)
+        }
+      })
+      .catch((err) => {
+        console.warn('[Electron] setDisplayMediaRequestHandler error:', err)
+        try {
+          callback({})
+        } catch {}
+      })
   })
 
   // Pre-selected screen/window source for the next getDisplayMedia request.
@@ -147,6 +275,15 @@ function createWindow() {
       sourceId: lastSelectedSourceId,
       withAudio: payload?.withAudio ?? true,
     }
+    return true
+  })
+
+  ipcMain.handle('start-process-audio-capture', (_event, sourceId: string): Promise<ProcessAudioCaptureResult> => {
+    return startProcessAudioCapture(sourceId)
+  })
+  ipcMain.handle('stop-process-audio-capture', () => {
+    stopProcessAudioCapture()
+    emitProcessAudioStatus('stopped')
     return true
   })
 
@@ -690,6 +827,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  stopProcessAudioCapture()
   if (lanSocket) {
     try {
       lanSocket.close()

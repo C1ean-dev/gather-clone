@@ -38,8 +38,8 @@ export const PixelArtThumbnail: React.FC<PixelArtThumbnailProps> = ({
           const def = customAsset || FURNITURE_CATALOG.find((f) => f.id === id)
           if (!def) return
 
-          const furnWidthPx = def.width * TILE_SIZE
-          const furnHeightPx = def.height * TILE_SIZE
+          const furnWidthPx = (customAsset && customAsset.pixelWidth) ? customAsset.pixelWidth : def.width * TILE_SIZE
+          const furnHeightPx = (customAsset && customAsset.pixelHeight) ? customAsset.pixelHeight : def.height * TILE_SIZE
 
           // Scale to fit within thumbnail box (padding 4px)
           const maxDim = Math.max(furnWidthPx, furnHeightPx)

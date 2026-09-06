@@ -1,5 +1,6 @@
 import { MapData, PrivateZone } from '../../types/map'
 import { FURNITURE_CATALOG } from '../Constants'
+import { resolveFurnitureDirection, resolveFurnitureDimensions } from '../rendering/furnitureRenderer'
 import { useCustomAssetsStore } from '../../store/useCustomAssetsStore'
 import { useGameStore } from '../../store/useGameStore'
 import { useMapStore } from '../../store/useMapStore'
@@ -234,15 +235,26 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
     return true
   }
 
-  // 2. Check Furniture Obstacle Collisions (Supports Per-Tile Collision Grid)
+  // 2. Check Furniture Obstacle Collisions (Supports Per-Tile Collision Grid & Directional Dimensions)
   for (const furn of map.furniture || []) {
     const customAsset = useCustomAssetsStore.getState().getAssetById(furn.defId)
     const def = customAsset || FURNITURE_CATALOG.find((f) => f.id === furn.defId)
+    const dir = resolveFurnitureDirection(furn)
+    const { tileW, tileH } = resolveFurnitureDimensions(furn, customAsset, def)
 
-    if (customAsset && customAsset.collisionGrid && customAsset.collisionGrid.length > 0) {
-      for (let r = 0; r < customAsset.height; r++) {
-        for (let c = 0; c < customAsset.width; c++) {
-          if (customAsset.collisionGrid[r]?.[c]) {
+    const activeCollisionGrid = customAsset
+      ? (customAsset.directionalCollisionGrids?.[dir] ||
+         (dir === 'right' && customAsset.directionalCollisionGrids?.left ? customAsset.directionalCollisionGrids.left : undefined) ||
+         (dir === 'left' && customAsset.directionalCollisionGrids?.right ? customAsset.directionalCollisionGrids.right : undefined) ||
+         customAsset.collisionGrid)
+      : undefined
+
+    if (customAsset && activeCollisionGrid && activeCollisionGrid.length > 0) {
+      const maxR = Math.min(Math.ceil(tileH), activeCollisionGrid.length)
+      for (let r = 0; r < maxR; r++) {
+        const maxC = Math.min(Math.ceil(tileW), activeCollisionGrid[r]?.length || 0)
+        for (let c = 0; c < maxC; c++) {
+          if (activeCollisionGrid[r]?.[c]) {
             const tileMinX = furn.x + c + 0.05
             const tileMaxX = furn.x + c + 1 - 0.05
             const tileMinY = furn.y + r + 0.05
@@ -256,9 +268,9 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
       }
     } else if (def && def.isObstacle) {
       const furnMinX = furn.x + 0.05
-      const furnMaxX = furn.x + def.width - 0.05
+      const furnMaxX = furn.x + tileW - 0.05
       const furnMinY = furn.y + 0.05
-      const furnMaxY = furn.y + def.height - 0.05
+      const furnMaxY = furn.y + tileH - 0.05
 
       if (pMaxX > furnMinX && pMinX < furnMaxX && pMaxY > furnMinY && pMinY < furnMaxY) {
         return true

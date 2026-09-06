@@ -1,11 +1,13 @@
 import React, { useEffect, useRef } from 'react'
-import { Sparkles } from 'lucide-react'
+import { Sparkles, RotateCw } from 'lucide-react'
 import { CanvasEngine } from '../engine/CanvasEngine'
 import { getNextAvailableZoneColor, FURNITURE_CATALOG } from '../engine/Constants'
+import { resolveFurnitureDimensions } from '../engine/rendering/furnitureRenderer'
 import { useMapStore } from '../store/useMapStore'
 import { useGameStore } from '../store/useGameStore'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { PeerManager } from '../p2p/PeerManager'
+import { Direction } from '../types/game'
 import { PlacedFurniture, PrivateZone } from '../types/map'
 import { MapControlsWidget } from './MapControlsWidget'
 import { SimplifiedMapView } from './SimplifiedMapView'
@@ -38,6 +40,25 @@ export const MapViewport: React.FC = () => {
   const paintFloorInZone = useMapStore((s) => s.paintFloorInZone)
   const findZoneAt = useMapStore((s) => s.findZoneAt)
   const mapData = useMapStore((s) => s.mapData)
+  const placementDirection = useMapStore((s) => s.placementDirection)
+  const rotatePlacementDirection = useMapStore((s) => s.rotatePlacementDirection)
+
+  useEffect(() => {
+    if (!isEditorOpen || activeTool !== 'place_furniture') return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea') return
+
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault()
+        rotatePlacementDirection()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isEditorOpen, activeTool, rotatePlacementDirection])
 
   useEffect(() => {
     if (!canvasRef.current) return
@@ -154,6 +175,23 @@ export const MapViewport: React.FC = () => {
     return true
   }
 
+  const getPlacementSnapStep = (shiftPressed: boolean, defId?: string) => {
+    if (shiftPressed) return 1 / 32 // 100% free continuous pixel placement
+    if (defId) {
+      const custom = useCustomAssetsStore.getState().getAssetById(defId)
+      if (custom) {
+        const { targetW, targetH } = resolveFurnitureDimensions(
+          { defId, direction: placementDirection },
+          custom
+        )
+        if (targetW < 32 || targetH < 32) {
+          return 0.25
+        }
+      }
+    }
+    return 1 // standard 1-tile grid
+  }
+
   // Handle Canvas Mouse Clicks & Editor Interactions
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!engineRef.current || !canvasRef.current) return
@@ -163,7 +201,15 @@ export const MapViewport: React.FC = () => {
     const mouseX = (e.clientX - rect.left) * scaleX
     const mouseY = (e.clientY - rect.top) * scaleY
 
-    const tile = engineRef.current.screenToTile(mouseX, mouseY)
+    let snapStep = 1
+    if (activeTool === 'place_furniture') {
+      snapStep = getPlacementSnapStep(e.shiftKey, selectedFurnitureDefId)
+    } else if (isMovingFurniture && selectedPlacedFurnitureId) {
+      const movedFurn = mapData.furniture.find((f) => f.id === selectedPlacedFurnitureId)
+      snapStep = getPlacementSnapStep(e.shiftKey, movedFurn?.defId)
+    }
+
+    const tile = engineRef.current.screenToTile(mouseX, mouseY, snapStep)
 
     isMouseDownRef.current = true
     lastPaintedTileRef.current = `${tile.x},${tile.y}`
@@ -187,9 +233,8 @@ export const MapViewport: React.FC = () => {
       const clickedFurn = mapData.furniture.find((f) => {
         const custom = customAssets.find((a) => a.id === f.defId)
         const def = custom || FURNITURE_CATALOG.find((cat) => cat.id === f.defId)
-        const w = def?.width || 1
-        const h = def?.height || 1
-        return tile.x >= f.x && tile.x < f.x + w && tile.y >= f.y && tile.y < f.y + h
+        const { tileW: w, tileH: h } = resolveFurnitureDimensions(f, custom, def)
+        return tile.x >= f.x - 0.05 && tile.x < f.x + w + 0.05 && tile.y >= f.y - 0.05 && tile.y < f.y + h + 0.05
       })
 
       // If clicked on furniture and not painting floors/walls or drawing zone:
@@ -222,11 +267,19 @@ export const MapViewport: React.FC = () => {
         setWallTile(tile.x, tile.y, selectedWall)
         PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: selectedWall })
       } else if (activeTool === 'place_furniture') {
+        const rotMap: Record<Direction, 0 | 90 | 180 | 270> = {
+          down: 0,
+          left: 90,
+          up: 180,
+          right: 270,
+        }
         const newFurn: PlacedFurniture = {
           id: 'furn-' + Math.random().toString(36).substring(2, 8),
           defId: selectedFurnitureDefId,
           x: tile.x,
           y: tile.y,
+          direction: placementDirection,
+          rotation: rotMap[placementDirection],
         }
         addFurniture(newFurn)
         PeerManager.getInstance().sendMapEdit('add_furniture', { furniture: newFurn })
@@ -264,7 +317,15 @@ export const MapViewport: React.FC = () => {
     const mouseX = (e.clientX - rect.left) * scaleX
     const mouseY = (e.clientY - rect.top) * scaleY
 
-    const tile = engineRef.current.screenToTile(mouseX, mouseY)
+    let snapStep = 1
+    if (activeTool === 'place_furniture') {
+      snapStep = getPlacementSnapStep(e.shiftKey, selectedFurnitureDefId)
+    } else if (isMovingFurniture && selectedPlacedFurnitureId) {
+      const movedFurn = mapData.furniture.find((f) => f.id === selectedPlacedFurnitureId)
+      snapStep = getPlacementSnapStep(e.shiftKey, movedFurn?.defId)
+    }
+
+    const tile = engineRef.current.screenToTile(mouseX, mouseY, snapStep)
     engineRef.current.hoverTile = tile
 
     // Continuous drag painting when mouse button is held down
@@ -454,6 +515,27 @@ export const MapViewport: React.FC = () => {
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-emerald-600/90 backdrop-blur-md border border-emerald-400/40 text-white px-4 py-2 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold select-none z-30">
           <Sparkles className="w-4 h-4 text-amber-300" />
           <span>Clique dentro de uma zona para preencher ela inteira com o piso selecionado</span>
+        </div>
+      )}
+
+      {/* Furniture Placement Active Floating Banner with Direction & Rotate button */}
+      {isEditorOpen && activeTool === 'place_furniture' && mapViewMode !== 'simplified' && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-slate-700/60 text-white px-4 py-2 rounded-2xl shadow-xl flex items-center gap-3 text-xs font-semibold select-none z-30">
+          <span className="text-slate-300">Direção:</span>
+          <span className="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
+            {placementDirection === 'down' && '⬇️ Frente'}
+            {placementDirection === 'left' && '⬅️ Esquerda'}
+            {placementDirection === 'up' && '⬆️ Costas'}
+            {placementDirection === 'right' && '➡️ Direita'}
+          </span>
+          <button
+            onClick={() => rotatePlacementDirection()}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors shadow-sm cursor-pointer"
+            title="Girar objeto (Tecla R)"
+          >
+            <RotateCw className="w-3.5 h-3.5" />
+            <span>Girar (R)</span>
+          </button>
         </div>
       )}
 

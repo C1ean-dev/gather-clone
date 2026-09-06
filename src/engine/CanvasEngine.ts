@@ -313,7 +313,12 @@ export class CanvasEngine {
     )
   }
 
-  public screenToTile(screenX: number, screenY: number): { x: number; y: number } {
-    return this.camera.screenToTile(this.canvas, screenX, screenY)
+  public screenToTile(screenX: number, screenY: number, snapStep?: number): { x: number; y: number } {
+    return this.camera.screenToTile(this.canvas, screenX, screenY, snapStep)
+  }
+
+  public screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
+    return this.camera.screenToWorld(this.canvas, screenX, screenY)
   }
 }
+

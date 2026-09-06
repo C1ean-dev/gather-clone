@@ -10,13 +10,23 @@ import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { useMapStore } from '../store/useMapStore'
 import { useGameStore } from '../store/useGameStore'
 import { PeerManager } from '../p2p/PeerManager'
-import { CustomAsset, CustomAssetType } from '../types/customAsset'
+import { CustomAsset, CustomAssetType, DirectionalDimension } from '../types/customAsset'
+import { Direction } from '../types/game'
 import {
   cropImage,
   applyBackgroundRemoval,
   RGBColor,
   PRESET_BG_COLORS,
 } from '../utils/imageTransparency'
+import {
+  resizeImageToTarget,
+  calculateFitDimensions,
+  fitLayerToBounds,
+  rescaleLayersForNewBoard,
+  calculateHighFidelityBakeScale,
+  bakeLayersToDataUrl,
+  bakeLayersToDataUrlSync,
+} from '../utils/imageResize'
 import { CropStudio, CroppedClip } from './custom-element/CropStudio'
 import { CompositionStudio, CompositeLayer } from './custom-element/CompositionStudio'
 import { CroppedClipsList } from './custom-element/CroppedClipsList'
@@ -68,11 +78,14 @@ export const CustomElementModal: React.FC = () => {
   // Saved Cropped Pieces Library
   const [croppedClips, setCroppedClips] = useState<CroppedClip[]>([])
 
-  // Composition Board State
-  const [tileWidth, setTileWidth] = useState<number>(4)
-  const [tileHeight, setTileHeight] = useState<number>(6)
-  const [compositeBoardWidth, setCompositeBoardWidth] = useState<number>(128)
-  const [compositeBoardHeight, setCompositeBoardHeight] = useState<number>(192)
+  // Composition Board & Target Element Size State
+  const [tileWidth, setTileWidth] = useState<number>(2)
+  const [tileHeight, setTileHeight] = useState<number>(2)
+  const [pixelWidth, setPixelWidth] = useState<number>(64)
+  const [pixelHeight, setPixelHeight] = useState<number>(64)
+  const [compositeBoardWidth, setCompositeBoardWidth] = useState<number>(64)
+  const [compositeBoardHeight, setCompositeBoardHeight] = useState<number>(64)
+  const [scaleFitMode, setScaleFitMode] = useState<'fit' | 'stretch'>('fit')
   const [compositeLayers, setCompositeLayers] = useState<CompositeLayer[]>([])
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
   const [isDraggingLayer, setIsDraggingLayer] = useState<boolean>(false)
@@ -90,13 +103,13 @@ export const CustomElementModal: React.FC = () => {
   const [isPaintingCollision, setIsPaintingCollision] = useState<boolean>(false)
   const [collisionPaintValue, setCollisionPaintValue] = useState<boolean>(true)
 
-  // Collision Grid Matrix
+  // Collision Grid Matrix - starts empty (all false), user adds if they want
   const [collisionGrid, setCollisionGrid] = useState<boolean[][]>(() => {
     const grid: boolean[][] = []
-    for (let r = 0; r < 6; r++) {
+    for (let r = 0; r < 2; r++) {
       const row: boolean[] = []
-      for (let c = 0; c < 4; c++) {
-        row.push(r >= 3)
+      for (let c = 0; c < 2; c++) {
+        row.push(false)
       }
       grid.push(row)
     }
@@ -110,6 +123,204 @@ export const CustomElementModal: React.FC = () => {
   const [frameRateMs, setFrameRateMs] = useState<number>(160)
   const [isPlayingAnim, setIsPlayingAnim] = useState<boolean>(true)
   const [currentPreviewFrameIdx, setCurrentPreviewFrameIdx] = useState<number>(0)
+
+  // 4-Direction Furniture State
+  const [activeDirection, setActiveDirection] = useState<Direction>('down')
+  const [directionalFrames, setDirectionalFrames] = useState<Record<Direction, string[]>>({
+    down: [],
+    left: [],
+    up: [],
+    right: [],
+  })
+  const [directionalFrameLayers, setDirectionalFrameLayers] = useState<Record<Direction, CompositeLayer[][]>>({
+    down: [],
+    left: [],
+    up: [],
+    right: [],
+  })
+  const [directionalDimensions, setDirectionalDimensions] = useState<Record<Direction, {
+    tileWidth: number
+    tileHeight: number
+    pixelWidth: number
+    pixelHeight: number
+  }>>({
+    down: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+    left: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+    up: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+    right: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+  })
+  const [directionalCollisionGrids, setDirectionalCollisionGrids] = useState<Partial<Record<Direction, boolean[][]>>>({})
+
+  const handleSelectDirection = (newDir: Direction) => {
+    if (newDir === activeDirection) return
+
+    // 1. Save current active direction layers, frames, dimensions, and collision grid
+    const currentBoardLayers = JSON.parse(JSON.stringify(compositeLayers))
+    let currentFrameList = [...frames]
+    const currentFrameLayers = [...frameLayerStates]
+
+    // If currentFrameList is empty but we have board layers, bake a frame synchronously so directionalFrames has sprite data
+    if (currentFrameList.length === 0 && currentBoardLayers.length > 0) {
+      const syncBaked = bakeLayersToDataUrlSync(
+        compositeBoardWidth,
+        compositeBoardHeight,
+        currentBoardLayers,
+        cachedLayerImages
+      )
+      if (syncBaked) {
+        currentFrameList = [syncBaked]
+      }
+    }
+
+    const updatedLayers: Record<Direction, CompositeLayer[][]> = {
+      ...directionalFrameLayers,
+      [activeDirection]:
+        currentFrameLayers.length > 0
+          ? currentFrameLayers
+          : currentBoardLayers.length > 0
+          ? [currentBoardLayers]
+          : [],
+    }
+    const updatedFrames: Record<Direction, string[]> = {
+      ...directionalFrames,
+      [activeDirection]: currentFrameList,
+    }
+    const updatedDims = {
+      ...directionalDimensions,
+      [activeDirection]: {
+        tileWidth,
+        tileHeight,
+        pixelWidth: pixelWidth || tileWidth * 32,
+        pixelHeight: pixelHeight || tileHeight * 32,
+      },
+    }
+    const updatedCollisions = {
+      ...directionalCollisionGrids,
+      [activeDirection]: collisionGrid,
+    }
+
+    setDirectionalFrameLayers(updatedLayers)
+    setDirectionalFrames(updatedFrames)
+    setDirectionalDimensions(updatedDims)
+    setDirectionalCollisionGrids(updatedCollisions)
+
+    // 2. Switch to new direction and restore its dimensions and collision grid
+    setActiveDirection(newDir)
+
+    const targetDim = updatedDims[newDir] || updatedDims.down || {
+      tileWidth: 2,
+      tileHeight: 2,
+      pixelWidth: 64,
+      pixelHeight: 64,
+    }
+
+    setTileWidth(targetDim.tileWidth)
+    setTileHeight(targetDim.tileHeight)
+    setPixelWidth(targetDim.pixelWidth)
+    setPixelHeight(targetDim.pixelHeight)
+    setCompositeBoardWidth(targetDim.pixelWidth)
+    setCompositeBoardHeight(targetDim.pixelHeight)
+
+    // Restore collision grid for new direction, or generate default for its tile dimensions
+    if (updatedCollisions[newDir] && updatedCollisions[newDir]!.length === targetDim.tileHeight) {
+      setCollisionGrid(updatedCollisions[newDir]!)
+    } else {
+      const newGrid: boolean[][] = []
+      for (let r = 0; r < targetDim.tileHeight; r++) {
+        const row: boolean[] = []
+        for (let c = 0; c < targetDim.tileWidth; c++) {
+          row.push(false)
+        }
+        newGrid.push(row)
+      }
+      setCollisionGrid(newGrid)
+    }
+
+    const nextFrames = updatedFrames[newDir] || []
+    const nextLayers = updatedLayers[newDir] || []
+
+    setFrames(nextFrames)
+    setFrameLayerStates(nextLayers)
+    setSelectedFrameIdx(nextFrames.length > 0 ? 0 : null)
+
+    if (nextLayers.length > 0 && nextLayers[0]?.length > 0) {
+      setCompositeLayers(JSON.parse(JSON.stringify(nextLayers[0])))
+      setSelectedLayerId(nextLayers[0][0]?.id || null)
+    } else {
+      setCompositeLayers([])
+      setSelectedLayerId(null)
+    }
+  }
+
+  const handleCopyFromDownDirection = () => {
+    let sourceLayers: CompositeLayer[] = []
+    if (
+      directionalFrameLayers.down &&
+      directionalFrameLayers.down.length > 0 &&
+      directionalFrameLayers.down[0].length > 0
+    ) {
+      sourceLayers = directionalFrameLayers.down[0]
+    } else if (activeDirection === 'down' && compositeLayers.length > 0) {
+      sourceLayers = compositeLayers
+    }
+
+    if (!sourceLayers || sourceLayers.length === 0) {
+      alert('Não há camadas configuradas na visão de Frente (⬇️) para copiar.')
+      return
+    }
+
+    const copied = sourceLayers.map((layer, idx) => ({
+      ...layer,
+      id: `layer_${activeDirection}_copy_${Date.now()}_${idx}`,
+    }))
+
+    setCompositeLayers(copied)
+    setSelectedLayerId(copied[0]?.id || null)
+  }
+
+  const handleAutoMirrorLeftRight = () => {
+    const oppositeDir: Direction = activeDirection === 'right' ? 'left' : 'right'
+    const oppositeDim = directionalDimensions[oppositeDir]
+
+    if (compositeLayers.length === 0) {
+      const oppositeLayers = directionalFrameLayers[oppositeDir]?.[0]
+      if (oppositeLayers && oppositeLayers.length > 0) {
+        if (oppositeDim) {
+          setTileWidth(oppositeDim.tileWidth)
+          setTileHeight(oppositeDim.tileHeight)
+          setPixelWidth(oppositeDim.pixelWidth)
+          setPixelHeight(oppositeDim.pixelHeight)
+          setCompositeBoardWidth(oppositeDim.pixelWidth)
+          setCompositeBoardHeight(oppositeDim.pixelHeight)
+          setDirectionalDimensions((prev) => ({
+            ...prev,
+            [activeDirection]: { ...oppositeDim },
+          }))
+        }
+
+        const boardW = oppositeDim ? oppositeDim.pixelWidth : compositeBoardWidth
+        const mirrored = oppositeLayers.map((l, idx) => ({
+          ...l,
+          id: `layer_${activeDirection}_mirrored_${Date.now()}_${idx}`,
+          x: Math.max(0, boardW - (l.x + l.width)),
+          flipH: !l.flipH,
+        }))
+        setCompositeLayers(mirrored)
+        setSelectedLayerId(mirrored[0]?.id || null)
+        return
+      }
+      alert('Adicione camadas primeiro ou configure o lado oposto para espelhar.')
+      return
+    }
+
+    setCompositeLayers((prev) =>
+      prev.map((l) => ({
+        ...l,
+        x: Math.max(0, compositeBoardWidth - (l.x + l.width)),
+        flipH: !l.flipH,
+      }))
+    )
+  }
 
   // Element Properties Form
   const [elementName, setElementName] = useState<string>('Meu Elemento Composto')
@@ -126,13 +337,80 @@ export const CustomElementModal: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null!)
 
   const setBoardSizeInTiles = (wTiles: number, hTiles: number) => {
-    const w = Math.max(1, Math.min(10, wTiles))
-    const h = Math.max(1, Math.min(10, hTiles))
+    const w = Math.max(1, Math.min(32, wTiles))
+    const h = Math.max(1, Math.min(32, hTiles))
+    const targetW = w * 32
+    const targetH = h * 32
+    const prevW = compositeBoardWidth
+    const prevH = compositeBoardHeight
     setTileWidth(w)
     setTileHeight(h)
-    setCompositeBoardWidth(w * 32)
-    setCompositeBoardHeight(h * 32)
+    setPixelWidth(targetW)
+    setPixelHeight(targetH)
+    setCompositeBoardWidth(targetW)
+    setCompositeBoardHeight(targetH)
+    setCompositeLayers((prev) => rescaleLayersForNewBoard(prev, targetW, targetH, prevW, prevH))
+    setFrameLayerStates((prev) =>
+      prev.map((layers) => rescaleLayersForNewBoard(layers, targetW, targetH, prevW, prevH))
+    )
+    if (elementType === 'furniture') {
+      setDirectionalDimensions((prev) => ({
+        ...prev,
+        [activeDirection]: {
+          tileWidth: w,
+          tileHeight: h,
+          pixelWidth: targetW,
+          pixelHeight: targetH,
+        },
+      }))
+    }
   }
+
+  const setPixelSize = (pxW: number, pxH: number) => {
+    const w = Math.max(1, Math.min(4096, pxW))
+    const h = Math.max(1, Math.min(4096, pxH))
+    const prevW = compositeBoardWidth
+    const prevH = compositeBoardHeight
+    const tW = Math.max(1, Math.ceil(w / 32))
+    const tH = Math.max(1, Math.ceil(h / 32))
+    setPixelWidth(w)
+    setPixelHeight(h)
+    setTileWidth(tW)
+    setTileHeight(tH)
+    setCompositeBoardWidth(w)
+    setCompositeBoardHeight(h)
+    setCompositeLayers((prev) => rescaleLayersForNewBoard(prev, w, h, prevW, prevH))
+    setFrameLayerStates((prev) =>
+      prev.map((layers) => rescaleLayersForNewBoard(layers, w, h, prevW, prevH))
+    )
+    if (w <= 16 || h <= 16) {
+      setComposeZoom((z) => Math.max(z, 8))
+    }
+    if (elementType === 'furniture') {
+      setDirectionalDimensions((prev) => ({
+        ...prev,
+        [activeDirection]: {
+          tileWidth: tW,
+          tileHeight: tH,
+          pixelWidth: w,
+          pixelHeight: h,
+        },
+      }))
+    }
+  }
+
+  const handleFitLayersToBoard = () => {
+    setCompositeLayers((prev) => {
+      if (prev.length === 0) return prev
+      return prev.map((layer) => {
+        if (!selectedLayerId || layer.id === selectedLayerId) {
+          return fitLayerToBounds(layer, compositeBoardWidth, compositeBoardHeight, scaleFitMode)
+        }
+        return layer
+      })
+    })
+  }
+
 
   // Synchronize collisionGrid matrix when tile dimensions change
   useEffect(() => {
@@ -144,7 +422,7 @@ export const CustomElementModal: React.FC = () => {
           if (prev[r] && prev[r][c] !== undefined) {
             row.push(prev[r][c])
           } else {
-            row.push(r >= Math.floor(tileHeight / 2))
+            row.push(false)
           }
         }
         newGrid.push(row)
@@ -165,6 +443,9 @@ export const CustomElementModal: React.FC = () => {
 
   const handleSelectElementType = (newType: CustomAssetType) => {
     setElementType(newType)
+    if (newType !== 'furniture') {
+      setActiveDirection('down')
+    }
     if (newType === 'avatar') {
       setCategory('Avatares')
       setTileWidth(1)
@@ -198,8 +479,12 @@ export const CustomElementModal: React.FC = () => {
         setCategory(asset.category || 'Geral')
         setTileWidth(asset.width)
         setTileHeight(asset.height)
-        setCompositeBoardWidth(asset.width * 32)
-        setCompositeBoardHeight(asset.height * 32)
+        const initPxW = asset.pixelWidth || asset.width * 32
+        const initPxH = asset.pixelHeight || asset.height * 32
+        setPixelWidth(initPxW)
+        setPixelHeight(initPxH)
+        setCompositeBoardWidth(initPxW)
+        setCompositeBoardHeight(initPxH)
         setFrames(asset.frames || [])
         setFrameRateMs(asset.frameRateMs || 160)
         if (asset.collisionGrid && asset.collisionGrid.length > 0) {
@@ -257,10 +542,116 @@ export const CustomElementModal: React.FC = () => {
           setCroppedClips(clips)
         }
 
+        setActiveDirection('down')
+        if (asset.directionalFrames) {
+          const dirFrames: Record<Direction, string[]> = {
+            down: [],
+            left: [],
+            up: [],
+            right: [],
+          }
+          ;(['down', 'left', 'up', 'right'] as Direction[]).forEach((d) => {
+            const val = asset.directionalFrames?.[d]
+            if (val) {
+              dirFrames[d] = Array.isArray(val) ? val : [val]
+            }
+          })
+          if (dirFrames.down.length === 0 && asset.frames && asset.frames.length > 0) {
+            dirFrames.down = asset.frames
+          }
+          setDirectionalFrames(dirFrames)
+        } else if (asset.frames && asset.frames.length > 0) {
+          setDirectionalFrames({
+            down: asset.frames,
+            left: [],
+            up: [],
+            right: [],
+          })
+        }
+
+        if (asset.directionalFrameLayers) {
+          const dirLayers: Record<Direction, CompositeLayer[][]> = {
+            down: [],
+            left: [],
+            up: [],
+            right: [],
+          }
+          ;(['down', 'left', 'up', 'right'] as Direction[]).forEach((d) => {
+            const val = asset.directionalFrameLayers?.[d]
+            if (val) {
+              dirLayers[d] = val as any
+            }
+          })
+          if (dirLayers.down.length === 0 && asset.frameLayers && asset.frameLayers.length > 0) {
+            dirLayers.down = asset.frameLayers as any
+          }
+          setDirectionalFrameLayers(dirLayers)
+        } else if (asset.frameLayers && asset.frameLayers.length > 0) {
+          setDirectionalFrameLayers({
+            down: asset.frameLayers as any,
+            left: [],
+            up: [],
+            right: [],
+          })
+        }
+
+        if (asset.directionalDimensions) {
+          const dims: Record<Direction, { tileWidth: number; tileHeight: number; pixelWidth: number; pixelHeight: number }> = {
+            down: { tileWidth: asset.width, tileHeight: asset.height, pixelWidth: asset.pixelWidth || asset.width * 32, pixelHeight: asset.pixelHeight || asset.height * 32 },
+            left: { tileWidth: asset.width, tileHeight: asset.height, pixelWidth: asset.pixelWidth || asset.width * 32, pixelHeight: asset.pixelHeight || asset.height * 32 },
+            up: { tileWidth: asset.width, tileHeight: asset.height, pixelWidth: asset.pixelWidth || asset.width * 32, pixelHeight: asset.pixelHeight || asset.height * 32 },
+            right: { tileWidth: asset.width, tileHeight: asset.height, pixelWidth: asset.pixelWidth || asset.width * 32, pixelHeight: asset.pixelHeight || asset.height * 32 },
+          }
+          ;(['down', 'left', 'up', 'right'] as Direction[]).forEach((d) => {
+            const val = asset.directionalDimensions?.[d]
+            if (val) {
+              dims[d] = {
+                tileWidth: val.width,
+                tileHeight: val.height,
+                pixelWidth: val.pixelWidth || val.width * 32,
+                pixelHeight: val.pixelHeight || val.height * 32,
+              }
+            }
+          })
+          setDirectionalDimensions(dims)
+        } else {
+          const baseDim = {
+            tileWidth: asset.width,
+            tileHeight: asset.height,
+            pixelWidth: asset.pixelWidth || asset.width * 32,
+            pixelHeight: asset.pixelHeight || asset.height * 32,
+          }
+          setDirectionalDimensions({
+            down: { ...baseDim },
+            left: { ...baseDim },
+            up: { ...baseDim },
+            right: { ...baseDim },
+          })
+        }
+
+        if (asset.directionalCollisionGrids) {
+          setDirectionalCollisionGrids(asset.directionalCollisionGrids)
+        }
+
         setSelectedFrameIdx(0)
         setStudioMode(initialStudioMode || 'compose')
       }
     } else {
+      setActiveDirection('down')
+      setDirectionalFrames({ down: [], left: [], up: [], right: [] })
+      setDirectionalFrameLayers({ down: [], left: [], up: [], right: [] })
+      setDirectionalDimensions({
+        down: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+        left: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+        up: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+        right: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+      })
+      setDirectionalCollisionGrids({})
+      const emptyGrid: boolean[][] = []
+      for (let r = 0; r < 2; r++) {
+        emptyGrid.push([false, false])
+      }
+      setCollisionGrid(emptyGrid)
       setStudioMode(initialStudioMode || 'crop')
     }
   }, [isCustomModalOpen, editingAssetId, initialStudioMode])
@@ -764,8 +1155,9 @@ export const CustomElementModal: React.FC = () => {
     let newY = dragLayerStart.layerY + deltaY
 
     if (snapToGrid) {
-      newX = Math.round(newX / 8) * 8
-      newY = Math.round(newY / 8) * 8
+      const step = compositeBoardWidth <= 16 || compositeBoardHeight <= 16 ? 1 : 8
+      newX = Math.round(newX / step) * step
+      newY = Math.round(newY / step) * step
     }
 
     setCompositeLayers((prev) =>
@@ -783,6 +1175,10 @@ export const CustomElementModal: React.FC = () => {
     const processed = getProcessedSelectionCanvas()
     if (!processed) return null
 
+    const targetW = pixelWidth || tileWidth * 32
+    const targetH = pixelHeight || tileHeight * 32
+
+    // Retain full crisp crop resolution for lossless scaling at any size
     const dataUrl = processed.toDataURL('image/png')
     const clipId = `clip_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
     const clipName = `Peça ${croppedClips.length + 1} (${processed.width}x${processed.height}px)`
@@ -791,8 +1187,10 @@ export const CustomElementModal: React.FC = () => {
       id: clipId,
       name: clipName,
       dataUrl,
-      width: processed.width,
-      height: processed.height,
+      width: targetW,
+      height: targetH,
+      origWidth: processed.width,
+      origHeight: processed.height,
     }
 
     setCroppedClips((prev) => [...prev, newClip])
@@ -802,15 +1200,29 @@ export const CustomElementModal: React.FC = () => {
   const handleAddClipToCompositionBoard = (clip: CroppedClip) => {
     const newLayerId = `layer_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
 
+    const origW = clip.origWidth || clip.width
+    const origH = clip.origHeight || clip.height
+
+    const { drawW, drawH, offX, offY } = calculateFitDimensions(
+      origW,
+      origH,
+      compositeBoardWidth,
+      compositeBoardHeight,
+      scaleFitMode,
+      'bottom'
+    )
+
     const newLayer: CompositeLayer = {
       id: newLayerId,
       clipId: clip.id,
       name: clip.name,
       dataUrl: clip.dataUrl,
-      x: Math.max(0, Math.floor((compositeBoardWidth - clip.width) / 2)),
-      y: Math.max(0, Math.floor((compositeBoardHeight - clip.height) / 2)),
-      width: clip.width,
-      height: clip.height,
+      x: offX,
+      y: offY,
+      width: drawW,
+      height: drawH,
+      origWidth: origW,
+      origHeight: origH,
       flipH: false,
       opacity: 1,
     }
@@ -825,13 +1237,22 @@ export const CustomElementModal: React.FC = () => {
       return
     }
 
+    const { scale, bakeWidth, bakeHeight, useSmoothing } = calculateHighFidelityBakeScale(
+      compositeBoardWidth,
+      compositeBoardHeight,
+      compositeLayers
+    )
+
     const offscreen = document.createElement('canvas')
-    offscreen.width = compositeBoardWidth
-    offscreen.height = compositeBoardHeight
+    offscreen.width = bakeWidth
+    offscreen.height = bakeHeight
     const ctx = offscreen.getContext('2d')
     if (!ctx) return
 
-    ctx.imageSmoothingEnabled = false
+    ctx.imageSmoothingEnabled = useSmoothing
+    if (useSmoothing) {
+      ctx.imageSmoothingQuality = 'high'
+    }
     ctx.clearRect(0, 0, offscreen.width, offscreen.height)
 
     compositeLayers.forEach((layer) => {
@@ -841,12 +1262,17 @@ export const CustomElementModal: React.FC = () => {
       ctx.save()
       ctx.globalAlpha = layer.opacity ?? 1
 
+      const drawX = layer.x * scale
+      const drawY = layer.y * scale
+      const drawW = layer.width * scale
+      const drawH = layer.height * scale
+
       if (layer.flipH) {
-        ctx.translate(layer.x + layer.width, layer.y)
+        ctx.translate(drawX + drawW, drawY)
         ctx.scale(-1, 1)
-        ctx.drawImage(img, 0, 0, layer.width, layer.height)
+        ctx.drawImage(img, 0, 0, drawW, drawH)
       } else {
-        ctx.drawImage(img, layer.x, layer.y, layer.width, layer.height)
+        ctx.drawImage(img, drawX, drawY, drawW, drawH)
       }
 
       ctx.restore()
@@ -858,6 +1284,17 @@ export const CustomElementModal: React.FC = () => {
     setFrames((prev) => [...prev, dataUrl])
     setFrameLayerStates((prev) => [...prev, layersClone])
     setSelectedFrameIdx(frames.length)
+
+    if (elementType === 'furniture') {
+      setDirectionalFrames((prev) => ({
+        ...prev,
+        [activeDirection]: [...(prev[activeDirection] || []), dataUrl],
+      }))
+      setDirectionalFrameLayers((prev) => ({
+        ...prev,
+        [activeDirection]: [...(prev[activeDirection] || []), layersClone],
+      }))
+    }
   }
 
   const handleFlipLayer = (id: string) => {
@@ -910,6 +1347,16 @@ export const CustomElementModal: React.FC = () => {
   const handleDeleteFrame = (idx: number) => {
     setFrames((prev) => prev.filter((_, i) => i !== idx))
     setFrameLayerStates((prev) => prev.filter((_, i) => i !== idx))
+    if (elementType === 'furniture') {
+      setDirectionalFrames((prev) => ({
+        ...prev,
+        [activeDirection]: (prev[activeDirection] || []).filter((_, i) => i !== idx),
+      }))
+      setDirectionalFrameLayers((prev) => ({
+        ...prev,
+        [activeDirection]: (prev[activeDirection] || []).filter((_, i) => i !== idx),
+      }))
+    }
     if (selectedFrameIdx === idx) {
       setSelectedFrameIdx(null)
     } else if (selectedFrameIdx !== null && selectedFrameIdx > idx) {
@@ -931,77 +1378,40 @@ export const CustomElementModal: React.FC = () => {
     setSelectedLayerId(null)
     setFrames([])
     setFrameLayerStates([])
+    setActiveDirection('down')
+    setDirectionalFrames({ down: [], left: [], up: [], right: [] })
+    setDirectionalFrameLayers({ down: [], left: [], up: [], right: [] })
+    setDirectionalDimensions({
+      down: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+      left: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+      up: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+      right: { tileWidth: 2, tileHeight: 2, pixelWidth: 64, pixelHeight: 64 },
+    })
+    setDirectionalCollisionGrids({})
+    const emptyGrid: boolean[][] = []
+    for (let r = 0; r < 2; r++) {
+      emptyGrid.push([false, false])
+    }
+    setCollisionGrid(emptyGrid)
     setSelectedFrameIdx(null)
     setCurrentPreviewFrameIdx(0)
+    setTileWidth(2)
+    setTileHeight(2)
+    setPixelWidth(64)
+    setPixelHeight(64)
+    setCompositeBoardWidth(64)
+    setCompositeBoardHeight(64)
     setStudioMode('crop')
   }
 
   // Save the custom asset into the store
-  const handleSaveAsset = () => {
-    let finalFrames = [...frames]
-    let finalFrameLayers = [...frameLayerStates]
-
-    if (finalFrames.length === 0) {
-      if (compositeLayers.length > 0) {
-        const offscreen = document.createElement('canvas')
-        offscreen.width = compositeBoardWidth
-        offscreen.height = compositeBoardHeight
-        const ctx = offscreen.getContext('2d')
-        if (ctx) {
-          ctx.imageSmoothingEnabled = false
-          compositeLayers.forEach((layer) => {
-            const img = cachedLayerImages[layer.id]
-            if (!img) return
-            ctx.save()
-            ctx.globalAlpha = layer.opacity ?? 1
-            if (layer.flipH) {
-              ctx.translate(layer.x + layer.width, layer.y)
-              ctx.scale(-1, 1)
-              ctx.drawImage(img, 0, 0, layer.width, layer.height)
-            } else {
-              ctx.drawImage(img, layer.x, layer.y, layer.width, layer.height)
-            }
-            ctx.restore()
-          })
-          const baked = offscreen.toDataURL('image/png')
-          finalFrames = [baked]
-          finalFrameLayers = [JSON.parse(JSON.stringify(compositeLayers))]
-        }
-      } else {
-        const processed = getProcessedSelectionCanvas()
-        if (!processed) {
-          alert('Selecione uma área válida da imagem ou adicione camadas na mesa antes de salvar.')
-          return
-        }
-        finalFrames = [processed.toDataURL('image/png')]
-        finalFrameLayers = [
-          [
-            {
-              id: `layer_${Date.now()}`,
-              clipId: `clip_${Date.now()}`,
-              name: elementName.trim() || 'Camada Base',
-              dataUrl: finalFrames[0],
-              x: 0,
-              y: 0,
-              width: tileWidth * 32,
-              height: tileHeight * 32,
-              flipH: false,
-              opacity: 1,
-            },
-          ],
-        ]
-      }
-    }
-
-    if (finalFrameLayers.length === 0 && compositeLayers.length > 0) {
-      finalFrameLayers = [JSON.parse(JSON.stringify(compositeLayers))]
-    }
-
-    let finalCategory = category.trim() || 'Geral'
-    if (isCreatingNewCategory && newCategoryName.trim()) {
-      finalCategory = newCategoryName.trim()
-      addCategory(finalCategory)
-    }
+  const handleSaveAsset = async () => {
+    let finalFrames: string[] = []
+    let finalFrameLayers: CompositeLayer[][] = []
+    const finalDirFrames: Partial<Record<Direction, string[]>> = {}
+    const finalDirLayers: Partial<Record<Direction, CompositeLayer[][]>> = {}
+    const finalDirDims: Partial<Record<Direction, DirectionalDimension>> = {}
+    const finalDirCollisionsRecord: Partial<Record<Direction, boolean[][]>> = {}
 
     const isFloor = elementType === 'floor'
     const isWall = elementType === 'wall'
@@ -1012,17 +1422,206 @@ export const CustomElementModal: React.FC = () => {
       : collisionGrid.some((row) => row.some((col) => col === true))
     const finalCollisionGrid = isFloor ? [] : collisionGrid
 
+    let finalCategory = category.trim() || 'Geral'
+    if (isCreatingNewCategory && newCategoryName.trim()) {
+      finalCategory = newCategoryName.trim()
+      addCategory(finalCategory)
+    }
+
+    if (elementType === 'furniture') {
+      const directions: Direction[] = ['down', 'left', 'up', 'right']
+
+      // Collect active direction board layers & frames
+      const currentActiveBoardLayers = JSON.parse(JSON.stringify(compositeLayers))
+      const currentActiveFrameLayers = [...frameLayerStates]
+      const currentActiveFrames = [...frames]
+
+      const allDirLayers: Record<Direction, CompositeLayer[][]> = {
+        ...directionalFrameLayers,
+        [activeDirection]:
+          currentActiveFrameLayers.length > 0
+            ? currentActiveFrameLayers
+            : currentActiveBoardLayers.length > 0
+            ? [currentActiveBoardLayers]
+            : (directionalFrameLayers[activeDirection] || []),
+      }
+
+      const allDirFramesState: Record<Direction, string[]> = {
+        ...directionalFrames,
+        [activeDirection]: currentActiveFrames,
+      }
+
+      const allDirDims: Record<Direction, { tileWidth: number; tileHeight: number; pixelWidth: number; pixelHeight: number }> = {
+        ...directionalDimensions,
+        [activeDirection]: {
+          tileWidth,
+          tileHeight,
+          pixelWidth: pixelWidth || tileWidth * 32,
+          pixelHeight: pixelHeight || tileHeight * 32,
+        },
+      }
+
+      const allDirCollisions: Partial<Record<Direction, boolean[][]>> = {
+        ...directionalCollisionGrids,
+        [activeDirection]: collisionGrid,
+      }
+
+      // Process each direction
+      for (const d of directions) {
+        const layersList = allDirLayers[d] || []
+        const dim = allDirDims[d] || {
+          tileWidth: 2,
+          tileHeight: 2,
+          pixelWidth: 64,
+          pixelHeight: 64,
+        }
+
+        finalDirDims[d] = {
+          width: dim.tileWidth,
+          height: dim.tileHeight,
+          pixelWidth: dim.pixelWidth,
+          pixelHeight: dim.pixelHeight,
+        }
+
+        if (allDirCollisions[d]) {
+          finalDirCollisionsRecord[d] = allDirCollisions[d]
+        }
+
+        if (layersList.length > 0) {
+          finalDirLayers[d] = layersList
+          const bakedForD: string[] = []
+          for (const frameLayer of layersList) {
+            if (frameLayer.length > 0) {
+              const bUrl = await bakeLayersToDataUrl(
+                dim.pixelWidth,
+                dim.pixelHeight,
+                frameLayer,
+                d === activeDirection ? cachedLayerImages : undefined
+              )
+              if (bUrl) bakedForD.push(bUrl)
+            }
+          }
+          if (bakedForD.length > 0) {
+            finalDirFrames[d] = bakedForD
+          } else if (allDirFramesState[d] && allDirFramesState[d].length > 0) {
+            finalDirFrames[d] = allDirFramesState[d]
+          }
+        } else if (allDirFramesState[d] && allDirFramesState[d].length > 0) {
+          finalDirFrames[d] = allDirFramesState[d]
+        }
+      }
+
+      // Default finalFrames should be the front (down) view, or activeDirection, or any available direction
+      if (finalDirFrames.down && finalDirFrames.down.length > 0) {
+        finalFrames = finalDirFrames.down
+        finalFrameLayers = finalDirLayers.down || []
+      } else if (finalDirFrames[activeDirection] && finalDirFrames[activeDirection]!.length > 0) {
+        finalFrames = finalDirFrames[activeDirection]!
+        finalFrameLayers = finalDirLayers[activeDirection] || []
+      } else {
+        for (const d of directions) {
+          if (finalDirFrames[d] && finalDirFrames[d]!.length > 0) {
+            finalFrames = finalDirFrames[d]!
+            finalFrameLayers = finalDirLayers[d] || []
+            break
+          }
+        }
+      }
+    } else {
+      // Non-furniture (floor, wall, avatar)
+      if (frames.length > 0) {
+        finalFrames = [...frames]
+        finalFrameLayers = [...frameLayerStates]
+      } else if (compositeLayers.length > 0) {
+        const baked = await bakeLayersToDataUrl(
+          compositeBoardWidth,
+          compositeBoardHeight,
+          compositeLayers,
+          cachedLayerImages
+        )
+        if (baked) {
+          finalFrames = [baked]
+          finalFrameLayers = [JSON.parse(JSON.stringify(compositeLayers))]
+        }
+      } else {
+        const processed = getProcessedSelectionCanvas()
+        if (!processed) {
+          alert('Selecione uma área válida da imagem ou adicione camadas na mesa antes de salvar.')
+          return
+        }
+        const targetW = pixelWidth || tileWidth * 32
+        const targetH = pixelHeight || tileHeight * 32
+        const { bakeWidth, bakeHeight, useSmoothing } = calculateHighFidelityBakeScale(
+          targetW,
+          targetH,
+          [{ width: targetW, height: targetH, origWidth: processed.width, origHeight: processed.height }]
+        )
+        const scaled = resizeImageToTarget(processed, bakeWidth, bakeHeight, {
+          fitMode: scaleFitMode,
+          align: 'bottom',
+          smooth: useSmoothing,
+        })
+        finalFrames = [scaled.toDataURL('image/png')]
+        finalFrameLayers = [
+          [
+            {
+              id: `layer_${Date.now()}`,
+              clipId: `clip_${Date.now()}`,
+              name: elementName.trim() || 'Camada Base',
+              dataUrl: finalFrames[0],
+              x: 0,
+              y: 0,
+              width: targetW,
+              height: targetH,
+              origWidth: processed.width,
+              origHeight: processed.height,
+              flipH: false,
+              opacity: 1,
+            },
+          ],
+        ]
+      }
+    }
+
+    if (finalFrames.length === 0) {
+      alert('Não foi possível gerar a imagem do elemento. Certifique-se de adicionar peças ou desenhar na mesa.')
+      return
+    }
+
+    const baseWidth = elementType === 'furniture' && finalDirDims.down ? finalDirDims.down.width : tileWidth
+    const baseHeight = elementType === 'furniture' && finalDirDims.down ? finalDirDims.down.height : tileHeight
+    const basePixelWidth = elementType === 'furniture' && finalDirDims.down ? (finalDirDims.down.pixelWidth || finalDirDims.down.width * 32) : (pixelWidth || tileWidth * 32)
+    const basePixelHeight = elementType === 'furniture' && finalDirDims.down ? (finalDirDims.down.pixelHeight || finalDirDims.down.height * 32) : (pixelHeight || tileHeight * 32)
+
     if (editingAssetId) {
       updateCustomAsset(editingAssetId, {
         name: elementName.trim() || 'Elemento Customizado',
         type: elementType,
         category: finalCategory,
-        width: tileWidth,
-        height: tileHeight,
+        width: baseWidth,
+        height: baseHeight,
+        pixelWidth: basePixelWidth,
+        pixelHeight: basePixelHeight,
         isObstacle: finalIsObstacle,
         collisionGrid: finalCollisionGrid,
         frames: finalFrames,
         frameLayers: finalFrameLayers,
+        directionalFrames:
+          elementType === 'furniture' && Object.keys(finalDirFrames).length > 0
+            ? finalDirFrames
+            : undefined,
+        directionalFrameLayers:
+          elementType === 'furniture' && Object.keys(finalDirLayers).length > 0
+            ? finalDirLayers
+            : undefined,
+        directionalDimensions:
+          elementType === 'furniture' && Object.keys(finalDirDims).length > 0
+            ? finalDirDims
+            : undefined,
+        directionalCollisionGrids:
+          elementType === 'furniture' && Object.keys(finalDirCollisionsRecord).length > 0
+            ? finalDirCollisionsRecord
+            : undefined,
         frameRateMs,
       })
 
@@ -1053,12 +1652,30 @@ export const CustomElementModal: React.FC = () => {
       name: elementName.trim() || (elementType === 'avatar' ? 'Skin de Avatar' : 'Elemento Customizado'),
       type: elementType,
       category: finalCategory,
-      width: tileWidth,
-      height: tileHeight,
+      width: baseWidth,
+      height: baseHeight,
+      pixelWidth: basePixelWidth,
+      pixelHeight: basePixelHeight,
       isObstacle: finalIsObstacle,
       collisionGrid: finalCollisionGrid,
       frames: finalFrames,
       frameLayers: finalFrameLayers,
+      directionalFrames:
+        elementType === 'furniture' && Object.keys(finalDirFrames).length > 0
+          ? finalDirFrames
+          : undefined,
+      directionalFrameLayers:
+        elementType === 'furniture' && Object.keys(finalDirLayers).length > 0
+          ? finalDirLayers
+          : undefined,
+      directionalDimensions:
+        elementType === 'furniture' && Object.keys(finalDirDims).length > 0
+          ? finalDirDims
+          : undefined,
+      directionalCollisionGrids:
+        elementType === 'furniture' && Object.keys(finalDirCollisionsRecord).length > 0
+          ? finalDirCollisionsRecord
+          : undefined,
       frameRateMs,
       iconColor: elementType === 'avatar' ? '#8b5cf6' : isFloor ? '#20c997' : isWall ? '#f59f00' : '#e03131',
       createdAt: Date.now(),
@@ -1166,12 +1783,20 @@ export const CustomElementModal: React.FC = () => {
                 onCanvasMouseMove={handleCanvasMouseMove}
                 onCanvasMouseUp={handleCanvasMouseUp}
                 onCropAndSaveClip={handleSaveCurrentCropToLibrary}
+                tileWidth={tileWidth}
+                tileHeight={tileHeight}
+                pixelWidth={pixelWidth}
+                pixelHeight={pixelHeight}
+                onSetBoardSizeInTiles={setBoardSizeInTiles}
+                scaleFitMode={scaleFitMode}
               />
             ) : (
               <CompositionStudio
                 elementType={elementType}
                 tileWidth={tileWidth}
                 tileHeight={tileHeight}
+                pixelWidth={pixelWidth}
+                pixelHeight={pixelHeight}
                 setBoardSizeInTiles={setBoardSizeInTiles}
                 composeCanvasRef={composeCanvasRef}
                 composeTool={composeTool}
@@ -1183,9 +1808,21 @@ export const CustomElementModal: React.FC = () => {
                 collisionGrid={collisionGrid}
                 onSetAllCollision={handleSetAllCollision}
                 onSetBottomHalfCollision={handleSetBottomHalfCollision}
+                onFitLayersToBoard={handleFitLayersToBoard}
                 onComposeMouseDown={handleComposeCanvasMouseDown}
                 onComposeMouseMove={handleComposeCanvasMouseMove}
                 onComposeMouseUp={handleComposeCanvasMouseUp}
+                activeDirection={activeDirection}
+                onSelectDirection={handleSelectDirection}
+                directionalFramesCount={{
+                  down: (directionalFrames.down?.length || 0) + (activeDirection === 'down' && frames.length === 0 && compositeLayers.length > 0 ? 1 : 0),
+                  left: (directionalFrames.left?.length || 0) + (activeDirection === 'left' && frames.length === 0 && compositeLayers.length > 0 ? 1 : 0),
+                  up: (directionalFrames.up?.length || 0) + (activeDirection === 'up' && frames.length === 0 && compositeLayers.length > 0 ? 1 : 0),
+                  right: (directionalFrames.right?.length || 0) + (activeDirection === 'right' && frames.length === 0 && compositeLayers.length > 0 ? 1 : 0),
+                }}
+                directionalDimensions={directionalDimensions}
+                onCopyFromDownDirection={handleCopyFromDownDirection}
+                onAutoMirrorLeftRight={handleAutoMirrorLeftRight}
               />
             )}
           </div>
@@ -1213,6 +1850,15 @@ export const CustomElementModal: React.FC = () => {
                   setNewCategoryName('')
                 }
               }}
+              tileWidth={tileWidth}
+              tileHeight={tileHeight}
+              onSetBoardSizeInTiles={setBoardSizeInTiles}
+              pixelWidth={pixelWidth}
+              pixelHeight={pixelHeight}
+              onSetPixelSize={setPixelSize}
+              scaleFitMode={scaleFitMode}
+              setScaleFitMode={setScaleFitMode}
+              selection={selection}
             />
 
             {/* Transparency Controls */}
@@ -1247,6 +1893,7 @@ export const CustomElementModal: React.FC = () => {
                 onDeleteLayer={handleDeleteLayer}
                 onMoveLayerOrder={handleMoveLayerOrder}
                 onChangeLayerOpacity={handleChangeLayerOpacity}
+                onFitLayersToBoard={handleFitLayersToBoard}
               />
             )}
 

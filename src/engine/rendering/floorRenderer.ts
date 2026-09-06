@@ -26,6 +26,11 @@ export class FloorRenderer {
       const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
       const img = getCustomAssetImage(customAsset.frames[frameIdx])
       if (img && img.complete && img.naturalWidth > 0) {
+        const isDownscaling = img.naturalWidth > s * 1.2 || img.naturalHeight > s * 1.2
+        ctx.imageSmoothingEnabled = isDownscaling
+        if (isDownscaling) {
+          ctx.imageSmoothingQuality = 'high'
+        }
         ctx.drawImage(img, px, py, s, s)
       } else {
         ctx.fillStyle = customAsset.iconColor || '#4c6ef5'

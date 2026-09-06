@@ -460,7 +460,8 @@ describe('Video Delivery & Screen Share Guarantee Tests', () => {
       const replaceSpy = vi.spyOn(PeerManager.getInstance(), 'replaceAudioTrack')
 
       const stream = await MediaManager.getInstance().startScreenShare({
-        includeAudio: true,
+        // Legacy callers cannot disable the mandatory source-only policy.
+        includeAudio: false,
         mixMicrophone: false,
         resolution: '720p',
         fps: 30,
@@ -470,12 +471,53 @@ describe('Video Delivery & Screen Share Guarantee Tests', () => {
       // The RAW screen track goes straight to peers — no mix, no ducking.
       expect(replaceSpy).toHaveBeenCalledWith(screenAudioTrack)
       expect(screenAudioTrack.enabled).toBe(true)
+      expect(navigator.mediaDevices.getDisplayMedia).toHaveBeenCalledWith(
+        expect.objectContaining({
+          systemAudio: 'exclude',
+          windowAudio: 'window',
+        })
+      )
       expect(useMediaStore.getState().isScreenSharing).toBe(true)
 
       MediaManager.getInstance().stopScreenShare()
       // Mic restored after sharing stops.
       expect(replaceSpy).toHaveBeenLastCalledWith(micTrack)
       expect(useMediaStore.getState().isScreenSharing).toBe(false)
+    } finally {
+      if (prevWindow === undefined) delete (globalThis as any).window
+      else (globalThis as any).window = prevWindow
+    }
+  })
+
+  it('Electron screen sharing never falls back to system audio and keeps the microphone active', async () => {
+    const prevWindow = (globalThis as any).window
+    const setScreenSource = vi.fn(async () => true)
+    ;(globalThis as any).window = { electronAPI: { setScreenSource } }
+    try {
+      const screenVideoTrack: any = { id: 'screen-video-only', kind: 'video', enabled: false, stop: vi.fn(), onended: null }
+      const screenStream = new MockMediaStream([screenVideoTrack])
+      ;(navigator.mediaDevices.getDisplayMedia as any).mockImplementationOnce(async () => screenStream)
+
+      const micTrack: any = { id: 'mic-to-mute', kind: 'audio', enabled: true, stop: vi.fn() }
+      const localStream = new MockMediaStream([micTrack])
+      useMediaStore.getState().setLocalStream(localStream as unknown as MediaStream)
+      const replaceSpy = vi.spyOn(PeerManager.getInstance(), 'replaceAudioTrack')
+
+      await MediaManager.getInstance().startScreenShare({
+        sourceId: 'window:4242:0',
+        includeAudio: true,
+      })
+
+      expect(setScreenSource).toHaveBeenCalledWith('window:4242:0', true)
+      expect(navigator.mediaDevices.getDisplayMedia).toHaveBeenCalledWith(
+        expect.objectContaining({ audio: false })
+      )
+      expect(micTrack.enabled).toBe(true)
+      expect(replaceSpy).not.toHaveBeenCalled()
+
+      MediaManager.getInstance().stopScreenShare()
+      expect(micTrack.enabled).toBe(true)
+      expect(replaceSpy).toHaveBeenLastCalledWith(micTrack)
     } finally {
       if (prevWindow === undefined) delete (globalThis as any).window
       else (globalThis as any).window = prevWindow

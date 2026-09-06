@@ -1,4 +1,3 @@
-import React from 'react'
 import {
   Layers,
   FlipHorizontal,
@@ -6,6 +5,7 @@ import {
   Trash2,
   ArrowUp,
   ArrowDown,
+  Maximize2,
 } from 'lucide-react'
 import { CompositeLayer } from './CompositionStudio'
 
@@ -18,6 +18,7 @@ interface Props {
   onDeleteLayer: (id: string) => void
   onMoveLayerOrder: (idx: number, direction: 'up' | 'down') => void
   onChangeLayerOpacity: (id: string, opacity: number) => void
+  onFitLayersToBoard?: () => void
 }
 
 export const LayerManager: React.FC<Props> = ({
@@ -29,6 +30,7 @@ export const LayerManager: React.FC<Props> = ({
   onDeleteLayer,
   onMoveLayerOrder,
   onChangeLayerOpacity,
+  onFitLayersToBoard,
 }) => {
   return (
     <div className="bg-[#18191c] rounded-2xl p-4 border border-[#2b2d31] space-y-3">
@@ -39,8 +41,19 @@ export const LayerManager: React.FC<Props> = ({
             Camadas do Quadro ({compositeLayers.length})
           </span>
         </div>
-        <span className="text-[10px] text-slate-400">Ordem de renderização</span>
+        {compositeLayers.length > 0 && onFitLayersToBoard && (
+          <button
+            type="button"
+            onClick={onFitLayersToBoard}
+            className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 px-2 py-0.5 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center gap-1 transition-colors"
+            title="Ajustar todas as camadas proporcionalmente ao tamanho atual da mesa"
+          >
+            <Maximize2 className="w-3 h-3" />
+            <span>Ajustar à Mesa</span>
+          </button>
+        )}
       </div>
+
 
       {compositeLayers.length === 0 ? (
         <div className="text-center py-6 border border-dashed border-[#2b2d31] rounded-xl p-3 space-y-1">

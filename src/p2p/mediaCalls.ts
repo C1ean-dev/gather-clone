@@ -183,7 +183,15 @@ export class MediaCallHandler {
 
     if (isSharing && screenStream && screenStream.getVideoTracks()[0]) {
       const combined = new MediaStream()
-      if (localStream) {
+      // During a live, the marked track already contains exactly two allowed
+      // inputs: the isolated shared-app audio and the normal microphone. Do
+      // not add the raw display track or the mic a second time.
+      const liveAudioTrack = screenStream.getAudioTracks().find(
+        (track) => (track as any).__screenShareLiveAudio === true
+      )
+      if (liveAudioTrack) {
+        combined.addTrack(liveAudioTrack)
+      } else if (localStream) {
         localStream.getAudioTracks().forEach((t) => combined.addTrack(t))
       }
       screenStream.getVideoTracks().forEach((t) => combined.addTrack(t))
@@ -666,7 +674,12 @@ export class MediaCallHandler {
 
     if (isSharing && screenStream && screenStream.getVideoTracks()[0]) {
       const combined = new MediaStream()
-      if (localStream) {
+      const liveAudioTrack = screenStream.getAudioTracks().find(
+        (track) => (track as any).__screenShareLiveAudio === true
+      )
+      if (liveAudioTrack) {
+        combined.addTrack(liveAudioTrack)
+      } else if (localStream) {
         localStream.getAudioTracks().forEach((t) => combined.addTrack(t))
       }
       screenStream.getVideoTracks().forEach((t) => combined.addTrack(t))
