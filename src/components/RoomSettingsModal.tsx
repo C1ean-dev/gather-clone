@@ -29,7 +29,7 @@ interface Props {
 
 export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose, initialTab }) => {
   const { localPlayer, remotePlayers } = useGameStore()
-  const { updateZone } = useMapStore()
+  const { updateZone, toggleZoneLock } = useMapStore()
 
   const [activeTab, setActiveTab] = useState<'general' | 'permissions'>(initialTab || 'general')
 
@@ -98,11 +98,26 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose, init
   }
 
   const handleSave = () => {
+    // Locking from this settings panel must use the same occupant snapshot as
+    // the call controls. Otherwise a room locked here would omit everyone
+    // already inside and immediately block them on their next transition.
+    const liveZone = useMapStore.getState().mapData.zones.find((z) => z.id === zone.id)
+    if (liveZone && isLocked !== !!liveZone.isLocked) {
+      toggleZoneLock(zone.id)
+    }
+    const lockedZone = useMapStore.getState().mapData.zones.find((z) => z.id === zone.id)
+
+    const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)))
+    const effectiveAdmins = unique([...(lockedZone?.admins || []), ...admins])
+    const effectiveMembers = unique([...(lockedZone?.members || []), ...members]).filter(
+      (member) => !effectiveAdmins.includes(member)
+    )
+
     // Keep authorizedPeers synchronized with members & admins
-    const currentAuthorized = zone.authorizedPeers || []
+    const currentAuthorized = lockedZone?.authorizedPeers || zone.authorizedPeers || []
     const updatedAuthorized = currentAuthorized.filter((p) => {
       if (zone.members?.includes(p) || zone.admins?.includes(p)) {
-        return members.includes(p) || admins.includes(p)
+        return effectiveMembers.includes(p) || effectiveAdmins.includes(p)
       }
       return true
     })
@@ -114,8 +129,8 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose, init
       description: description.trim() || undefined,
       isLocked,
       allowKnock,
-      admins,
-      members,
+      admins: effectiveAdmins,
+      members: effectiveMembers,
       authorizedPeers: updatedAuthorized,
     }
 

@@ -482,8 +482,54 @@ export const useMapStore = create<MapStore>((set, get) => ({
       const zone = state.mapData.zones.find((z) => z.id === id)
       if (!zone) return state
       nextLocked = !zone.isLocked
+
+      // A lock is a snapshot of the people who are already in the room.
+      // Keep both stable profile IDs and names: connection IDs can change
+      // after a reconnect, while older maps may only have names persisted.
+      const { localPlayer, remotePlayers } = useGameStore.getState()
+      const occupants = [localPlayer, ...Object.values(remotePlayers)].filter(
+        (player) => player.id === localPlayer.id || player.currentZoneId === id
+      )
+
+      const authorizedPeers = [...(zone.authorizedPeers || [])]
+      const members = [...(zone.members || [])]
+      const admins = [...(zone.admins || [])]
+      const addUnique = (list: string[], value?: string | null) => {
+        const normalized = value?.trim()
+        if (normalized && !list.includes(normalized)) list.push(normalized)
+      }
+
+      if (nextLocked) {
+        occupants.forEach((player) => {
+          addUnique(authorizedPeers, player.id)
+          addUnique(authorizedPeers, player.gameId)
+          addUnique(authorizedPeers, player.name)
+          addUnique(members, player.name)
+        })
+
+        // The room/session owner and users explicitly assigned the admin role
+        // remain allowed even when they are not part of the occupant snapshot.
+        if (
+          localPlayer.isOwner ||
+          localPlayer.role === 'owner' ||
+          localPlayer.role === 'admin' ||
+          localPlayer.role === 'host'
+        ) {
+          addUnique(admins, localPlayer.id)
+          addUnique(admins, localPlayer.name)
+        }
+      }
+
       const updatedZones = state.mapData.zones.map((z) =>
-        z.id === id ? { ...z, isLocked: nextLocked } : z
+        z.id === id
+          ? {
+              ...z,
+              isLocked: nextLocked,
+              ...(nextLocked
+                ? { authorizedPeers, members, admins }
+                : {}),
+            }
+          : z
       )
       const updatedMap = {
         ...state.mapData,
@@ -547,6 +593,18 @@ export const useMapStore = create<MapStore>((set, get) => ({
     }
     if (zone.admins && zone.admins.includes(peerId)) return true
     if (zone.members && zone.members.includes(peerId)) return true
+
+    // The global room owner/admin must never be locked out by an incomplete
+    // or legacy zone permission list. This is intentionally limited to the
+    // local identity being checked, not arbitrary remote IDs.
+    const local = useGameStore.getState().localPlayer
+    const isLocalAdmin =
+      peerId === local.id &&
+      (local.isOwner ||
+        local.role === 'owner' ||
+        local.role === 'admin' ||
+        local.role === 'host')
+    if (isLocalAdmin) return true
 
     return false
   },

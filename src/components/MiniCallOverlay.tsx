@@ -44,6 +44,7 @@ interface VideoTileProps {
   callState?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'
   onRetryCall?: () => void
   onClick?: () => void
+  suppressAudio?: boolean
 }
 
 const VideoTile: React.FC<VideoTileProps> = ({
@@ -58,6 +59,7 @@ const VideoTile: React.FC<VideoTileProps> = ({
   callState,
   onRetryCall,
   onClick,
+  suppressAudio = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   // Granular selectors — whole-store here re-rendered every tile on each
@@ -74,14 +76,15 @@ const VideoTile: React.FC<VideoTileProps> = ({
 
     // Imperative muted — the muted={} JSX prop alone does not mute in
     // Chromium (attribute vs IDL property), leaking a delayed local echo.
-    video.muted = !!isLocal
+    video.muted = !!isLocal || suppressAudio
     // Shared attach with play-failure recovery. See attachVideoElement.ts.
     return attachStreamToVideo(video, stream, {
       tile: 'mini',
       peer: name,
       isLocal: !!isLocal,
+      muted: !!isLocal || suppressAudio,
     })
-  }, [stream, isLocal])
+  }, [stream, isLocal, suppressAudio])
 
   useEffect(() => {
     if (videoRef.current && !isLocal) {
@@ -110,7 +113,7 @@ const VideoTile: React.FC<VideoTileProps> = ({
         ref={videoRef}
         autoPlay
         playsInline
-        muted={isLocal} // Avoid local echo
+        muted={isLocal || suppressAudio} // Avoid local echo and duplicate audio while the grid is open
         onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
         onCanPlay={() => videoRef.current?.play().catch(() => {})}
         className={`w-full h-full ${isScreenTrack ? 'object-contain bg-black' : 'object-cover'} ${
@@ -229,6 +232,7 @@ interface FloatingScreenPreviewProps {
   presenterId?: string
   presenterName: string
   isLocal: boolean
+  suppressAudio?: boolean
   onExpand: () => void
   onClose: () => void
 }
@@ -238,6 +242,7 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
   presenterId,
   presenterName,
   isLocal,
+  suppressAudio = false,
   onExpand,
   onClose,
 }) => {
@@ -273,14 +278,15 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
     // Imperative muted — same Chromium attribute-vs-property gotcha as
     // VideoTile; a local screen preview left unmuted echoes mic+system
     // audio back with DSP latency.
-    video.muted = !!isLocal
+    video.muted = !!isLocal || suppressAudio
     // Shared attach with play-failure recovery. See attachVideoElement.ts.
     return attachStreamToVideo(video, stream, {
       tile: 'mini-pip',
       peer: presenterName,
       isLocal: !!isLocal,
+      muted: !!isLocal || suppressAudio,
     })
-  }, [stream, isLocal])
+  }, [stream, isLocal, suppressAudio])
 
   useEffect(() => {
     if (videoRef.current && !isLocal) {
@@ -369,7 +375,7 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
           ref={videoRef}
           autoPlay
           playsInline
-          muted={isLocal}
+          muted={isLocal || suppressAudio}
           onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
           onCanPlay={() => videoRef.current?.play().catch(() => {})}
           className="w-full h-full object-contain bg-black"
@@ -395,11 +401,18 @@ const FloatingScreenPreview: React.FC<FloatingScreenPreviewProps> = ({
 export const MiniCallOverlay: React.FC = () => {
   const currentZoneId = useGameStore((s) => s.localPlayer.currentZoneId)
   const isGridCallOpen = useMediaStore((s) => s.isGridCallOpen)
-  if (!currentZoneId || isGridCallOpen) return null
-  return <MiniCallOverlayInner />
+  if (!currentZoneId) return null
+  return (
+    <div
+      className={isGridCallOpen ? 'invisible pointer-events-none' : ''}
+      aria-hidden={isGridCallOpen}
+    >
+      <MiniCallOverlayInner suppressAudio={isGridCallOpen} />
+    </div>
+  )
 }
 
-const MiniCallOverlayInner: React.FC = () => {
+const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressAudio = false }) => {
   // Granular selectors — the VU level ticks at ~10Hz; subscribe narrowly so
   // the overlay doesn't re-render on unrelated media slices.
   const localStream = useMediaStore((s) => s.localStream)
@@ -492,6 +505,7 @@ const MiniCallOverlayInner: React.FC = () => {
             presenterId={presenterId}
             presenterName={presenterName}
             isLocal={isPresenterLocal}
+            suppressAudio={suppressAudio}
             onExpand={() => setGridCallOpen(true)}
             onClose={() => setIsFloatingPreviewVisible(false)}
           />
@@ -560,6 +574,7 @@ const MiniCallOverlayInner: React.FC = () => {
               isCameraOff={isCameraOff}
               isLocal={true}
               isScreenSharing={false}
+              suppressAudio={suppressAudio}
               color={localPlayer.avatar.shirtColor}
               onClick={() => setGridCallOpen(true)}
             />
@@ -572,6 +587,7 @@ const MiniCallOverlayInner: React.FC = () => {
                 isLocal={true}
                 isScreenSharing={true}
                 isScreenTrack={true}
+                suppressAudio={suppressAudio}
                 onClick={() => setGridCallOpen(true)}
               />
             )}
@@ -587,6 +603,7 @@ const MiniCallOverlayInner: React.FC = () => {
                 isLocal={false}
                 isScreenSharing={peer.isScreenSharing}
                 isScreenTrack={peer.isScreenSharing}
+                suppressAudio={suppressAudio}
                 color={peer.avatar.shirtColor}
                 callState={callStates[peer.id] || peer.callState || 'idle'}
                 onRetryCall={() => PeerManager.getInstance().retryZoneCall(peer.id)}

@@ -1009,10 +1009,19 @@ export class PeerManager {
    */
   public sendRoomLockToggle(zoneId: string, isLocked: boolean) {
     const senderId = this.peer ? this.peer.id : useGameStore.getState().localPlayer.id
+    const zone = useMapStore.getState().mapData.zones.find((candidate) => candidate.id === zoneId)
     const msg: NetworkMessage = {
       type: 'ROOM_LOCK_TOGGLE',
       senderId,
-      payload: { zoneId, isLocked },
+      payload: {
+        zoneId,
+        isLocked,
+        // Send the permission snapshot with the lock state so peers cannot
+        // see the room as locked while missing the members who were inside.
+        authorizedPeers: zone?.authorizedPeers || [],
+        members: zone?.members || [],
+        admins: zone?.admins || [],
+      },
       timestamp: Date.now(),
     }
     this.broadcast(msg)

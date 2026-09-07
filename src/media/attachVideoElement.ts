@@ -4,6 +4,8 @@ export interface AttachCtx {
   tile: string
   peer: string
   isLocal?: boolean
+  /** Override playback muting when more than one view is mounted. */
+  muted?: boolean
   isLive?: boolean
 }
 
@@ -34,7 +36,7 @@ export function attachStreamToVideo(
   // React's `muted` attribute can lag a stream replacement; explicitly
   // unmuting remote streams prevents an intermittent silent call tile.
   try {
-    video.muted = !!ctx.isLocal
+    video.muted = ctx.muted !== undefined ? ctx.muted : !!ctx.isLocal
   } catch {}
   if (changed) {
     video.srcObject = stream
@@ -58,7 +60,14 @@ export function attachStreamToVideo(
       ;(p as Promise<void>).then(
         () => {
           if (video.srcObject === stream) {
-            diagLog('tile', 'play-ok', { tile: ctx.tile, peer: ctx.peer, via })
+            diagLog('tile', 'play-ok', {
+              tile: ctx.tile,
+              peer: ctx.peer,
+              via,
+              paused: video.paused,
+              muted: video.muted,
+              volume: video.volume,
+            })
           }
         },
         (err) => {

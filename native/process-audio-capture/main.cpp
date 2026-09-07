@@ -241,8 +241,23 @@ std::unique_ptr<ProcessSession> CreateProcessSession(DWORD pid, const WAVEFORMAT
 struct WindowScanContext {
   HMONITOR targetMonitor;
   DWORD selfPid;
+  RECT targetBounds;
   std::set<DWORD> pidsOnScreen;
 };
+
+std::wstring GetProcessDisplayName(DWORD processId) {
+  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+  if (!process) return L"<unavailable>";
+
+  wchar_t path[32768] = {};
+  DWORD pathLength = static_cast<DWORD>(_countof(path));
+  const BOOL resolved = QueryFullProcessImageNameW(process, 0, path, &pathLength);
+  CloseHandle(process);
+  if (!resolved || pathLength == 0) return L"<unavailable>";
+
+  const wchar_t* name = wcsrchr(path, L'\\');
+  return name ? std::wstring(name + 1) : std::wstring(path, pathLength);
+}
 
 BOOL CALLBACK ScanWindowsProc(HWND hwnd, LPARAM lParam) {
   auto* ctx = reinterpret_cast<WindowScanContext*>(lParam);
@@ -255,8 +270,14 @@ BOOL CALLBACK ScanWindowsProc(HWND hwnd, LPARAM lParam) {
   RECT rc = {};
   if (!GetWindowRect(hwnd, &rc) || (rc.right - rc.left <= 20) || (rc.bottom - rc.top <= 20)) return TRUE;
 
-  HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-  if (mon == ctx->targetMonitor) {
+  // MonitorFromWindow(..., MONITOR_DEFAULTTONEAREST) assigns a window that
+  // spans two displays to whichever display contains its center. That drops
+  // audio from a browser/game window that overlaps the selected display but
+  // has its center on another one. Use the actual monitor rectangle instead.
+  const RECT& monitor = ctx->targetBounds;
+  const bool intersectsMonitor = rc.left < monitor.right && rc.right > monitor.left &&
+                                 rc.top < monitor.bottom && rc.bottom > monitor.top;
+  if (intersectsMonitor) {
     DWORD pid = 0;
     GetWindowThreadProcessId(hwnd, &pid);
     if (pid != 0 && pid != ctx->selfPid) {
@@ -267,7 +288,13 @@ BOOL CALLBACK ScanWindowsProc(HWND hwnd, LPARAM lParam) {
 }
 
 std::set<DWORD> ScanProcessesOnMonitor(HMONITOR targetMonitor, DWORD selfPid) {
-  WindowScanContext ctx{targetMonitor, selfPid, {}};
+  MONITORINFO monitorInfo = {sizeof(monitorInfo)};
+  if (!targetMonitor || !GetMonitorInfoW(targetMonitor, &monitorInfo)) {
+    std::wcerr << L"[process-audio-capture] Could not resolve selected monitor bounds.\n";
+    return {};
+  }
+
+  WindowScanContext ctx{targetMonitor, selfPid, monitorInfo.rcMonitor, {}};
   HDESK desk = OpenInputDesktop(0, FALSE, GENERIC_ALL);
   if (desk) {
     EnumDesktopWindows(desk, ScanWindowsProc, reinterpret_cast<LPARAM>(&ctx));
@@ -371,6 +398,13 @@ int RunScreenCapture(int left, int top, int width, int height) {
   std::set<DWORD> lastDesiredPids;
 
   std::wcerr << L"[process-audio-capture] READY\n";
+  MONITORINFO monitorInfo = {sizeof(monitorInfo)};
+  if (GetMonitorInfoW(targetMonitor, &monitorInfo)) {
+    std::wcerr << L"[process-audio-capture] MONITOR_TARGET left=" << monitorInfo.rcMonitor.left
+               << L" top=" << monitorInfo.rcMonitor.top
+               << L" right=" << monitorInfo.rcMonitor.right
+               << L" bottom=" << monitorInfo.rcMonitor.bottom << L"\n";
+  }
   std::wcerr.flush();
 
   HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -396,7 +430,11 @@ int RunScreenCapture(int left, int top, int width, int height) {
       scanCount++;
       if (desiredPids != lastDesiredPids) {
         std::wcerr << L"[process-audio-capture] MONITOR_SCAN count=" << scanCount
-                   << L" desiredProcesses=" << desiredPids.size() << L"\n";
+                   << L" desiredProcesses=" << desiredPids.size();
+        for (const DWORD pid : desiredPids) {
+          std::wcerr << L" [pid=" << pid << L" name=" << GetProcessDisplayName(pid) << L"]";
+        }
+        std::wcerr << L"\n";
         lastDesiredPids = desiredPids;
       }
 
@@ -419,10 +457,13 @@ int RunScreenCapture(int left, int top, int width, int height) {
           if (session) {
             sessions[pid] = std::move(session);
             failedSessions.erase(pid);
-            std::wcerr << L"[process-audio-capture] SESSION_ADD pid=" << pid << L"\n";
+            std::wcerr << L"[process-audio-capture] SESSION_ADD pid=" << pid
+                       << L" name=" << GetProcessDisplayName(pid) << L"\n";
           } else if (failedSessions.find(pid) == failedSessions.end() || failedSessions[pid] != sessionError) {
             failedSessions[pid] = sessionError;
-            std::wcerr << L"[process-audio-capture] SESSION_SKIP pid=" << pid << L" hr=0x" << std::hex << sessionError << std::dec << L"\n";
+            std::wcerr << L"[process-audio-capture] SESSION_SKIP pid=" << pid
+                       << L" name=" << GetProcessDisplayName(pid)
+                       << L" hr=0x" << std::hex << sessionError << std::dec << L"\n";
           }
         }
       }

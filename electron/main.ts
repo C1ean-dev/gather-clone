@@ -125,16 +125,22 @@ async function resolveScreenBounds(sourceId: string): Promise<{ x: number; y: nu
     const byId = displays.find((d) => String(d.id) === candidateId)
     if (byId) return byId.bounds
 
+    // `screen:<id>:<index>` normally carries Electron's display id, but on
+    // some Windows/Electron combinations the id is an ordinal-like value.
+    // Resolve the exact DesktopCapturerSource first so we do not accidentally
+    // associate the selected thumbnail with a different monitor merely
+    // because its numeric value happens to be a valid array index.
+    const sources = await desktopCapturer.getSources({ types: ['screen'], fetchWindowIcons: false })
+    const found = sources.find((s) => s.id === sourceId)
+    const displayId = found && (found as any).display_id
+    if (displayId !== undefined && displayId !== null && String(displayId).length > 0) {
+      const matchedDisplay = displays.find((d) => String(d.id) === String(displayId))
+      if (matchedDisplay) return matchedDisplay.bounds
+    }
+
     const idx = parseInt(candidateId, 10)
     if (!isNaN(idx) && idx >= 0 && idx < displays.length) {
       return displays[idx].bounds
-    }
-
-    const sources = await desktopCapturer.getSources({ types: ['screen'], fetchWindowIcons: false })
-    const found = sources.find((s) => s.id === sourceId)
-    if (found && (found as any).display_id) {
-      const match = displays.find((d) => String(d.id) === (found as any).display_id)
-      if (match) return match.bounds
     }
 
     return screen.getPrimaryDisplay().bounds
@@ -298,6 +304,13 @@ if (isMultiInstance) {
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('enable-accelerated-video-decode')
+// Remote call audio is rendered by the video elements created as soon as a
+// MediaStream arrives. Chromium's default autoplay policy can leave those
+// elements paused until the user clicks the grid/participant tile, which made
+// a connected participant appear silent until "Expandir chamada" was used.
+// The desktop client is the trusted call surface, so allow autoplay of the
+// already-negotiated remote media without coupling playback to the grid UI.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 app.commandLine.appendSwitch('enable-features', 'WebRtcAllowWgcScreenCapturer,WebRtcAllowWgcWindowCapturer,PlatformHEVCDecoderSupport,CanvasOopRasterization')
 
 function createWindow() {

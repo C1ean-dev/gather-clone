@@ -176,8 +176,13 @@ export function processNetworkMessage(
     }
 
     case 'ROOM_LOCK_TOGGLE': {
-      const { zoneId, isLocked } = msg.payload
-      useMapStore.getState().updateZone(zoneId, { isLocked })
+      const { zoneId, isLocked, authorizedPeers, members, admins } = msg.payload
+      useMapStore.getState().updateZone(zoneId, {
+        isLocked,
+        ...(Array.isArray(authorizedPeers) ? { authorizedPeers } : {}),
+        ...(Array.isArray(members) ? { members } : {}),
+        ...(Array.isArray(admins) ? { admins } : {}),
+      })
       break
     }
 

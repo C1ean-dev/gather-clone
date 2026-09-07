@@ -72,6 +72,50 @@ describe('Door Knocking & Room Locking System', () => {
       expect(useMapStore.getState().mapData.zones[0].isLocked).toBe(true)
     })
 
+    it('captures the locker and current occupants as authorized members', () => {
+      useMapStore.setState({
+        mapData: {
+          ...useMapStore.getState().mapData,
+          zones: [{ ...testZone, isLocked: false, admins: ['RoomAdmin'] }],
+        },
+      })
+      useGameStore.setState({
+        localPlayer: {
+          ...useGameStore.getState().localPlayer,
+          id: 'locker-id',
+          name: 'Locker',
+          currentZoneId: 'locked-zone-1',
+        },
+        remotePlayers: {
+          'connection-occupant': {
+            ...useGameStore.getState().localPlayer,
+            id: 'connection-occupant',
+            gameId: 'stable-occupant',
+            name: 'Occupant',
+            currentZoneId: 'locked-zone-1',
+          },
+          'connection-outside': {
+            ...useGameStore.getState().localPlayer,
+            id: 'connection-outside',
+            gameId: 'stable-outside',
+            name: 'Outside',
+            currentZoneId: null,
+          },
+        },
+      })
+
+      expect(useMapStore.getState().toggleZoneLock('locked-zone-1')).toBe(true)
+      const zone = useMapStore.getState().mapData.zones[0]
+
+      expect(zone.members).toEqual(expect.arrayContaining(['Locker', 'Occupant']))
+      expect(zone.members).not.toContain('Outside')
+      expect(zone.authorizedPeers).toEqual(
+        expect.arrayContaining(['locker-id', 'Locker', 'connection-occupant', 'stable-occupant', 'Occupant'])
+      )
+      expect(useMapStore.getState().isPeerAuthorizedForZone('locked-zone-1', 'stable-occupant')).toBe(true)
+      expect(useMapStore.getState().isPeerAuthorizedForZone('locked-zone-1', 'unknown', 'RoomAdmin')).toBe(true)
+    })
+
     it('authorizePeerInZone adds peer to authorizedPeers and members without duplicate', () => {
       const { authorizePeerInZone, isPeerAuthorizedForZone } = useMapStore.getState()
       expect(isPeerAuthorizedForZone('locked-zone-1', 'peer-123', 'Carlos')).toBe(false)
@@ -221,12 +265,20 @@ describe('Door Knocking & Room Locking System', () => {
       const msg: NetworkMessage = {
         type: 'ROOM_LOCK_TOGGLE',
         senderId: 'host-1',
-        payload: { zoneId: 'locked-zone-1', isLocked: false },
+        payload: {
+          zoneId: 'locked-zone-1',
+          isLocked: false,
+          authorizedPeers: ['stable-member'],
+          members: ['Alice'],
+          admins: ['RoomAdmin'],
+        },
         timestamp: Date.now(),
       }
 
       processNetworkMessage(msg, 'host-1', false, () => {}, () => {}, () => {})
       expect(useMapStore.getState().mapData.zones[0].isLocked).toBe(false)
+      expect(useMapStore.getState().mapData.zones[0].members).toEqual(['Alice'])
+      expect(useMapStore.getState().mapData.zones[0].admins).toEqual(['RoomAdmin'])
     })
 
     it('handles ROOM_KNOCK_REQUEST only when local player is inside the room', () => {
@@ -358,4 +410,3 @@ describe('Door Knocking & Room Locking System', () => {
     })
   })
 })
-
