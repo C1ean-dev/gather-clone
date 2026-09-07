@@ -355,6 +355,144 @@ export class MediaCallHandler {
   }
 
   /**
+   * Evaluate the minimum media contract for a call to be considered active.
+   *
+   * ICE/PeerConnection `connected` only says that a transport exists. It does
+   * not guarantee that the negotiated audio send and receive directions are
+   * usable (a missing microphone can leave an empty sender, for example).
+   * Keep this check structural and mute-safe: a muted microphone still has a
+   * live, negotiated track, but an ended/missing track must never be reported
+   * as a connected call. Video is deliberately diagnostic/optional: a user
+   * may have the camera disabled or be in an audio-only call.
+   */
+  static evaluateCallReadiness(
+    pc: RTCPeerConnection | null | undefined,
+    remoteStream: MediaStream | null | undefined
+  ) {
+    const senders = (() => {
+      try {
+        return pc && typeof pc.getSenders === 'function' ? pc.getSenders() : []
+      } catch {
+        return []
+      }
+    })()
+    const receivers = (() => {
+      try {
+        return pc && typeof pc.getReceivers === 'function' ? pc.getReceivers() : []
+      } catch {
+        return []
+      }
+    })()
+    const transceivers = (() => {
+      try {
+        return pc && typeof pc.getTransceivers === 'function' ? pc.getTransceivers() : []
+      } catch {
+        return []
+      }
+    })()
+
+    const isUsableTrack = (track: MediaStreamTrack | null | undefined, kind: 'audio' | 'video') =>
+      !!track && track.kind === kind && track.readyState !== 'ended'
+
+    const senderIsAllowed = (sender: RTCRtpSender | undefined) => {
+      if (!sender) return false
+      const matching = transceivers.find((t: any) => t?.sender === sender)
+      const direction = matching?.currentDirection || matching?.direction
+      return direction !== 'recvonly' && direction !== 'inactive'
+    }
+
+    const receiverIsAllowed = (receiver: RTCRtpReceiver | undefined) => {
+      if (!receiver) return false
+      const matching = transceivers.find((t: any) => t?.receiver === receiver)
+      const direction = matching?.currentDirection || matching?.direction
+      return direction !== 'sendonly' && direction !== 'inactive'
+    }
+
+    const audioSender = senders.find((sender) => isUsableTrack(sender.track, 'audio') && senderIsAllowed(sender))
+    const videoSender = senders.find((sender) => isUsableTrack(sender.track, 'video') && senderIsAllowed(sender))
+    const audioReceiver = receivers.find((receiver) => isUsableTrack(receiver.track, 'audio') && receiverIsAllowed(receiver))
+    const videoReceiver = receivers.find((receiver) => isUsableTrack(receiver.track, 'video') && receiverIsAllowed(receiver))
+
+    const remoteAudio = (() => {
+      try {
+        return !!remoteStream?.getAudioTracks?.().some((track) => isUsableTrack(track, 'audio'))
+      } catch {
+        return false
+      }
+    })()
+    const remoteVideo = (() => {
+      try {
+        return !!remoteStream?.getVideoTracks?.().some((track) => isUsableTrack(track, 'video'))
+      } catch {
+        return false
+      }
+    })()
+
+    const iceState = (pc as any)?.iceConnectionState
+    const connectionState = (pc as any)?.connectionState
+    const signalingState = (pc as any)?.signalingState
+    const transportReady = iceState === 'connected' || iceState === 'completed' || connectionState === 'connected'
+    const signalingReady = signalingState === undefined || signalingState === null || signalingState === 'stable'
+    const sendAudioReady = !!audioSender
+    const sendVideoReady = !!videoSender
+    // The PeerJS `stream` event is the point at which the application can
+    // actually attach/play the remote media. Receiver tracks alone are not
+    // enough, otherwise a connected transport could be promoted while the UI
+    // still has no stream to render. Audio is required; video is optional.
+    // If an audio receiver exists, also reject an explicitly send-only/
+    // inactive direction.
+    const receiveAudioReady = remoteAudio && (!audioReceiver || receiverIsAllowed(audioReceiver))
+    const receiveVideoReady = remoteVideo && (!videoReceiver || receiverIsAllowed(videoReceiver))
+
+    return {
+      ok: transportReady && signalingReady && sendAudioReady && receiveAudioReady,
+      transportReady,
+      signalingReady,
+      sendAudioReady,
+      receiveAudioReady,
+      sendVideoReady,
+      receiveVideoReady,
+      iceState: iceState ?? null,
+      connectionState: connectionState ?? null,
+      signalingState: signalingState ?? null,
+    }
+  }
+
+  /**
+   * Confirm that the browser has created RTP paths for both audio directions.
+   * Counters are intentionally not required to be non-zero: an intentionally
+   * muted microphone can still have a valid outbound RTP report, and the first
+   * report may arrive before its counters advance.
+   */
+  static async evaluateAudioRtpReadiness(pc: RTCPeerConnection | null | undefined) {
+    if (!pc || typeof pc.getStats !== 'function') {
+      // Lightweight test doubles and older WebRTC shims may not expose stats;
+      // the structural track/direction gate remains the fallback there.
+      return { available: false, ready: true, outboundAudio: false, inboundAudio: false }
+    }
+    try {
+      const stats = await pc.getStats()
+      let outboundAudio = false
+      let inboundAudio = false
+      stats.forEach((report: any) => {
+        if (!report) return
+        const kind = report.kind || report.mediaType
+        if (kind !== 'audio') return
+        if (report.type === 'outbound-rtp' && !report.isRemote) outboundAudio = true
+        if (report.type === 'inbound-rtp' && !report.isRemote) inboundAudio = true
+      })
+      return {
+        available: true,
+        ready: outboundAudio && inboundAudio,
+        outboundAudio,
+        inboundAudio,
+      }
+    } catch {
+      return { available: false, ready: true, outboundAudio: false, inboundAudio: false }
+    }
+  }
+
+  /**
    * Check if local player and remote peer are in the same Private Zone and manage MediaCall.
    *
    * The call is dialed WITH the real audio/video stream in a single PeerJS
@@ -370,9 +508,9 @@ export class MediaCallHandler {
    * capped so the uplink never bloats.
    *
    * While the handshake runs, the remote player's `callState` is
-   * 'connecting' so the UI shows a "connecting…" badge; it flips to
-   * 'connected' on ICE-connected or first remote track, and to 'failed' if
-   * ICE definitively fails.
+   * 'connecting' so the UI shows a "connecting…" badge. It only flips to
+   * 'connected' after transport, signaling, and send/receive audio are ready;
+   * video is optional and never blocks an audio call.
    */
   public static readonly callRetryCounts = new Map<string, number>()
   public static readonly callRetryTimers = new Map<string, any>()
@@ -455,6 +593,12 @@ export class MediaCallHandler {
     let isConnected = false
     let iceTimeout: any = null
     let disconnectGraceTimer: any = null
+    let readinessTimeout: any = null
+    let readinessPollTimer: any = null
+    let remoteStream: MediaStream | null = null
+    let lastReadinessSignature = ''
+    let readinessStatsInFlight = false
+    let tryFinalizeReadiness: (reason: string) => void = () => {}
 
     const clearLocalTimers = () => {
       if (iceTimeout) {
@@ -464,6 +608,14 @@ export class MediaCallHandler {
       if (disconnectGraceTimer) {
         clearTimeout(disconnectGraceTimer)
         disconnectGraceTimer = null
+      }
+      if (readinessTimeout) {
+        clearTimeout(readinessTimeout)
+        readinessTimeout = null
+      }
+      if (readinessPollTimer) {
+        clearInterval(readinessPollTimer)
+        readinessPollTimer = null
       }
     }
 
@@ -482,10 +634,76 @@ export class MediaCallHandler {
         })
         MediaCallHandler.logSenderSnapshot(mediaCalls, direction === 'out' ? 'outgoing-connected' : 'incoming-connected')
         if (pc) MediaCallHandler.applyEncoderCaps(pc)
+        // PeerJS can expose an audio sender with no track after glare recovery
+        // or a late microphone initialization. Reconcile it with the current
+        // local microphone as soon as the call is connected so the remote peer
+        // never remains on an empty audio sender.
+        const mediaState = useMediaStore.getState()
+        const screenAudioTrack = mediaState.isScreenSharing
+          ? mediaState.localScreenStream?.getAudioTracks?.().find((track) => (track as any).__screenShareLiveAudio === true)
+          : null
+        const localAudioTrack = screenAudioTrack || mediaState.localStream?.getAudioTracks?.()[0] || null
+        if (localAudioTrack) {
+          MediaCallHandler.replaceAudioTrack(mediaCalls, localAudioTrack, 'connected-reconcile')
+        }
         applyBuffer()
+        // Attach the remote media only after the readiness gate succeeds. A
+        // remote stream event by itself is not enough to make a silent or
+        // half-negotiated call visible as active in the UI.
+        if (remoteStream) useMediaStore.getState().setPeerStream(peerId, remoteStream)
         useGameStore.getState().setCallState(peerId, 'connected')
         onCallConnected?.(peerId)
       }
+    }
+
+    // A transport event alone is not enough: PeerConnection can be connected
+    // while the audio sender is empty or the remote stream has no audio.
+    // Keep this gate as the only path that promotes a call to "connected".
+    tryFinalizeReadiness = (reason: string) => {
+      if (isConnected) return
+      const readiness = MediaCallHandler.evaluateCallReadiness(pc, remoteStream)
+      const signature = JSON.stringify(readiness)
+      if (signature !== lastReadinessSignature) {
+        lastReadinessSignature = signature
+        diagLog('p2p', readiness.ok ? 'call.readiness-ready' : 'call.readiness-pending', {
+          withPeer: peerId,
+          direction,
+          reason,
+          ...readiness,
+        })
+      }
+      if (!readiness.ok || readinessStatsInFlight) return
+
+      // With no stats API (only possible in a compatibility shim/test double)
+      // the structural gate above is the complete contract and can finish
+      // synchronously. Real desktop/browser calls verify that RTP reports for
+      // both audio directions exist before promoting the call.
+      if (!pc || typeof pc.getStats !== 'function') {
+        markConnected(`media-ready:${reason}`)
+        return
+      }
+
+      readinessStatsInFlight = true
+      void MediaCallHandler.evaluateAudioRtpReadiness(pc).then((stats) => {
+        readinessStatsInFlight = false
+        if (isConnected || mediaCalls.get(peerId) !== call) return
+        if (!stats.ready) {
+          diagLog('p2p', 'call.readiness-audio-stats-pending', {
+            withPeer: peerId,
+            direction,
+            reason,
+            ...stats,
+          })
+          return
+        }
+        diagLog('p2p', 'call.readiness-audio-stats-ready', {
+          withPeer: peerId,
+          direction,
+          reason,
+          ...stats,
+        })
+        markConnected(`media-ready:${reason}`)
+      })
     }
 
     const handleCallFailure = (reason: string) => {
@@ -540,7 +758,7 @@ export class MediaCallHandler {
       pc.addEventListener('iceconnectionstatechange', () => {
         const s = pc.iceConnectionState
         if (s === 'connected' || s === 'completed') {
-          markConnected('ice=' + s)
+          tryFinalizeReadiness('ice=' + s)
         } else if (s === 'disconnected') {
           if (isConnected) {
             useGameStore.getState().setCallState(peerId, 'reconnecting')
@@ -561,7 +779,7 @@ export class MediaCallHandler {
       pc.addEventListener('connectionstatechange', () => {
         const s = pc.connectionState
         if (s === 'connected') {
-          markConnected('pc=connected')
+          tryFinalizeReadiness('pc=connected')
         } else if (s === 'failed' || s === 'closed') {
           handleCallFailure('pc=' + s)
         }
@@ -572,25 +790,26 @@ export class MediaCallHandler {
       try {
         const s = pc?.iceConnectionState
         if (s === 'connected' || s === 'completed') {
-          markConnected('late-ice=' + s)
+          tryFinalizeReadiness('late-ice=' + s)
         }
       } catch (e) {}
     }, ICE_CONNECT_TIMEOUT_MS)
 
-    call.on('stream', (remoteStream) => {
+    call.on('stream', (incomingStream) => {
       if (mediaCalls.get(peerId) !== call) {
         diagLog('p2p', 'call.remote-stream-stale', { fromPeer: peerId })
         return
       }
       if (pc?.iceConnectionState !== 'failed' && pc?.connectionState !== 'failed') {
-        markConnected('remote-stream')
+        remoteStream = incomingStream
       }
       applyBuffer()
       diagLog('p2p', 'call.remote-stream', {
         fromPeer: peerId,
-        tracks: summarizeStream(remoteStream),
+        tracks: summarizeStream(incomingStream),
       })
-      useMediaStore.getState().setPeerStream(peerId, remoteStream)
+      MediaCallHandler.logReceiverSnapshot(call, peerId, 'remote-stream')
+      tryFinalizeReadiness('remote-stream')
     })
 
     call.on('close', () => {
@@ -615,6 +834,16 @@ export class MediaCallHandler {
         handleCallFailure('call-error')
       }
     })
+
+    // If any required media direction never appears, do not leave a silent
+    // call stuck in "connecting" forever. The existing recovery path will
+    // tear it down and redial while the peers remain in the same zone.
+    readinessTimeout = setTimeout(() => {
+      if (!isConnected) handleCallFailure('media-readiness-timeout')
+    }, 12000)
+    readinessPollTimer = setInterval(() => {
+      tryFinalizeReadiness('readiness-poll')
+    }, 250)
   }
 
   /**
@@ -661,6 +890,30 @@ export class MediaCallHandler {
     const isSharing = useMediaStore.getState().isScreenSharing
     const screenStream = useMediaStore.getState().localScreenStream
     const isMuted = useMediaStore.getState().isMuted
+    const hasUsableAudio = (track: MediaStreamTrack | undefined) =>
+      !!track && track.kind === 'audio' && track.readyState !== 'ended'
+    const liveScreenAudio = isSharing
+      ? screenStream?.getAudioTracks?.().find((track) => (track as any).__screenShareLiveAudio === true && hasUsableAudio(track))
+      : undefined
+    const localAudioReady = !!localStream?.getAudioTracks?.().some((track) => hasUsableAudio(track)) || !!liveScreenAudio
+
+    // An incoming call must not be answered with a video-only stream. The
+    // caller will close/retry, and MediaManager will re-check eligibility as
+    // soon as microphone/screen audio becomes available.
+    if (!localAudioReady) {
+      useGameStore.getState().setCallState(call.peer, 'reconnecting')
+      diagLog('p2p', 'call.answer-skipped-no-audio', {
+        fromPeer: call.peer,
+        sharing: isSharing,
+        hasLocalStream: !!localStream,
+        localTracks: summarizeStream(localStream),
+        screenTracks: summarizeStream(screenStream),
+      })
+      try {
+        call.close()
+      } catch {}
+      return
+    }
 
     if (localStream) {
       localStream.getAudioTracks().forEach((t) => {
@@ -733,9 +986,21 @@ export class MediaCallHandler {
       localPlayer.currentZoneId === remotePlayer.currentZoneId
 
     const existingCall = mediaCalls.get(remotePlayer.id)
+    const isSharing = useMediaStore.getState().isScreenSharing
+    const screenStream = useMediaStore.getState().localScreenStream
+    const hasUsableAudio = (track: MediaStreamTrack | undefined) =>
+      !!track && track.kind === 'audio' && track.readyState !== 'ended'
+    const hasScreenAudio = !!screenStream?.getAudioTracks?.().some(
+      (track) => isSharing && (track as any).__screenShareLiveAudio === true && hasUsableAudio(track)
+    )
+    const hasAudioTrack = Boolean(localStream?.getAudioTracks?.().some((track) => hasUsableAudio(track)) || hasScreenAudio)
 
     if (inSameZone) {
-      if (!existingCall && peer && localStream) {
+      // Do not establish a video-only call when the microphone is still
+      // initializing or permission failed. PeerJS does not renegotiate a new
+      // audio sender reliably after the call is established, which produces
+      // the intermittent "mic test works but the call is silent" symptom.
+      if (!existingCall && peer && localStream && hasAudioTrack) {
         console.log(`[Zone Call] Dialing ${remotePlayer.name} in zone ${localPlayer.currentZoneId}`)
 
         useGameStore.getState().setCallState(remotePlayer.id, 'connecting')
@@ -778,6 +1043,7 @@ export class MediaCallHandler {
           withPeer: remotePlayer.id,
           hasPeer: !!peer,
           hasLocalStream: !!localStream,
+          hasAudioTrack,
           localTracks: summarizeStream(localStream),
         })
       }
@@ -926,7 +1192,11 @@ export class MediaCallHandler {
   /**
    * Replace active audio track (When mixing system audio with microphone)
    */
-  static replaceAudioTrack(mediaCalls: Map<string, MediaConnection>, newTrack: MediaStreamTrack | null) {
+  static replaceAudioTrack(
+    mediaCalls: Map<string, MediaConnection>,
+    newTrack: MediaStreamTrack | null,
+    reason: string = 'replace'
+  ) {
     diagLog('p2p', 'audio-replace-request', {
       callCount: mediaCalls.size,
       track: newTrack
@@ -936,6 +1206,7 @@ export class MediaCallHandler {
             enabled: newTrack.enabled,
             ready: newTrack.readyState,
             liveAudio: (newTrack as any).__screenShareLiveAudio === true,
+            reason,
           }
         : null,
     })
@@ -944,7 +1215,19 @@ export class MediaCallHandler {
         const pc = (call as any).peerConnection as RTCPeerConnection
         if (pc) {
           const senders = pc.getSenders()
-          const audioSender = senders.find((s) => s.track && s.track.kind === 'audio')
+          let audioSender = senders.find((s) => s.track && s.track.kind === 'audio')
+          // A negotiated sender can temporarily have no track (notably after
+          // call glare/recovery). Match it by sender/transceiver kind instead
+          // of treating the microphone as absent.
+          if (!audioSender) {
+            audioSender = senders.find((s) => (s as any).kind === 'audio')
+          }
+          if (!audioSender && typeof pc.getTransceivers === 'function') {
+            const audioTransceiver = pc.getTransceivers().find((t: any) =>
+              t?.sender && (t.sender.track?.kind === 'audio' || t.receiver?.track?.kind === 'audio' || t.kind === 'audio')
+            )
+            audioSender = audioTransceiver?.sender
+          }
           if (audioSender && newTrack) {
             diagLog('p2p', 'audio-replace-sender-found', {
               toPeer: peerId,
@@ -964,6 +1247,21 @@ export class MediaCallHandler {
               }
             )
           } else {
+            if (newTrack && typeof pc.addTrack === 'function') {
+              try {
+                const localStream = useMediaStore.getState().localStream
+                if (localStream) pc.addTrack(newTrack, localStream)
+                else pc.addTrack(newTrack)
+                diagLog('p2p', 'audio-add-sender', { toPeer: peerId, trackId: shortTrackId(newTrack.id), reason })
+                return
+              } catch (addErr) {
+                diagLog('p2p', 'audio-add-sender-failed', {
+                  toPeer: peerId,
+                  reason,
+                  error: addErr instanceof Error ? `${addErr.name}: ${addErr.message}` : String(addErr),
+                })
+              }
+            }
             diagLog('p2p', 'audio-replace-no-sender', {
               toPeer: peerId,
               hasTrack: !!newTrack,
@@ -975,6 +1273,29 @@ export class MediaCallHandler {
         console.warn('Error replacing audio track:', err)
       }
     })
+  }
+
+  /** Log inbound audio RTP counters so a silent remote tile is actionable. */
+  static logReceiverSnapshot(call: MediaConnection, peerId: string, reason: string) {
+    try {
+      const pc = (call as any).peerConnection as RTCPeerConnection | undefined
+      if (!pc || typeof pc.getStats !== 'function') return
+      pc.getStats().then((stats) => {
+        const inbound: Record<string, unknown> = {}
+        stats.forEach((report: any) => {
+          if (report?.type === 'inbound-rtp' && (report.kind === 'audio' || report.mediaType === 'audio')) {
+            inbound.audio = {
+              bytesReceived: report.bytesReceived ?? null,
+              packetsReceived: report.packetsReceived ?? null,
+              packetsLost: report.packetsLost ?? null,
+              jitter: report.jitter ?? null,
+              audioLevel: report.audioLevel ?? null,
+            }
+          }
+        })
+        diagLog('p2p', 'receiver-stats', { fromPeer: peerId, reason, inbound })
+      }).catch(() => {})
+    } catch {}
   }
 
   static endMediaCall(mediaCalls: Map<string, MediaConnection>, peerId: string) {

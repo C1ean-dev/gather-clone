@@ -784,6 +784,13 @@ export class MediaManager {
         PeerManager.getInstance().replaceAudioTrack(processedAudioTrack)
       }
 
+      // If the call was started while the microphone was unavailable, the
+      // eligibility guard intentionally skipped it. Re-check now that a real
+      // audio track exists so the first negotiated call includes the mic.
+      try {
+        PeerManager.getInstance().recheckZoneCalls()
+      } catch {}
+
       return true
     } catch (err) {
       console.warn('Error changing audio input:', err)

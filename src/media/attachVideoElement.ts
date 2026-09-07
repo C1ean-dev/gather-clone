@@ -30,6 +30,12 @@ export function attachStreamToVideo(
   ctx: AttachCtx
 ): () => void {
   const changed = video.srcObject !== stream
+  // Keep the playback element's audio policy synchronized with the stream.
+  // React's `muted` attribute can lag a stream replacement; explicitly
+  // unmuting remote streams prevents an intermittent silent call tile.
+  try {
+    video.muted = !!ctx.isLocal
+  } catch {}
   if (changed) {
     video.srcObject = stream
     diagLog('tile', 'attach', {

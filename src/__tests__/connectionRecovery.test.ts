@@ -151,9 +151,49 @@ describe('Connection Recovery & Call Resilience Tests', () => {
   })
 
   describe('WebRTC Call Lifecycle, ICE Disconnect Grace & Failure Auto-Recovery', () => {
+    it('does not negotiate a video-only call while the microphone track is unavailable', () => {
+      useMediaStore.setState({
+        localStream: new MockMediaStream([{ kind: 'video', enabled: false, stop: vi.fn() }]) as any,
+      })
+      const remotePlayer = useGameStore.getState().remotePlayers['remote-peer-1']
+      const peer = { call: vi.fn() } as any
+
+      MediaCallHandler.checkZoneCallEligibility(remotePlayer, peer, new Map(), vi.fn())
+
+      expect(peer.call).not.toHaveBeenCalled()
+      expect(useGameStore.getState().callStates['remote-peer-1']).toBeUndefined()
+    })
+
+    it('does not answer an incoming call with a video-only local stream', () => {
+      useMediaStore.setState({
+        localStream: new MockMediaStream([{ kind: 'video', enabled: true, readyState: 'live', stop: vi.fn() }]) as any,
+      })
+      const mockCall = {
+        peer: 'remote-peer-1',
+        close: vi.fn(),
+        answer: vi.fn(),
+        on: vi.fn(),
+      }
+
+      MediaCallHandler.handleIncomingCall({
+        call: mockCall as any,
+        myId: 'local-peer',
+        mediaCalls: new Map(),
+        endMediaCallWithPeer: vi.fn(),
+      })
+
+      expect(mockCall.answer).not.toHaveBeenCalled()
+      expect(mockCall.close).toHaveBeenCalled()
+      expect(useGameStore.getState().callStates['remote-peer-1']).toBe('reconnecting')
+    })
+
     it('switches callState to reconnecting on ice=disconnected while connected', () => {
       const mediaCalls = new Map<string, any>()
       const listeners: Record<string, () => void> = {}
+      const callListeners: Record<string, (value?: any) => void> = {}
+
+      const audioTrack = { kind: 'audio', enabled: true, readyState: 'live', id: 'remote-audio' }
+      const videoTrack = { kind: 'video', enabled: true, readyState: 'live', id: 'remote-video' }
 
       const mockPc = {
         iceConnectionState: 'connected',
@@ -162,14 +202,19 @@ describe('Connection Recovery & Call Resilience Tests', () => {
           listeners[event] = fn
         },
         removeEventListener: vi.fn(),
-        getSenders: () => [],
-        getReceivers: () => [],
+        getSenders: () => [
+          { track: { kind: 'audio', enabled: true, readyState: 'live', id: 'local-audio' } },
+          { track: { kind: 'video', enabled: true, readyState: 'live', id: 'local-video' } },
+        ],
+        getReceivers: () => [{ track: audioTrack }, { track: videoTrack }],
       }
 
       const mockCall = {
         peer: 'remote-peer-1',
         peerConnection: mockPc,
-        on: vi.fn(),
+        on: vi.fn((event: string, fn: (value?: any) => void) => {
+          callListeners[event] = fn
+        }),
         close: vi.fn(),
       }
 
@@ -187,6 +232,7 @@ describe('Connection Recovery & Call Resilience Tests', () => {
       // Simulate initial connect
       mockPc.iceConnectionState = 'connected'
       listeners['iceconnectionstatechange']()
+      callListeners.stream(new MockMediaStream([audioTrack, videoTrack]))
       expect(useGameStore.getState().callStates['remote-peer-1']).toBe('connected')
 
       // Simulate transient ICE disconnection

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { MediaCallHandler } from '../p2p/mediaCalls'
+import { useMediaStore } from '../store/useMediaStore'
 import { diagStats, flushDiagLogs, __resetDiagForTests } from '../utils/diagnosticLogger'
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0))
@@ -124,5 +125,122 @@ describe('watchRemoteTracks', () => {
     const unmute = track.addEventListener.mock.calls.find((c) => c[0] === 'unmute')?.[1] as () => void
     unmute()
     expect(diagStats().buffered).toBe(2) // remote-track-state
+  })
+})
+
+describe('audio sender recovery', () => {
+  beforeEach(() => __resetDiagForTests())
+  afterEach(() => __resetDiagForTests())
+
+  it('reuses a negotiated audio sender even when its track is temporarily null', async () => {
+    const replaceTrack = vi.fn(async () => undefined)
+    const pc: any = {
+      getSenders: () => [{ track: null, replaceTrack, getParameters: () => ({}) }],
+      getTransceivers: () => [{ kind: 'audio', sender: { track: null, replaceTrack } }],
+    }
+    const track: any = { id: 'mic-recovered', kind: 'audio', enabled: true, readyState: 'live' }
+    MediaCallHandler.replaceAudioTrack(new Map([['peer-a', { peerConnection: pc } as any]]), track, 'test-reconcile')
+    await Promise.resolve()
+    expect(replaceTrack).toHaveBeenCalledWith(track)
+  })
+
+  it('adds a missing audio sender when the peer connection has no sender yet', () => {
+    const addTrack = vi.fn()
+    const pc: any = { getSenders: () => [], getTransceivers: () => [], addTrack }
+    const track: any = { id: 'mic-late', kind: 'audio', enabled: true, readyState: 'live' }
+    MediaCallHandler.replaceAudioTrack(new Map([['peer-b', { peerConnection: pc } as any]]), track, 'test-late-mic')
+    expect(addTrack).toHaveBeenCalledWith(track)
+  })
+
+  it('reconciliation accepts a marked live screen-share track without replacing it with the mic', async () => {
+    const replaceTrack = vi.fn(async () => undefined)
+    const pc: any = {
+      getSenders: () => [{ track: null, replaceTrack }],
+      getTransceivers: () => [{ kind: 'audio', sender: { track: null, replaceTrack } }],
+    }
+    const liveTrack: any = { id: 'live-screen-audio', kind: 'audio', enabled: true, readyState: 'live', __screenShareLiveAudio: true }
+    const micTrack: any = { id: 'mic-track', kind: 'audio', enabled: true, readyState: 'live' }
+    const stream: any = { getAudioTracks: () => [micTrack] }
+    const screen: any = { getAudioTracks: () => [liveTrack] }
+    useMediaStore.setState({ localStream: stream, localScreenStream: screen, isScreenSharing: true })
+
+    // The call lifecycle uses the marked stream in this state; exercising the
+    // replacement directly protects the contract used by reconciliation.
+    MediaCallHandler.replaceAudioTrack(new Map([['peer-screen', { peerConnection: pc } as any]]), liveTrack, 'connected-reconcile')
+    await Promise.resolve()
+    expect(replaceTrack).toHaveBeenCalledWith(liveTrack)
+    expect(replaceTrack).not.toHaveBeenCalledWith(micTrack)
+  })
+})
+
+describe('call media readiness gate', () => {
+  const liveTrack = (kind: 'audio' | 'video', id: string) => ({ kind, id, readyState: 'live', enabled: true }) as any
+  const remoteStream = {
+    getAudioTracks: () => [liveTrack('audio', 'remote-audio')],
+    getVideoTracks: () => [liveTrack('video', 'remote-video')],
+  } as any
+
+  const readyPc = () => {
+    const audioSender = { track: liveTrack('audio', 'local-audio') }
+    const videoSender = { track: liveTrack('video', 'local-video') }
+    const audioReceiver = { track: liveTrack('audio', 'remote-audio') }
+    const videoReceiver = { track: liveTrack('video', 'remote-video') }
+    return {
+      iceConnectionState: 'connected',
+      connectionState: 'connected',
+      signalingState: 'stable',
+      getSenders: () => [audioSender, videoSender],
+      getReceivers: () => [audioReceiver, videoReceiver],
+      getTransceivers: () => [
+        { sender: audioSender, receiver: audioReceiver, direction: 'sendrecv', currentDirection: 'sendrecv' },
+        { sender: videoSender, receiver: videoReceiver, direction: 'sendrecv', currentDirection: 'sendrecv' },
+      ],
+    } as any
+  }
+
+  it('reports ready when transport and both audio directions are present', () => {
+    expect(MediaCallHandler.evaluateCallReadiness(readyPc(), remoteStream)).toMatchObject({
+      ok: true,
+      transportReady: true,
+      sendAudioReady: true,
+      receiveAudioReady: true,
+      sendVideoReady: true,
+      receiveVideoReady: true,
+    })
+  })
+
+  it('allows an audio-only call when video tracks are unavailable', () => {
+    const pc = readyPc()
+    const audioSender = pc.getSenders()[0]
+    const audioReceiver = pc.getReceivers()[0]
+    pc.getSenders = () => [audioSender]
+    pc.getReceivers = () => [audioReceiver]
+    const audioOnlyRemote = {
+      getAudioTracks: () => [liveTrack('audio', 'remote-audio')],
+      getVideoTracks: () => [],
+    } as any
+
+    expect(MediaCallHandler.evaluateCallReadiness(pc, audioOnlyRemote)).toMatchObject({
+      ok: true,
+      sendAudioReady: true,
+      receiveAudioReady: true,
+      sendVideoReady: false,
+      receiveVideoReady: false,
+    })
+  })
+
+  it('blocks a video-only or empty-audio connection before it becomes active', () => {
+    const pc = readyPc()
+    pc.getSenders = () => [{ track: liveTrack('video', 'local-video') }]
+    expect(MediaCallHandler.evaluateCallReadiness(pc, remoteStream)).toMatchObject({
+      ok: false,
+      sendAudioReady: false,
+    })
+  })
+
+  it('accepts an intentionally muted microphone while preserving a live audio path', () => {
+    const pc = readyPc()
+    pc.getSenders()[0].track.enabled = false
+    expect(MediaCallHandler.evaluateCallReadiness(pc, remoteStream).ok).toBe(true)
   })
 })
