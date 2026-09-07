@@ -31,6 +31,13 @@
 
 const FRAME_SIZE = 480 // 10 ms @ 48 kHz — RNNoise's hard requirement.
 const FRAME_BYTES = FRAME_SIZE * 4 // float32
+// rnnoise_process_frame consumes float samples in signed 16-bit PCM units,
+// not Web Audio's normalized [-1, 1] range. Passing normalized samples makes
+// the network see almost silence and produces an apparently ineffective
+// denoiser.
+const PCM_SCALE = 32768
+const PCM_MIN = -32768
+const PCM_MAX = 32767
 const BYPASS_RAMP_SAMPLES = 240 // 5 ms @ 48 kHz crossfade (click-free toggle)
 
 class RnnoiseWorkletProcessor extends AudioWorkletProcessor {
@@ -57,6 +64,10 @@ class RnnoiseWorkletProcessor extends AudioWorkletProcessor {
     this.vadFrames = 0
     this.lastVadEmit = 0
     this.sampleRateWarned = false
+    this.processedFrames = 0
+    this.inputEnergy = 0
+    this.outputEnergy = 0
+    this.metricFrames = 0
 
     this.port.onmessage = (e) => {
       const data = e.data
@@ -119,22 +130,53 @@ class RnnoiseWorkletProcessor extends AudioWorkletProcessor {
     this.port.postMessage({ type: 'vad', probability })
   }
 
+  _emitMetrics() {
+    if (this.metricFrames < 50) return
+    const inputRms = Math.sqrt(this.inputEnergy / (this.metricFrames * FRAME_SIZE))
+    const outputRms = Math.sqrt(this.outputEnergy / (this.metricFrames * FRAME_SIZE))
+    this.port.postMessage({
+      type: 'metrics',
+      processedFrames: this.processedFrames,
+      inputRms,
+      outputRms,
+      attenuationDb:
+        outputRms > 0 && inputRms > 0
+          ? 20 * Math.log10(outputRms / inputRms)
+          : 0,
+    })
+    this.inputEnergy = 0
+    this.outputEnergy = 0
+    this.metricFrames = 0
+  }
+
   _processFrame(inputFrame, outputFrame) {
     const heap = this.module.HEAPF32
     for (let i = 0; i < FRAME_SIZE; i++) {
-      heap[this.inputPtr / 4 + i] = inputFrame[i]
+      const pcm = Math.max(PCM_MIN, Math.min(PCM_MAX, inputFrame[i] * PCM_SCALE))
+      heap[this.inputPtr / 4 + i] = pcm
     }
-    // process_frame returns VAD probability packed into the low 8 bits.
+    // process_frame returns the VAD probability as a float in [0, 1].
     const vadBits = this.module._rnnoise_process_frame(
       this.statePtr,
       this.outputPtr,
       this.inputPtr
     )
     for (let i = 0; i < FRAME_SIZE; i++) {
-      outputFrame[i] = heap[this.outputPtr / 4 + i]
+      const normalized = heap[this.outputPtr / 4 + i] / PCM_SCALE
+      outputFrame[i] = Math.max(-1, Math.min(1, normalized))
     }
-    this.vadAccum += (vadBits & 0xff) / 255
+    // The exported C API returns a float VAD probability in [0, 1]. A
+    // bitwise conversion truncates almost every value to zero.
+    const probability = Number(vadBits)
+    this.vadAccum += Math.max(0, Math.min(1, Number.isFinite(probability) ? probability : 0))
     this.vadFrames++
+    this.processedFrames++
+    for (let i = 0; i < FRAME_SIZE; i++) {
+      this.inputEnergy += inputFrame[i] * inputFrame[i]
+      this.outputEnergy += outputFrame[i] * outputFrame[i]
+    }
+    this.metricFrames++
+    this._emitMetrics()
     if (this.vadFrames >= 5) {
       this._emitVad(this.vadAccum / this.vadFrames)
       this.vadAccum = 0

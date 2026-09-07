@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMediaStore } from '../store/useMediaStore'
+import { diagLog } from '../utils/diagnosticLogger'
 // Emscripten glue inlined as text (worker-safe single-threaded build).
 // ?raw keeps it out of the module graph — it runs inside the worklet Blob.
 import rnnoiseGlueSrc from '@jitsi/rnnoise-wasm/dist/rnnoise.js?raw'
@@ -96,6 +97,7 @@ export class RnnoiseProcessor {
   private workletReady = false
   private workletError: string | null = null
   private lastVad = 0
+  private lastMetricsLogAt = 0
   /** Resolved by the first 'ready'/'error' message (or timeout) per processStream. */
   private readySettler: { resolve: (ok: boolean) => void } | null = null
   /**
@@ -137,6 +139,12 @@ export class RnnoiseProcessor {
       this.audioCtx = new AudioContextClass({ sampleRate: 48000 })
       if (this.audioCtx.state === 'suspended') {
         await this.audioCtx.resume().catch(() => {})
+      }
+      // RNNoise is trained for 48 kHz and has no internal resampler. Never
+      // report it as active while the browser is silently passing another
+      // sample rate through the worklet.
+      if (this.audioCtx.sampleRate !== 48000) {
+        throw new Error(`RNNoise requires 48kHz AudioContext (got ${this.audioCtx.sampleRate}Hz)`)
       }
       store.setRnnoiseStage('audioctx')
 
@@ -252,6 +260,20 @@ export class RnnoiseProcessor {
           this.readySettler = null
         } else if (data.type === 'vad') {
           this.lastVad = typeof data.probability === 'number' ? data.probability : 0
+        } else if (data.type === 'metrics') {
+          // Keep disk diagnostics sparse while still proving that actual
+          // RNNoise frames are being processed (not just a ready worklet).
+          const now = Date.now()
+          if (now - this.lastMetricsLogAt >= 5000) {
+            this.lastMetricsLogAt = now
+            diagLog('audio', 'rnnoise.metrics', {
+              processedFrames: data.processedFrames,
+              inputRms: data.inputRms,
+              outputRms: data.outputRms,
+              attenuationDb: data.attenuationDb,
+              sampleRate: this.audioCtx?.sampleRate,
+            })
+          }
         }
       }
 
@@ -300,12 +322,17 @@ export class RnnoiseProcessor {
         return inputStream
       }
       useMediaStore.getState().setRnnoiseStatus('ready', null)
+      diagLog('audio', 'rnnoise.ready', {
+        sampleRate: this.audioCtx.sampleRate,
+        suppression: enableSuppression,
+      })
 
       const outputStream = this.destination.stream
       inputStream.getVideoTracks().forEach((vTrack) => outputStream.addTrack(vTrack))
       return outputStream
     } catch (err) {
       console.warn('[rnnoise] processStream failed:', err)
+      this.dispose()
       useMediaStore
         .getState()
         .setRnnoiseStatus('error', (err as Error)?.message ?? String(err))
@@ -408,5 +435,6 @@ export class RnnoiseProcessor {
     this.audioCtx = null
     this.workletReady = false
     this.lastVad = 0
+    this.lastMetricsLogAt = 0
   }
 }
