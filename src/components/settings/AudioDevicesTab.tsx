@@ -47,6 +47,8 @@ export const AudioDevicesTab: React.FC<Props> = ({
   const setOutputVolume = useMediaStore((s) => s.setOutputVolume)
   const setSensitivityMode = useMediaStore((s) => s.setSensitivityMode)
   const setManualSensitivityThreshold = useMediaStore((s) => s.setManualSensitivityThreshold)
+  const micCalibrations = useMediaStore((s) => s.micCalibrations)
+  const currentCalibration = micCalibrations[selectedAudioInput]
 
   const [isTestingCamera, setIsTestingCamera] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
@@ -410,7 +412,19 @@ export const AudioDevicesTab: React.FC<Props> = ({
         {sensitivityMode === 'manual' ? (
           <div className="space-y-1.5 pt-1">
             <div className="flex items-center justify-between text-[11px] text-slate-300">
-              <span>Limiar de Ativação Manual</span>
+              <div className="flex items-center gap-2">
+                <span>Limiar de Ativação Manual</span>
+                {currentCalibration && currentCalibration.recommendedSensitivity !== manualSensitivityThreshold && (
+                  <button
+                    type="button"
+                    onClick={() => handleThresholdChange(currentCalibration.recommendedSensitivity)}
+                    className="text-[9.5px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors cursor-pointer"
+                    title="Usar limiar recomendado na calibração do microfone"
+                  >
+                    Usar calibrado ({currentCalibration.recommendedSensitivity}%)
+                  </button>
+                )}
+              </div>
               <span className="font-bold text-amber-400">{manualSensitivityThreshold}%</span>
             </div>
             <input
@@ -426,11 +440,28 @@ export const AudioDevicesTab: React.FC<Props> = ({
             </p>
           </div>
         ) : (
-          <div className="text-[11px] text-emerald-300/90 bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>
-              O sistema detecta dinamicamente os barulhos da sua sala e calibra a sensibilidade automaticamente.
-            </span>
+          <div className="text-[11px] text-emerald-300/90 bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl space-y-1">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                O sistema detecta dinamicamente os barulhos da sua sala e calibra o corte automaticamente.
+              </span>
+            </div>
+            {currentCalibration && (
+              <div className="text-[10px] text-slate-400 pl-6 flex items-center gap-1.5">
+                <span>Calibração recomendou {currentCalibration.recommendedSensitivity}%.</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSensitivityModeToggle('manual')
+                    handleThresholdChange(currentCalibration.recommendedSensitivity)
+                  }}
+                  className="text-emerald-400 underline hover:text-emerald-300 font-medium cursor-pointer"
+                >
+                  Mudar para Manual ({currentCalibration.recommendedSensitivity}%)
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

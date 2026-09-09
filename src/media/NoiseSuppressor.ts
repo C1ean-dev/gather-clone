@@ -76,7 +76,10 @@ export class NoiseSuppressor {
 
       // 4. Dynamic Spectral Noise Gate
       this.gateGain = this.audioCtx.createGain()
-      this.gateGain.gain.setValueAtTime(1.0, this.audioCtx.currentTime)
+      const initialGain =
+        sensitivityMode === 'manual' && manualThresholdPercent >= 100 ? 0.0 : 1.0
+      this.gateGain.gain.setValueAtTime(initialGain, this.audioCtx.currentTime)
+      this.isGateOpen = initialGain > 0
 
       // 5. Dynamics Compressor (Voice Leveler & Peak Limiter)
       this.compressor = this.audioCtx.createDynamicsCompressor()
@@ -171,27 +174,48 @@ export class NoiseSuppressor {
       // Normalized level for UI VU Meter (0.0 to 1.0)
       const normalizedLevel = Math.min(1, rms * 6)
 
-      // Gate Logic with hysteresis: open at 1.0× threshold, close at 0.6×.
-      // Without this the gate flutters on borderline signals (open/close
-      // every frame), which is heard as chatter/crackle over the voice.
+      // Gate Logic with hysteresis
       if (this.gateGain && this.isSuppressionActive) {
         const now = this.audioCtx.currentTime
-        if (rms > this.currentThreshold) {
-          // Voice detected: Open gate quickly
-          if (!this.isGateOpen) {
-            this.gateGain.gain.cancelScheduledValues(now)
-            this.gateGain.gain.setTargetAtTime(1.0, now, 0.01) // 10ms fast attack
-            this.isGateOpen = true
+        let shouldOpen = false
+
+        if (this.sensitivityMode === 'manual') {
+          if (this.manualThresholdPercent >= 100) {
+            shouldOpen = false // 100% = Maximum gate (completely muted)
+          } else if (this.manualThresholdPercent <= 0) {
+            shouldOpen = true // 0% = Always open
+          } else {
+            // Align with VU meter scale (normalizedLevel = rms * 6)
+            const targetLevel = this.manualThresholdPercent / 100
+            const openLevel = targetLevel / 6
+            const closeLevel = openLevel * 0.75
+            if (rms > openLevel) {
+              shouldOpen = true
+            } else if (rms < closeLevel) {
+              shouldOpen = false
+            } else {
+              shouldOpen = this.isGateOpen
+            }
           }
-        } else if (rms < this.currentThreshold * 0.6) {
-          // Below threshold: Smoothly mute background noise
-          if (this.isGateOpen) {
-            this.gateGain.gain.cancelScheduledValues(now)
-            this.gateGain.gain.setTargetAtTime(0.01, now, 0.15) // 150ms smooth release
-            this.isGateOpen = false
+        } else {
+          if (rms > this.currentThreshold) {
+            shouldOpen = true
+          } else if (rms < this.currentThreshold * 0.6) {
+            shouldOpen = false
+          } else {
+            shouldOpen = this.isGateOpen
           }
         }
-        // Between 0.6× and 1.0×: hold current state (no flutter).
+
+        if (!this.isGateOpen && shouldOpen) {
+          this.gateGain.gain.cancelScheduledValues(now)
+          this.gateGain.gain.setTargetAtTime(1.0, now, 0.01) // 10ms fast attack
+          this.isGateOpen = true
+        } else if (this.isGateOpen && !shouldOpen) {
+          this.gateGain.gain.cancelScheduledValues(now)
+          this.gateGain.gain.setTargetAtTime(0.0, now, 0.15) // 150ms smooth release to 0.0
+          this.isGateOpen = false
+        }
       } else {
         this.isGateOpen = true
       }
@@ -219,6 +243,12 @@ export class NoiseSuppressor {
     this.sensitivityMode = mode
     this.manualThresholdPercent = manualThresholdPercent
     this.updateCalculatedThreshold()
+    if (mode === 'manual' && manualThresholdPercent >= 100 && this.gateGain && this.audioCtx) {
+      const now = this.audioCtx.currentTime
+      this.gateGain.gain.cancelScheduledValues(now)
+      this.gateGain.gain.setTargetAtTime(0.0, now, 0.02)
+      this.isGateOpen = false
+    }
   }
 
   public setSuppressionEnabled(enabled: boolean) {

@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Shield, Sparkles, Mic, RotateCw, Check } from 'lucide-react'
+import { Shield, Sparkles, Mic, RotateCw, Check, Volume2 } from 'lucide-react'
 import { useMediaStore } from '../../store/useMediaStore'
 import { MediaManager } from '../../media/MediaManager'
 import { AudioProcessorMode } from '../../types/audio'
+import { AudioSamplePlayer } from './AudioSamplePlayer'
+import { MultiEngineAudioPlayer } from './MultiEngineAudioPlayer'
+import { ProcessedSampleInfo } from '../../media/MicCalibrator'
 
 export const AdvancedAudioTab: React.FC = () => {
   // Granular selectors — whole-store would re-render this tab on each
@@ -26,6 +29,7 @@ export const AdvancedAudioTab: React.FC = () => {
   const setDuckingEnabled = useMediaStore((s) => s.setDuckingEnabled)
   const setAudioProcessorMode = useMediaStore((s) => s.setAudioProcessorMode)
   const setManualSensitivityThreshold = useMediaStore((s) => s.setManualSensitivityThreshold)
+  const setSensitivityMode = useMediaStore((s) => s.setSensitivityMode)
   const setIsCalibrating = useMediaStore((s) => s.setIsCalibrating)
   const clearMicCalibration = useMediaStore((s) => s.clearMicCalibration)
   const rnnoiseStatus = useMediaStore((s) => s.rnnoiseStatus)
@@ -33,13 +37,32 @@ export const AdvancedAudioTab: React.FC = () => {
   const rnnoiseStage = useMediaStore((s) => s.rnnoiseStage)
 
   // Local UI state for the calibration wizard.
+  const INITIAL_LIVE_BARS = 64
   const [calProgress, setCalProgress] = useState(0) // 0..1
   const [calSecondsLeft, setCalSecondsLeft] = useState(0)
+  const [liveWaveform, setLiveWaveform] = useState<number[]>(() =>
+    Array.from({ length: INITIAL_LIVE_BARS }, (_, i) => {
+      const wave =
+        Math.sin(i * 0.28) * 0.04 +
+        Math.cos(i * 0.55) * 0.03 +
+        0.11
+      return Math.max(0.08, wave)
+    })
+  )
   const [lastCalibration, setLastCalibration] = useState<{
     noiseFloorDb: number
     snrDb: number
     recommendedMode: AudioProcessorMode
     recommendedSensitivity: number
+    rawAudioUrl?: string
+    processedAudioUrl?: string
+    rawWaveform?: number[]
+    processedWaveform?: number[]
+    processedSamples?: {
+      classic: ProcessedSampleInfo
+      soft: ProcessedSampleInfo
+      rnnoise: ProcessedSampleInfo
+    }
   } | null>(null)
   const lastTickRef = useRef(0)
 
@@ -71,19 +94,40 @@ export const AdvancedAudioTab: React.FC = () => {
 
     setCalProgress(0)
     setCalSecondsLeft(5)
+    setLiveWaveform(
+      Array.from({ length: INITIAL_LIVE_BARS }, (_, i) => {
+        const wave =
+          Math.sin(i * 0.28) * 0.04 +
+          Math.cos(i * 0.55) * 0.03 +
+          0.11
+        return Math.max(0.08, wave)
+      })
+    )
     lastTickRef.current = performance.now()
 
     try {
-      const result = await mgr.calibrateMicrophone(rawStream, 5000, (elapsedMs) => {
-        const elapsedSec = elapsedMs / 1000
-        setCalProgress(Math.min(1, elapsedSec / 5))
-        setCalSecondsLeft(Math.max(0, 5 - Math.ceil(elapsedSec)))
-      })
+      const result = await mgr.calibrateMicrophone(
+        rawStream,
+        5000,
+        (elapsedMs, _totalMs, _currentDb, liveWf) => {
+          const elapsedSec = elapsedMs / 1000
+          setCalProgress(Math.min(1, elapsedSec / 5))
+          setCalSecondsLeft(Math.max(0, 5 - Math.ceil(elapsedSec)))
+          if (liveWf && liveWf.length > 0) {
+            setLiveWaveform(liveWf)
+          }
+        }
+      )
       setLastCalibration({
         noiseFloorDb: result.noiseFloorDb,
         snrDb: result.snrDb,
         recommendedMode: result.recommendedMode,
         recommendedSensitivity: result.recommendedSensitivity,
+        rawAudioUrl: result.rawAudioUrl,
+        processedAudioUrl: result.processedAudioUrl,
+        rawWaveform: result.rawWaveform,
+        processedWaveform: result.processedWaveform,
+        processedSamples: result.processedSamples,
       })
       setCalProgress(1)
       setCalSecondsLeft(0)
@@ -98,13 +142,6 @@ export const AdvancedAudioTab: React.FC = () => {
     clearMicCalibration(selectedAudioInput)
     setLastCalibration(null)
   }
-
-  // Drop the local "lastCalibration" highlight a few seconds after the run.
-  useEffect(() => {
-    if (!lastCalibration) return
-    const id = window.setTimeout(() => setLastCalibration(null), 6000)
-    return () => window.clearTimeout(id)
-  }, [lastCalibration])
 
   // Label describing what's currently in effect (manual vs auto).
   const engineLabel = hasUserChosenProcessorMode
@@ -276,19 +313,86 @@ export const AdvancedAudioTab: React.FC = () => {
             )}
           </div>
 
-          {/* Progress bar */}
+          {/* Live Recording Card with Realtime Waveform */}
           {isCalibrating && (
-            <div className="h-1 bg-[#1b202c] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-emerald-500 transition-all"
-                style={{ width: `${Math.round(calProgress * 100)}%` }}
-              />
+            <div className="bg-[#121620] border border-rose-500/30 rounded-2xl p-3.5 space-y-2.5 shadow-lg shadow-rose-950/20 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
+                  </span>
+                  <div>
+                    <div className="text-xs font-bold text-slate-200">
+                      Gravando amostra de áudio...
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      Fale uma frase de teste ou faça barulhos comuns da sua sala
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-[10.5px] font-mono font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-lg">
+                  {calSecondsLeft}s restantes
+                </div>
+              </div>
+
+              {/* Realtime live waveform reacting to microphone input (Symmetrical Soundwave SVG) */}
+              <div className="h-16 bg-slate-950/95 rounded-xl px-2.5 py-1.5 flex items-center relative border border-slate-800/90 shadow-inner overflow-hidden">
+                <svg
+                  viewBox="0 0 640 56"
+                  preserveAspectRatio="none"
+                  className="w-full h-full select-none"
+                >
+                  <defs>
+                    <linearGradient id="live-recording-neon-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#ff0055" />
+                      <stop offset="25%" stopColor="#d9008f" />
+                      <stop offset="50%" stopColor="#9d00ff" />
+                      <stop offset="75%" stopColor="#4f46e5" />
+                      <stop offset="100%" stopColor="#00f2fe" />
+                    </linearGradient>
+                  </defs>
+
+                  {/* Symmetrical Waveform Vertical Bars (Centered around Y = 28) */}
+                  {liveWaveform.map((val, idx) => {
+                    const step = 640 / liveWaveform.length
+                    const barWidth = 3.2
+                    const maxH = 50
+                    const barHeight = Math.max(6, Math.min(maxH, Math.round(val * maxH)))
+                    const y = 28 - barHeight / 2
+                    const x = idx * step + (step - barWidth) / 2
+
+                    return (
+                      <rect
+                        key={idx}
+                        x={x}
+                        y={y}
+                        width={barWidth}
+                        height={barHeight}
+                        rx={1.6}
+                        ry={1.6}
+                        fill="url(#live-recording-neon-grad)"
+                        className="transition-all duration-75"
+                      />
+                    )
+                  })}
+                </svg>
+              </div>
+
+              {/* Progress bar under waveform */}
+              <div className="h-1 bg-slate-900 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-rose-500 via-amber-400 to-emerald-400 transition-all duration-100"
+                  style={{ width: `${Math.round(calProgress * 100)}%` }}
+                />
+              </div>
             </div>
           )}
 
-          {/* Calibration summary + 1-click apply */}
+          {/* Calibration summary + Audio Players */}
           {(currentCalibration || lastCalibration) && (
-            <div className="text-[10px] text-slate-300 bg-[#1b202c] rounded-xl p-2 border border-[#2a3142] leading-snug space-y-2">
+            <div className="text-[10px] text-slate-300 bg-[#1b202c] rounded-xl p-2.5 border border-[#2a3142] leading-snug space-y-2.5">
               <div className="flex items-center gap-1 text-emerald-300 font-bold">
                 <Check className="w-3 h-3" />
                 <span>Resultado da calibração</span>
@@ -340,34 +444,94 @@ export const AdvancedAudioTab: React.FC = () => {
 
               {/* Suggested sensitivity with 1-click apply */}
               <SuggestedActionRow
-                label="Sensibilidade:"
+                label="Sensibilidade (Gate):"
                 current={
-                  <span className="font-mono">
-                    {lastCalibration?.recommendedSensitivity ??
-                      currentCalibration?.recommendedSensitivity ??
-                      20}
-                    %
+                  <span className="font-mono flex items-center gap-1.5">
+                    <span>
+                      {lastCalibration?.recommendedSensitivity ??
+                        currentCalibration?.recommendedSensitivity ??
+                        20}
+                      %
+                    </span>
+                    {sensitivityMode === 'auto' && (
+                      <span className="text-[9px] text-amber-400 font-sans font-normal">
+                        (Gate em Automático)
+                      </span>
+                    )}
                   </span>
                 }
                 active={
+                  sensitivityMode === 'manual' &&
                   manualSensitivityThreshold ===
-                  (lastCalibration?.recommendedSensitivity ??
-                    currentCalibration?.recommendedSensitivity ??
-                    20)
+                    (lastCalibration?.recommendedSensitivity ??
+                      currentCalibration?.recommendedSensitivity ??
+                      20)
                 }
                 onApply={() => {
                   const sens =
                     lastCalibration?.recommendedSensitivity ??
                     currentCalibration?.recommendedSensitivity ??
                     20
+                  setSensitivityMode('manual')
                   setManualSensitivityThreshold(sens)
-                  MediaManager.getInstance().updateSensitivity(
-                    sensitivityMode,
-                    sens
-                  )
+                  MediaManager.getInstance().updateSensitivity('manual', sens)
                 }}
-                applyLabel="Aplicar sensibilidade"
+                applyLabel="Aplicar no Gate (Ativar Manual)"
               />
+
+              {/* Audio Sample Preview & Comparison */}
+              {lastCalibration?.rawAudioUrl && (
+                <div className="space-y-2 pt-2 border-t border-[#2a3142]/80">
+                  <div className="text-[10.5px] font-bold text-slate-200 flex items-center gap-1.5">
+                    <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Comparação da Amostra Gravada</span>
+                  </div>
+
+                  {/* 1. Raw recorded audio */}
+                  <AudioSamplePlayer
+                    title="Amostra Original Gravada"
+                    subtitle="Áudio bruto sem nenhum filtro aplicado"
+                    badge="Original Bruto"
+                    badgeVariant="raw"
+                    audioUrl={lastCalibration.rawAudioUrl}
+                    waveform={lastCalibration.rawWaveform}
+                  />
+
+                  {/* 2. Processed audio tracks (All 3 engines occupying the same space) */}
+                  {lastCalibration.processedSamples ? (
+                    <MultiEngineAudioPlayer
+                      recommendedMode={lastCalibration.recommendedMode}
+                      recommendedSensitivity={lastCalibration.recommendedSensitivity}
+                      activeMode={audioProcessorMode}
+                      samples={lastCalibration.processedSamples}
+                      onApplyEngine={async (mode) => {
+                        setAudioProcessorMode(mode)
+                        setSensitivityMode('manual')
+                        setManualSensitivityThreshold(lastCalibration.recommendedSensitivity)
+                        MediaManager.getInstance().updateSensitivity('manual', lastCalibration.recommendedSensitivity)
+                        await MediaManager.getInstance().reprocessStream()
+                      }}
+                    />
+                  ) : lastCalibration.processedAudioUrl ? (
+                    <AudioSamplePlayer
+                      title="Como vai ficar com as alterações"
+                      subtitle={`Processado com ${engineModeLabel(lastCalibration.recommendedMode)} + Noise Gate (${lastCalibration.recommendedSensitivity}%)`}
+                      badge="Com Alterações"
+                      badgeVariant="processed"
+                      audioUrl={lastCalibration.processedAudioUrl}
+                      waveform={lastCalibration.processedWaveform}
+                      applyLabel="Aplicar Tudo"
+                      onApplySettings={async () => {
+                        setAudioProcessorMode(lastCalibration.recommendedMode)
+                        setSensitivityMode('manual')
+                        setManualSensitivityThreshold(lastCalibration.recommendedSensitivity)
+                        MediaManager.getInstance().updateSensitivity('manual', lastCalibration.recommendedSensitivity)
+                        await MediaManager.getInstance().reprocessStream()
+                      }}
+                    />
+                  ) : null}
+                </div>
+              )}
             </div>
           )}
         </div>

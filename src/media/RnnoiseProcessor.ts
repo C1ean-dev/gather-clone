@@ -86,6 +86,7 @@ export class RnnoiseProcessor {
   private highShelfFilter: BiquadFilterNode | null = null
   private workletNode: AudioWorkletNode | null = null
   private postGain: GainNode | null = null
+  private gateGainNode: GainNode | null = null
   private analyser: AnalyserNode | null = null
   private destination: MediaStreamAudioDestinationNode | null = null
   private testGainNode: GainNode | null = null
@@ -94,6 +95,9 @@ export class RnnoiseProcessor {
     | ((level: number, gateOpen: boolean, rawRms: number) => void)
     | null = null
   private isSuppressionActive = true
+  private isGateOpen = true
+  private sensitivityMode: 'auto' | 'manual' = 'auto'
+  private manualThresholdPercent = 20
   private workletReady = false
   private workletError: string | null = null
   private lastVad = 0
@@ -115,8 +119,8 @@ export class RnnoiseProcessor {
     inputStream: MediaStream,
     enableSuppression: boolean = true,
     initialInputVolume: number = 100,
-    _sensitivityMode: 'auto' | 'manual' = 'auto',
-    _manualThresholdPercent: number = 20,
+    sensitivityMode: 'auto' | 'manual' = 'auto',
+    manualThresholdPercent: number = 20,
     onAudioLevel?: (level: number, gateOpen: boolean, rawRms: number) => void
   ): Promise<MediaStream> {
     try {
@@ -130,6 +134,8 @@ export class RnnoiseProcessor {
 
       this.onLevelCallback = onAudioLevel || null
       this.isSuppressionActive = enableSuppression
+      this.sensitivityMode = sensitivityMode
+      this.manualThresholdPercent = manualThresholdPercent
       const store = useMediaStore.getState()
       store.setRnnoiseStatus('loading', null)
       store.setRnnoiseStage('start')
@@ -189,6 +195,12 @@ export class RnnoiseProcessor {
 
       this.postGain = this.audioCtx.createGain()
       this.postGain.gain.setValueAtTime(1.0, this.audioCtx.currentTime)
+
+      this.gateGainNode = this.audioCtx.createGain()
+      const initialGateGain =
+        sensitivityMode === 'manual' && manualThresholdPercent >= 100 ? 0.0 : 1.0
+      this.gateGainNode.gain.setValueAtTime(initialGateGain, this.audioCtx.currentTime)
+      this.isGateOpen = initialGateGain > 0
 
       this.analyser = this.audioCtx.createAnalyser()
       this.analyser.fftSize = 512
@@ -284,17 +296,19 @@ export class RnnoiseProcessor {
       })
 
       // Graph:
-      //   source -> inputGain -> HP -> shelf -> worklet -> postGain -> dest
+      //   source -> inputGain -> HP -> shelf -> worklet -> postGain
       //   postGain -> analyser (tap for VU meter)
-      //   postGain -> testGain -> ctx.destination (loopback for mic test)
+      //   postGain -> gateGainNode -> dest
+      //   gateGainNode -> testGain -> ctx.destination (loopback for mic test)
       this.sourceNode.connect(this.inputGainNode)
       this.inputGainNode.connect(this.highpassFilter)
       this.highpassFilter.connect(this.highShelfFilter)
       this.highShelfFilter.connect(this.workletNode)
       this.workletNode.connect(this.postGain)
-      this.postGain.connect(this.destination)
       this.postGain.connect(this.analyser)
-      this.postGain.connect(this.testGainNode)
+      this.postGain.connect(this.gateGainNode)
+      this.gateGainNode.connect(this.destination)
+      this.gateGainNode.connect(this.testGainNode)
       this.testGainNode.connect(this.audioCtx.destination)
 
       this.startLevelLoop()
@@ -355,12 +369,55 @@ export class RnnoiseProcessor {
       }
       const rms = Math.sqrt(sum / buffer.length)
       const level = Math.min(1, rms * 6)
-      // "gateOpen" semantics are emulated by the neural VAD probability so
-      // the UI VU meter lights up while the user is speaking.
-      const gateOpen =
-        this.workletReady && this.lastVad > 0.35 ? true : level > 0.05
+
+      let shouldOpen = false
+      if (this.sensitivityMode === 'manual') {
+        if (this.manualThresholdPercent >= 100) {
+          shouldOpen = false // 100% = Maximum gate (completely muted)
+        } else if (this.manualThresholdPercent <= 0) {
+          shouldOpen = true // 0% = Always open
+        } else {
+          // Align with VU meter scale (level = rms * 6)
+          const targetLevel = this.manualThresholdPercent / 100
+          const openLevel = targetLevel / 6
+          const closeLevel = openLevel * 0.75
+          if (rms > openLevel) {
+            shouldOpen = true
+          } else if (rms < closeLevel) {
+            shouldOpen = false
+          } else {
+            shouldOpen = this.isGateOpen
+          }
+        }
+      } else {
+        // Auto mode: combine neural VAD probability with audio level
+        const speechProb = this.workletReady ? this.lastVad : 0
+        if (speechProb > 0.35 || level > 0.08) {
+          shouldOpen = true
+        } else if (speechProb < 0.15 && level < 0.04) {
+          shouldOpen = false
+        } else {
+          shouldOpen = this.isGateOpen
+        }
+      }
+
+      if (this.gateGainNode && this.isSuppressionActive) {
+        const now = this.audioCtx.currentTime
+        if (!this.isGateOpen && shouldOpen) {
+          this.gateGainNode.gain.cancelScheduledValues(now)
+          this.gateGainNode.gain.setTargetAtTime(1.0, now, 0.008) // 8ms fast attack
+          this.isGateOpen = true
+        } else if (this.isGateOpen && !shouldOpen) {
+          this.gateGainNode.gain.cancelScheduledValues(now)
+          this.gateGainNode.gain.setTargetAtTime(0.0, now, 0.12) // 120ms smooth release to 0.0
+          this.isGateOpen = false
+        }
+      } else {
+        this.isGateOpen = true
+      }
+
       if (this.onLevelCallback) {
-        this.onLevelCallback(level, gateOpen, rms)
+        this.onLevelCallback(level, this.isGateOpen, rms)
       }
       this.animationFrameId = requestAnimationFrame(tick)
     }
@@ -375,13 +432,30 @@ export class RnnoiseProcessor {
     this.inputGainNode.gain.setTargetAtTime(v, now, 0.02)
   }
 
-  /** Sensitivity knobs are unused for RNNoise — kept for API parity. */
-  public setSensitivity(_mode: 'auto' | 'manual', _percent: number) {}
+  public setSensitivity(mode: 'auto' | 'manual', percent: number) {
+    this.sensitivityMode = mode
+    this.manualThresholdPercent = percent
+    if (mode === 'manual' && percent >= 100 && this.gateGainNode && this.audioCtx) {
+      const now = this.audioCtx.currentTime
+      this.gateGainNode.gain.cancelScheduledValues(now)
+      this.gateGainNode.gain.setTargetAtTime(0.0, now, 0.02)
+      this.isGateOpen = false
+    }
+  }
 
   public setSuppressionEnabled(enabled: boolean) {
     this.isSuppressionActive = enabled
-    if (!this.workletNode) return
-    this.workletNode.port.postMessage({ type: 'bypass', enabled: !enabled })
+    if (this.workletNode) {
+      this.workletNode.port.postMessage({ type: 'bypass', enabled: !enabled })
+    }
+    if (this.gateGainNode && this.audioCtx) {
+      const now = this.audioCtx.currentTime
+      if (!enabled) {
+        this.gateGainNode.gain.cancelScheduledValues(now)
+        this.gateGainNode.gain.setValueAtTime(1.0, now)
+        this.isGateOpen = true
+      }
+    }
   }
 
   public setTestLoopback(enabled: boolean) {
@@ -429,6 +503,7 @@ export class RnnoiseProcessor {
     this.highShelfFilter = null
     this.workletNode = null
     this.postGain = null
+    this.gateGainNode = null
     this.analyser = null
     this.destination = null
     this.testGainNode = null

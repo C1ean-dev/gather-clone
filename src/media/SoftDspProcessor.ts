@@ -46,8 +46,8 @@ export class SoftDspProcessor {
 
   private readonly openRatio = 1.0
   private readonly closeRatio = 0.55
-  private readonly expanderFloor = 0.35
-  private readonly expanderRelease = 0.25 // seconds
+  private readonly expanderFloor = 0.0
+  private readonly expanderRelease = 0.12 // seconds
 
   constructor() {}
 
@@ -69,7 +69,6 @@ export class SoftDspProcessor {
       this.sensitivityMode = sensitivityMode
       this.manualThresholdPercent = manualThresholdPercent
       this.isSuppressionActive = enableSuppression
-      this.isExpanderActive = false
 
       const AudioContextClass =
         window.AudioContext || (window as any).webkitAudioContext
@@ -83,22 +82,25 @@ export class SoftDspProcessor {
 
       this.inputGainNode = this.audioCtx.createGain()
       this.inputGainNode.gain.setValueAtTime(
-        initialInputVolume / 100,
+        Math.max(0, Math.min(2.0, initialInputVolume / 100)),
         this.audioCtx.currentTime
       )
 
       this.highpassFilter = this.audioCtx.createBiquadFilter()
       this.highpassFilter.type = 'highpass'
-      this.highpassFilter.frequency.setValueAtTime(90, this.audioCtx.currentTime)
-      this.highpassFilter.Q.setValueAtTime(0.7, this.audioCtx.currentTime)
+      this.highpassFilter.frequency.setValueAtTime(75, this.audioCtx.currentTime)
+      this.highpassFilter.Q.setValueAtTime(0.6, this.audioCtx.currentTime)
 
       this.highShelfFilter = this.audioCtx.createBiquadFilter()
       this.highShelfFilter.type = 'highshelf'
-      this.highShelfFilter.frequency.setValueAtTime(6500, this.audioCtx.currentTime)
-      this.highShelfFilter.gain.setValueAtTime(-4, this.audioCtx.currentTime)
+      this.highShelfFilter.frequency.setValueAtTime(7000, this.audioCtx.currentTime)
+      this.highShelfFilter.gain.setValueAtTime(-2, this.audioCtx.currentTime)
 
       this.expanderGain = this.audioCtx.createGain()
-      this.expanderGain.gain.setValueAtTime(1.0, this.audioCtx.currentTime)
+      const initialGain =
+        sensitivityMode === 'manual' && manualThresholdPercent >= 100 ? 0.0 : 1.0
+      this.expanderGain.gain.setValueAtTime(initialGain, this.audioCtx.currentTime)
+      this.isExpanderActive = initialGain > 0
 
       this.compressor = this.audioCtx.createDynamicsCompressor()
       this.compressor.threshold.setValueAtTime(-22, this.audioCtx.currentTime)
@@ -190,14 +192,43 @@ export class SoftDspProcessor {
 
       if (this.expanderGain && this.isSuppressionActive) {
         const now = this.audioCtx.currentTime
-        const openLevel = this.currentThreshold * this.openRatio
-        const closeLevel = this.currentThreshold * this.closeRatio
+        let shouldOpen = false
 
-        if (!this.isExpanderActive && rms > openLevel) {
+        if (this.sensitivityMode === 'manual') {
+          if (this.manualThresholdPercent >= 100) {
+            shouldOpen = false // 100% = Maximum gate (completely muted)
+          } else if (this.manualThresholdPercent <= 0) {
+            shouldOpen = true // 0% = Always open
+          } else {
+            // Align with VU meter scale (normalizedLevel = rms * 6)
+            const targetLevel = this.manualThresholdPercent / 100
+            const openLevel = targetLevel / 6
+            const closeLevel = openLevel * 0.75
+            if (rms > openLevel) {
+              shouldOpen = true
+            } else if (rms < closeLevel) {
+              shouldOpen = false
+            } else {
+              shouldOpen = this.isExpanderActive
+            }
+          }
+        } else {
+          const openLevel = this.currentThreshold * this.openRatio
+          const closeLevel = this.currentThreshold * this.closeRatio
+          if (rms > openLevel) {
+            shouldOpen = true
+          } else if (rms < closeLevel) {
+            shouldOpen = false
+          } else {
+            shouldOpen = this.isExpanderActive
+          }
+        }
+
+        if (!this.isExpanderActive && shouldOpen) {
           this.expanderGain.gain.cancelScheduledValues(now)
           this.expanderGain.gain.setTargetAtTime(1.0, now, 0.008)
           this.isExpanderActive = true
-        } else if (this.isExpanderActive && rms < closeLevel) {
+        } else if (this.isExpanderActive && !shouldOpen) {
           this.expanderGain.gain.cancelScheduledValues(now)
           this.expanderGain.gain.setTargetAtTime(this.expanderFloor, now, this.expanderRelease)
           this.isExpanderActive = false
@@ -226,6 +257,12 @@ export class SoftDspProcessor {
     this.sensitivityMode = mode
     this.manualThresholdPercent = manualThresholdPercent
     this.updateCalculatedThreshold()
+    if (mode === 'manual' && manualThresholdPercent >= 100 && this.expanderGain && this.audioCtx) {
+      const now = this.audioCtx.currentTime
+      this.expanderGain.gain.cancelScheduledValues(now)
+      this.expanderGain.gain.setTargetAtTime(0.0, now, 0.02)
+      this.isExpanderActive = false
+    }
   }
 
   public setSuppressionEnabled(enabled: boolean) {

@@ -1,7 +1,7 @@
 import { NoiseSuppressor } from './NoiseSuppressor'
 import { SoftDspProcessor } from './SoftDspProcessor'
 import { RnnoiseProcessor } from './RnnoiseProcessor'
-import { MicCalibrator } from './MicCalibrator'
+import { MicCalibrator, ProcessedSampleInfo } from './MicCalibrator'
 import { CallAudioIsolator } from './CallAudioIsolator'
 import { ProcessAudioCapture } from './ProcessAudioCapture'
 import { diagLog, summarizeStream, summarizeTrack } from '../utils/diagnosticLogger'
@@ -147,13 +147,22 @@ export class MediaManager {
     public async calibrateMicrophone(
       inputStream: MediaStream,
       durationMs: number = 5000,
-      onProgress?: (elapsedMs: number, totalMs: number, currentDb: number) => void
+      onProgress?: (elapsedMs: number, totalMs: number, currentDb: number, liveWaveform?: number[]) => void
     ): Promise<{
       noiseFloorDb: number
       peakRmsDb: number
       snrDb: number
       recommendedMode: AudioProcessorMode
       recommendedSensitivity: number
+      rawAudioUrl?: string
+      processedAudioUrl?: string
+      rawWaveform?: number[]
+      processedWaveform?: number[]
+      processedSamples?: {
+        classic: ProcessedSampleInfo
+        soft: ProcessedSampleInfo
+        rnnoise: ProcessedSampleInfo
+      }
     }> {
       const state = useMediaStore.getState()
       const deviceId = state.selectedAudioInput
@@ -161,7 +170,7 @@ export class MediaManager {
       try {
         const calibrator = new MicCalibrator()
         const result = await calibrator.calibrate(inputStream, durationMs, (p) => {
-          onProgress?.(p.elapsedMs, p.totalMs, p.currentRmsDb)
+          onProgress?.(p.elapsedMs, p.totalMs, p.currentRmsDb, p.liveWaveform)
         })
         const cal = {
           noiseFloorDb: result.noiseFloorDb,
@@ -172,9 +181,10 @@ export class MediaManager {
           calibratedAt: Date.now(),
         }
         state.setMicCalibration(deviceId, cal)
-        // Sensitivity is per-device and applied unconditionally — it has no
-        // visible UI control aside from this calibration wizard.
         state.setManualSensitivityThreshold(result.recommendedSensitivity)
+        if (state.sensitivityMode === 'manual') {
+          this.updateSensitivity('manual', result.recommendedSensitivity)
+        }
 
         return {
           noiseFloorDb: cal.noiseFloorDb,
@@ -182,6 +192,11 @@ export class MediaManager {
           snrDb: cal.snrDb,
           recommendedMode: cal.recommendedMode,
           recommendedSensitivity: cal.recommendedSensitivity,
+          rawAudioUrl: result.rawAudioUrl,
+          processedAudioUrl: result.processedAudioUrl,
+          rawWaveform: result.rawWaveform,
+          processedWaveform: result.processedWaveform,
+          processedSamples: result.processedSamples,
         }
       } finally {
         useMediaStore.getState().setIsCalibrating(false)
