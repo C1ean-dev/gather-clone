@@ -200,7 +200,7 @@ export function importPresetsIntoStore(
       id: `avatar_${category}_${p.presetKey}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       name: p.name,
       type: 'avatar',
-      category: 'Avatares',
+      category: 'Geral',
       avatarSlot: category,
       thumbnail: p.thumbnail,
       width: 1,

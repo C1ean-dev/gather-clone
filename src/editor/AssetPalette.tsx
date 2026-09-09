@@ -52,7 +52,7 @@ export const AssetPalette: React.FC = () => {
 
   const categories = getAllCategories()
   const [activeTab, setActiveTab] = useState<'furniture' | 'floors' | 'zones'>('furniture')
-  const [furnitureCategory, setFurnitureCategory] = useState<string>(() => categories[0] || 'Forja Antiga')
+  const [furnitureCategory, setFurnitureCategory] = useState<string>(() => categories[0] || 'Geral')
 
   const baseFloors: { id: FloorType | string; name: string; isCustom?: boolean }[] = [
     { id: 'habbo_parquet', name: 'Piso Padrão (Madeira)' },

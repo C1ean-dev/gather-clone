@@ -168,7 +168,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
         id: `avatar_${category}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         name: customName,
         type: 'avatar' as const,
-        category: category === 'pet' ? 'Mascotes' : 'Avatares',
+        category: 'Geral',
         avatarSlot: category,
         thumbnail,
         width: 1,

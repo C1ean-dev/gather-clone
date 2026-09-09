@@ -95,18 +95,23 @@ export function applyBackgroundRemoval(
 }
 
 /**
- * Automatically trims empty transparent borders from a canvas
+ * Gets the bounding box of non-transparent pixels in a canvas, or null if completely transparent
  */
-export function trimTransparentBorders(sourceCanvas: HTMLCanvasElement): HTMLCanvasElement {
+export function getTrimmedBounds(
+  sourceCanvas: HTMLCanvasElement
+): { x: number; y: number; w: number; h: number } | null {
   const ctx = sourceCanvas.getContext('2d')
-  if (!ctx) return sourceCanvas
+  if (!ctx) return null
 
   const w = sourceCanvas.width
   const h = sourceCanvas.height
   const imgData = ctx.getImageData(0, 0, w, h)
   const data = imgData.data
 
-  let minX = w, minY = h, maxX = 0, maxY = 0
+  let minX = w
+  let minY = h
+  let maxX = -1
+  let maxY = -1
   let hasPixels = false
 
   for (let y = 0; y < h; y++) {
@@ -123,13 +128,25 @@ export function trimTransparentBorders(sourceCanvas: HTMLCanvasElement): HTMLCan
     }
   }
 
-  if (!hasPixels) return sourceCanvas
+  if (!hasPixels) return null
 
-  const trimW = maxX - minX + 1
-  const trimH = maxY - minY + 1
-
-  return cropImage(sourceCanvas, minX, minY, trimW, trimH)
+  return {
+    x: minX,
+    y: minY,
+    w: maxX - minX + 1,
+    h: maxY - minY + 1,
+  }
 }
+
+/**
+ * Automatically trims empty transparent borders from a canvas
+ */
+export function trimTransparentBorders(sourceCanvas: HTMLCanvasElement): HTMLCanvasElement {
+  const bounds = getTrimmedBounds(sourceCanvas)
+  if (!bounds) return sourceCanvas
+  return cropImage(sourceCanvas, bounds.x, bounds.y, bounds.w, bounds.h)
+}
+
 
 /**
  * Converts RGBColor to hex string #rrggbb

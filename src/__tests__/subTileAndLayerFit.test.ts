@@ -5,6 +5,11 @@ import {
   snapCoordinateToGrid,
 } from '../utils/imageResize'
 import { CameraManager } from '../engine/camera/CameraManager'
+import { resolveFurnitureDimensions } from '../engine/rendering/furnitureRenderer'
+import { checkCollision } from '../engine/physics/collision'
+import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
+import { CustomAsset } from '../types/customAsset'
+import { MapData } from '../types/map'
 
 describe('subTileAndLayerFit - Layer Auto-Fit & Sub-Tile Placement Math', () => {
   describe('fitLayerToBounds', () => {
@@ -219,6 +224,75 @@ describe('subTileAndLayerFit - Layer Auto-Fit & Sub-Tile Placement Math', () => 
       const result = cam.screenToTile(canvas, 408, 300, 1)
       expect(result.x).toBe(0)
       expect(result.y).toBe(0)
+    })
+  })
+
+  describe('Sub-Tile Custom Furniture Collision (e.g. 43x64px)', () => {
+    it('accurately resolves fractional dimensions and clamps collision to 43px instead of 64px', () => {
+      const customAsset: CustomAsset = {
+        id: 'roulette_table_43x64',
+        name: 'Mesa de Roleta',
+        type: 'furniture',
+        category: 'Geral',
+        width: 2,
+        height: 2,
+        pixelWidth: 43,
+        pixelHeight: 64,
+        isObstacle: true,
+        collisionGrid: [
+          [true, true],
+          [true, true],
+        ],
+        frames: ['data:mock'],
+        directionalDimensions: {
+          down: { width: 2, height: 2, pixelWidth: 43, pixelHeight: 64 },
+        },
+        frameRateMs: 160,
+        createdAt: Date.now(),
+      }
+
+      useCustomAssetsStore.setState({
+        customAssets: [customAsset],
+      })
+
+      // 1. Dimensions check: tileW is 43/32 = 1.34375, NOT 2.0 (64px)
+      const dims = resolveFurnitureDimensions(
+        { id: 'placed_1', defId: 'roulette_table_43x64', x: 5, y: 5 },
+        customAsset
+      )
+      expect(dims.targetW).toBe(43)
+      expect(dims.targetH).toBe(64)
+      expect(dims.tileW).toBeCloseTo(43 / 32, 4)
+      expect(dims.tileH).toBe(2)
+
+      const map: MapData = {
+        width: 20,
+        height: 20,
+        tiles: Array(20).fill(null).map(() => Array(20).fill('habbo_parquet')),
+        furniture: [
+          {
+            id: 'f1',
+            defId: 'roulette_table_43x64',
+            x: 5,
+            y: 5,
+            width: 2,
+            height: 2,
+            isObstacle: true,
+          },
+        ],
+        walls: [],
+        zones: [],
+      }
+
+      // 2. Player inside the table bounds (e.g. x = 5.0, y = 5.0 -> feet at 5.5, 5.75) -> MUST collide
+      const collidesInside = checkCollision(4.8, 4.6, map)
+      expect(collidesInside).toBe(true)
+
+      // 3. Player in the space between 43px and 64px (e.g. x = 5 + (50/32) = 6.5625)
+      // Previously, the old 64x64 collision blocked up to x = 5 + 2.0 = 7.0!
+      // Now, with 43px (1.34375 tiles), player at x = 6.5 should NOT collide!
+      const collidesInClearedMargin = checkCollision(6.5, 5.0, map)
+      expect(collidesInClearedMargin).toBe(false)
     })
   })
 })

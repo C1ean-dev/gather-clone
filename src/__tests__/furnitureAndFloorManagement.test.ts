@@ -8,7 +8,7 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
   beforeEach(() => {
     useCustomAssetsStore.setState({
       customAssets: [],
-      customCategories: ['Geral', 'Forja Antiga', 'Pisos Personalizados'],
+      customCategories: ['Geral'],
       isCustomModalOpen: false,
       editingAssetId: null,
     })
@@ -29,7 +29,7 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
       id: 'furn_throne_001',
       name: 'Trono Real',
       type: 'furniture',
-      category: 'Forja Antiga',
+      category: 'Geral',
       width: 2,
       height: 2,
       isObstacle: true,
@@ -80,7 +80,7 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
       id: 'floor_lava_tiles',
       name: 'Piso de Lava',
       type: 'floor',
-      category: 'Pisos Personalizados',
+      category: 'Geral',
       width: 1,
       height: 1,
       isObstacle: false,

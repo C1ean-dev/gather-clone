@@ -30,7 +30,7 @@ export type WallType =
   | 'forge_stone_wall'
   | 'forge_dark_brick'
 
-export type FurnitureCategory = 'habbo' | 'blacksmith' | 'walls_windows' | 'desks' | 'chairs' | 'tech' | 'lounge' | 'decor' | 'meeting'
+export type FurnitureCategory = 'Geral' | 'habbo' | 'blacksmith' | 'walls_windows' | 'desks' | 'chairs' | 'tech' | 'lounge' | 'decor' | 'meeting' | string
 
 export interface FurnitureDefinition {
   id: string

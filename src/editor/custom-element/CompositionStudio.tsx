@@ -134,7 +134,9 @@ export const CompositionStudio: React.FC<Props> = ({
                 }}
                 className="w-12 bg-[#18191c] border border-[#2b2d31] rounded-lg px-1.5 py-0.5 text-xs font-bold text-center text-white focus:outline-none focus:border-indigo-500"
               />
-              <span className="text-[10px] text-slate-400 font-mono">({tileWidth * 32}px)</span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                ({pixelWidth ? `${pixelWidth}px` : `${tileWidth * 32}px`})
+              </span>
             </div>
 
             <span className="text-slate-600 font-bold">×</span>
@@ -154,7 +156,9 @@ export const CompositionStudio: React.FC<Props> = ({
                 }}
                 className="w-12 bg-[#18191c] border border-[#2b2d31] rounded-lg px-1.5 py-0.5 text-xs font-bold text-center text-white focus:outline-none focus:border-indigo-500"
               />
-              <span className="text-[10px] text-slate-400 font-mono">({tileHeight * 32}px)</span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                ({pixelHeight ? `${pixelHeight}px` : `${tileHeight * 32}px`})
+              </span>
             </div>
           </div>
 

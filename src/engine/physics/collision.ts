@@ -256,12 +256,14 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
         for (let c = 0; c < maxC; c++) {
           if (activeCollisionGrid[r]?.[c]) {
             const tileMinX = furn.x + c + 0.05
-            const tileMaxX = furn.x + c + 1 - 0.05
+            const tileMaxX = Math.min(furn.x + c + 1, furn.x + tileW) - 0.05
             const tileMinY = furn.y + r + 0.05
-            const tileMaxY = furn.y + r + 1 - 0.05
+            const tileMaxY = Math.min(furn.y + r + 1, furn.y + tileH) - 0.05
 
-            if (pMaxX > tileMinX && pMinX < tileMaxX && pMaxY > tileMinY && pMinY < tileMaxY) {
-              return true
+            if (tileMaxX > tileMinX && tileMaxY > tileMinY) {
+              if (pMaxX > tileMinX && pMinX < tileMaxX && pMaxY > tileMinY && pMinY < tileMaxY) {
+                return true
+              }
             }
           }
         }
@@ -272,8 +274,10 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
       const furnMinY = furn.y + 0.05
       const furnMaxY = furn.y + tileH - 0.05
 
-      if (pMaxX > furnMinX && pMinX < furnMaxX && pMaxY > furnMinY && pMinY < furnMaxY) {
-        return true
+      if (furnMaxX > furnMinX && furnMaxY > furnMinY) {
+        if (pMaxX > furnMinX && pMinX < furnMaxX && pMaxY > furnMinY && pMinY < furnMaxY) {
+          return true
+        }
       }
     }
   }

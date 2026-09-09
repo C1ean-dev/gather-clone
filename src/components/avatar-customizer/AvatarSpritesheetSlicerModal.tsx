@@ -1079,7 +1079,7 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
           id: `avatar_${category}_sliced_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
           name: p.name.trim() || `Preset ${CATEGORY_LABELS[category]}`,
           type: 'avatar',
-          category: 'Avatares',
+          category: 'Geral',
           avatarSlot: category,
           thumbnail,
           width: Math.max(1, Math.ceil(selection.w / 32)),

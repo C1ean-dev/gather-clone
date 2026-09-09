@@ -7,6 +7,9 @@ import {
   Grid,
   Scissors,
   CheckSquare,
+  Wand2,
+  Move,
+  Sliders,
 } from 'lucide-react'
 
 export interface CroppedClip {
@@ -26,6 +29,8 @@ interface Props {
   setZoom: (z: number | ((prev: number) => number)) => void
   snapToGrid: boolean
   setSnapToGrid: (snap: boolean) => void
+  gridSnapSize?: number
+  setGridSnapSize?: (size: number) => void
   selection: { x: number; y: number; w: number; h: number }
   setSelection: React.Dispatch<React.SetStateAction<{ x: number; y: number; w: number; h: number }>>
   isEyedropperActive: boolean
@@ -42,6 +47,8 @@ interface Props {
   pixelWidth?: number
   pixelHeight?: number
   onSetBoardSizeInTiles?: (w: number, h: number) => void
+  onSetPixelSize?: (w: number, h: number) => void
+  onAutoCropToContent?: () => void
   scaleFitMode?: 'fit' | 'stretch'
 }
 
@@ -52,6 +59,8 @@ export const CropStudio: React.FC<Props> = ({
   setZoom,
   snapToGrid,
   setSnapToGrid,
+  gridSnapSize = 32,
+  setGridSnapSize,
   selection,
   setSelection,
   isEyedropperActive,
@@ -68,6 +77,8 @@ export const CropStudio: React.FC<Props> = ({
   pixelWidth,
   pixelHeight,
   onSetBoardSizeInTiles,
+  onSetPixelSize,
+  onAutoCropToContent,
   scaleFitMode,
 }) => {
   // Track drag-and-drop hover state so the placeholder gives visual feedback
@@ -157,48 +168,141 @@ export const CropStudio: React.FC<Props> = ({
         </div>
 
         {/* Zoom & Grid Controls */}
-        <div className="flex items-center gap-1.5 bg-[#12151d] p-1 rounded-xl border border-[#2b2d31]">
-          <button
-            type="button"
-            onClick={() => setZoom(Math.max(0.5, zoom - 0.25))}
-            className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
-            title="Reduzir Zoom"
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
-          <span className="text-[10px] font-mono font-bold text-slate-300 px-1">
-            {Math.round(zoom * 100)}%
-          </span>
-          <button
-            type="button"
-            onClick={() => setZoom(Math.min(4, zoom + 0.25))}
-            className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
-            title="Aumentar Zoom"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setZoom(1)}
-            className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
-            title="Restaurar 100%"
-          >
-            <Maximize2 className="w-3.5 h-3.5" />
-          </button>
+        <div className="flex items-center gap-2">
+          {/* Zoom Buttons */}
+          <div className="flex items-center gap-1 bg-[#12151d] p-1 rounded-xl border border-[#2b2d31]">
+            <button
+              type="button"
+              onClick={() => setZoom(Math.max(0.5, zoom - 0.25))}
+              className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
+              title="Reduzir Zoom"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-[10px] font-mono font-bold text-slate-300 px-1">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={() => setZoom(Math.min(4, zoom + 0.25))}
+              className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
+              title="Aumentar Zoom"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom(1)}
+              className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
+              title="Restaurar 100%"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
 
-          <div className="w-px h-3.5 bg-[#2b2d31] mx-0.5" />
+          {/* Crop Mode / Grid Snap Selection */}
+          <div className="flex items-center gap-1 bg-[#12151d] p-1 rounded-xl border border-[#2b2d31]">
+            <span className="text-[10px] text-slate-400 font-semibold px-1 flex items-center gap-1">
+              <Grid className="w-3 h-3 text-indigo-400" />
+              <span>Modo:</span>
+            </span>
 
-          <button
-            type="button"
-            onClick={() => setSnapToGrid(!snapToGrid)}
-            className={`p-1 rounded text-[10px] font-bold flex items-center gap-1 transition-colors ${
-              snapToGrid ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
-            }`}
-            title="Alinhar seleção na grade de 32x32 tiles"
-          >
-            <Grid className="w-3.5 h-3.5" />
-            <span>Grade 32px</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSnapToGrid(false)
+                setGridSnapSize?.(1)
+              }}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                !snapToGrid || gridSnapSize === 1
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white hover:bg-[#2b2d31]'
+              }`}
+              title="Recorte dinâmico livre (pixel a pixel, sem travar em grade)"
+            >
+              Livre (1px)
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSnapToGrid(true)
+                setGridSnapSize?.(8)
+              }}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all ${
+                snapToGrid && gridSnapSize === 8
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white hover:bg-[#2b2d31]'
+              }`}
+              title="Encaixar em grade de 8px"
+            >
+              8px
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSnapToGrid(true)
+                setGridSnapSize?.(16)
+              }}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all ${
+                snapToGrid && gridSnapSize === 16
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white hover:bg-[#2b2d31]'
+              }`}
+              title="Encaixar em grade de 16px"
+            >
+              16px
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSnapToGrid(true)
+                setGridSnapSize?.(32)
+              }}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                snapToGrid && gridSnapSize === 32
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white hover:bg-[#2b2d31]'
+              }`}
+              title="Encaixar em grade clássica de 32px (tiles)"
+            >
+              Grade 32px
+            </button>
+          </div>
+
+          {/* Auto Trim / Content Fit Action */}
+          {onAutoCropToContent && (
+            <button
+              type="button"
+              onClick={onAutoCropToContent}
+              className="px-2.5 py-1 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-[11px] flex items-center gap-1.5 transition-all active:scale-95"
+              title="Ajustar automaticamente os 4 cantos da seleção ao contorno real do desenho"
+            >
+              <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+              <span>Ajustar ao Desenho</span>
+            </button>
+          )}
+
+          {/* Quick Match Target Size */}
+          {pixelWidth && pixelHeight && (
+            <button
+              type="button"
+              onClick={() =>
+                setSelection((prev) => ({
+                  ...prev,
+                  w: pixelWidth,
+                  h: pixelHeight,
+                }))
+              }
+              className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 border border-[#2b2d31] text-slate-300 font-medium text-[11px] flex items-center gap-1.5 transition-all"
+              title="Ajustar largura e altura da seleção para o tamanho final configurado da mobília"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-slate-400" />
+              <span>Tam. Final ({pixelWidth}×{pixelHeight})</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -269,38 +373,116 @@ export const CropStudio: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Bottom Selection Info & Action Bar */}
+      {/* Bottom Selection Info & Precision Numeric Controls */}
       {sourceImageSrc && (
-        <div className="p-3 bg-[#18191c] border-t border-[#2b2d31] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3 text-xs text-slate-300">
-            <span className="flex items-center gap-1.5">
-              <CheckSquare className="w-4 h-4 text-indigo-400" />
-              <span>Seleção Atual:</span>
-              <strong className="font-mono text-white">
-                {selection.w}x{selection.h}px
-              </strong>
-            </span>
-            <span className="text-slate-500">•</span>
-            <span>
-              Posição:{' '}
-              <span className="font-mono text-slate-400">
-                ({selection.x}, {selection.y})
-              </span>
-            </span>
+        <div className="p-3 bg-[#18191c] border-t border-[#2b2d31] flex flex-wrap items-center justify-between gap-3 shrink-0">
+          {/* Dynamic Precision Coordinate and Size Inputs */}
+          <div className="flex items-center flex-wrap gap-2.5 text-xs text-slate-300">
+            {/* Direct Position Inputs */}
+            <div className="flex items-center gap-1.5 bg-[#12151d] px-2.5 py-1 rounded-xl border border-[#2b2d31]">
+              <span className="text-[11px] font-semibold text-slate-400">Posição:</span>
+              <span className="text-[10px] text-slate-500">X</span>
+              <input
+                type="number"
+                min={0}
+                max={sourceImage ? sourceImage.naturalWidth - 1 : 9999}
+                value={selection.x}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10)
+                  if (!isNaN(val)) {
+                    setSelection((prev) => ({
+                      ...prev,
+                      x: Math.max(0, val),
+                    }))
+                  }
+                }}
+                className="w-12 bg-[#18191c] border border-[#2b2d31] rounded px-1.5 py-0.5 text-xs font-mono font-bold text-center text-white focus:outline-none focus:border-indigo-500"
+                title="Posição X inicial em pixels"
+              />
+              <span className="text-[10px] text-slate-500">Y</span>
+              <input
+                type="number"
+                min={0}
+                max={sourceImage ? sourceImage.naturalHeight - 1 : 9999}
+                value={selection.y}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10)
+                  if (!isNaN(val)) {
+                    setSelection((prev) => ({
+                      ...prev,
+                      y: Math.max(0, val),
+                    }))
+                  }
+                }}
+                className="w-12 bg-[#18191c] border border-[#2b2d31] rounded px-1.5 py-0.5 text-xs font-mono font-bold text-center text-white focus:outline-none focus:border-indigo-500"
+                title="Posição Y inicial em pixels"
+              />
+            </div>
 
+            {/* Direct Crop Dimension Inputs */}
+            <div className="flex items-center gap-1.5 bg-[#12151d] px-2.5 py-1 rounded-xl border border-[#2b2d31]">
+              <span className="text-[11px] font-semibold text-slate-400">Recorte:</span>
+              <input
+                type="number"
+                min={1}
+                max={sourceImage ? sourceImage.naturalWidth : 9999}
+                value={selection.w}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10)
+                  if (!isNaN(val)) {
+                    setSelection((prev) => ({
+                      ...prev,
+                      w: Math.max(1, val),
+                    }))
+                  }
+                }}
+                className="w-14 bg-[#18191c] border border-[#2b2d31] rounded px-1.5 py-0.5 text-xs font-mono font-bold text-center text-cyan-400 focus:outline-none focus:border-indigo-500"
+                title="Largura do recorte em pixels (dinâmico livre)"
+              />
+              <span className="text-slate-500 text-xs font-bold">×</span>
+              <input
+                type="number"
+                min={1}
+                max={sourceImage ? sourceImage.naturalHeight : 9999}
+                value={selection.h}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10)
+                  if (!isNaN(val)) {
+                    setSelection((prev) => ({
+                      ...prev,
+                      h: Math.max(1, val),
+                    }))
+                  }
+                }}
+                className="w-14 bg-[#18191c] border border-[#2b2d31] rounded px-1.5 py-0.5 text-xs font-mono font-bold text-center text-cyan-400 focus:outline-none focus:border-indigo-500"
+                title="Altura do recorte em pixels (dinâmico livre)"
+              />
+              <span className="text-[10px] text-slate-500">px</span>
+            </div>
+
+            {/* Apply Crop to Final Size Button */}
+            {onSetPixelSize && (
+              <button
+                type="button"
+                onClick={() => onSetPixelSize(selection.w, selection.h)}
+                className="px-2.5 py-1 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-semibold text-[11px] transition-all flex items-center gap-1.5"
+                title="Ajusta o tamanho final do elemento para corresponder exatamente às dimensões deste recorte"
+              >
+                <span>Definir como Tamanho Final ({selection.w}×{selection.h}px)</span>
+              </button>
+            )}
+
+            {/* Final Target Badge */}
             {(pixelWidth || (tileWidth && tileHeight)) && (
-              <>
-                <span className="text-slate-500">•</span>
-                <div className="flex items-center gap-1.5 bg-[#12151d] px-2.5 py-1 rounded-xl border border-[#2b2d31]">
-                  <span className="text-[11px] font-semibold text-slate-400">Mobília Final:</span>
-                  <strong className="font-mono text-emerald-400 text-xs">
-                    {pixelWidth || (tileWidth ? tileWidth * 32 : 32)}×{pixelHeight || (tileHeight ? tileHeight * 32 : 32)}px
-                  </strong>
-                  {tileWidth && tileHeight && (
-                    <span className="text-[10px] text-slate-400 font-mono">({tileWidth}×{tileHeight} tiles)</span>
-                  )}
-                </div>
-              </>
+              <div className="flex items-center gap-1.5 bg-[#12151d] px-2.5 py-1 rounded-xl border border-[#2b2d31]">
+                <span className="text-[11px] font-semibold text-slate-400">Mobília Final:</span>
+                <strong className="font-mono text-emerald-400 text-xs">
+                  {pixelWidth || (tileWidth ? tileWidth * 32 : 32)}×{pixelHeight || (tileHeight ? tileHeight * 32 : 32)}px
+                </strong>
+                {tileWidth && tileHeight && (
+                  <span className="text-[10px] text-slate-400 font-mono">({tileWidth}×{tileHeight}t)</span>
+                )}
+              </div>
             )}
           </div>
 
@@ -320,3 +502,5 @@ export const CropStudio: React.FC<Props> = ({
     </div>
   )
 }
+
+

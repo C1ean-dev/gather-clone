@@ -9,7 +9,7 @@ import { bakeLayersToDataUrl } from '../utils/imageResize'
 const ASSETS_STORAGE_KEY = 'gather_v2_custom_user_assets'
 const CATEGORIES_STORAGE_KEY = 'gather_v2_custom_categories'
 
-const DEFAULT_CATEGORIES = ['Geral', 'Forja Antiga', 'Escritório', 'Medieval', 'Decoração', 'Avatares']
+const DEFAULT_CATEGORIES = ['Geral']
 
 // In-memory HTMLImageElement cache for fast canvas rendering
 const imageCache: Map<string, HTMLImageElement> = new Map()
@@ -77,6 +77,9 @@ const loadSavedCustomAssets = (): CustomAsset[] => {
   const merged = Array.from(map.values())
 
   merged.forEach((asset: CustomAsset) => {
+    // Consolidate everything into 'Geral'
+    asset.category = 'Geral'
+
     if (Array.isArray(asset.frames)) {
       asset.frames.forEach(getCustomAssetImage)
     }
@@ -174,14 +177,25 @@ const loadSavedCategories = (): string[] => {
       if (raw) {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed) && parsed.length > 0) {
-          savedCats = parsed
+          const legacyCats = new Set([
+            'Forja Antiga',
+            'Escritório',
+            'Medieval',
+            'Decoração',
+            'Avatares',
+            'Pisos Personalizados',
+            'Paredes das Zonas',
+            'Mascotes',
+          ])
+          savedCats = parsed.filter((c) => typeof c === 'string' && !legacyCats.has(c))
         }
       }
     }
   } catch (e) {
     console.error('Failed to load custom categories:', e)
   }
-  return Array.from(new Set([...DEFAULT_CATEGORIES, ...nativeCats, ...savedCats]))
+  const merged = Array.from(new Set([...DEFAULT_CATEGORIES, ...nativeCats, ...savedCats]))
+  return merged.length > 0 ? merged : ['Geral']
 }
 
 const saveCategories = (cats: string[]) => {
@@ -386,7 +400,8 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
   getAllCategories: () => {
     const fromAssets = get().customAssets.map((a) => a.category).filter(Boolean)
     const setCats = new Set([...get().customCategories, ...fromAssets])
-    return Array.from(setCats)
+    const list = Array.from(setCats)
+    return list.length > 0 ? list : ['Geral']
   },
 
   getAssetById: (id) => {
@@ -417,6 +432,15 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
 }))
 
 if (typeof window !== 'undefined') {
+  try {
+    const state = useCustomAssetsStore.getState()
+    saveCustomAssets(state.customAssets)
+    saveCategories(state.customCategories)
+    syncToNativeFile(state.customAssets, state.customCategories)
+  } catch (err) {
+    console.error('Failed to persist normalized assets/categories:', err)
+  }
+
   setTimeout(() => {
     repairMissingDirectionalFrames(useCustomAssetsStore.getState().customAssets).then((changed) => {
       if (changed) {

@@ -34,8 +34,16 @@ export function resolveFurnitureDimensions(
 
     const targetW = dim?.pixelWidth || (dim ? dim.width * TILE_SIZE : (customAsset.pixelWidth || customAsset.width * TILE_SIZE))
     const targetH = dim?.pixelHeight || (dim ? dim.height * TILE_SIZE : (customAsset.pixelHeight || customAsset.height * TILE_SIZE))
-    const tileW = dim?.width || (customAsset.pixelWidth ? customAsset.pixelWidth / TILE_SIZE : customAsset.width)
-    const tileH = dim?.height || (customAsset.pixelHeight ? customAsset.pixelHeight / TILE_SIZE : customAsset.height)
+    const tileW = dim?.pixelWidth
+      ? dim.pixelWidth / TILE_SIZE
+      : customAsset.pixelWidth
+      ? customAsset.pixelWidth / TILE_SIZE
+      : dim?.width || customAsset.width
+    const tileH = dim?.pixelHeight
+      ? dim.pixelHeight / TILE_SIZE
+      : customAsset.pixelHeight
+      ? customAsset.pixelHeight / TILE_SIZE
+      : dim?.height || customAsset.height
 
     return { targetW, targetH, tileW, tileH }
   }

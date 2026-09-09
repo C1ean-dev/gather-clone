@@ -15,6 +15,7 @@ import { Direction } from '../types/game'
 import {
   cropImage,
   applyBackgroundRemoval,
+  getTrimmedBounds,
   RGBColor,
   PRESET_BG_COLORS,
 } from '../utils/imageTransparency'
@@ -57,6 +58,7 @@ export const CustomElementModal: React.FC = () => {
   const [sourceImageSrc, setSourceImageSrc] = useState<string>('')
   const [zoom, setZoom] = useState<number>(1)
   const [snapToGrid, setSnapToGrid] = useState<boolean>(true)
+  const [gridSnapSize, setGridSnapSize] = useState<number>(32)
   const [isEyedropperActive, setIsEyedropperActive] = useState<boolean>(false)
 
   // Selection Box
@@ -325,7 +327,7 @@ export const CustomElementModal: React.FC = () => {
   // Element Properties Form
   const [elementName, setElementName] = useState<string>('Meu Elemento Composto')
   const [elementType, setElementType] = useState<CustomAssetType>('furniture')
-  const [category, setCategory] = useState<string>('Forja Antiga')
+  const [category, setCategory] = useState<string>('Geral')
   const [isCreatingNewCategory, setIsCreatingNewCategory] = useState<boolean>(false)
   const [newCategoryName, setNewCategoryName] = useState<string>('')
 
@@ -447,24 +449,12 @@ export const CustomElementModal: React.FC = () => {
       setActiveDirection('down')
     }
     if (newType === 'avatar') {
-      setCategory('Avatares')
       setTileWidth(1)
       setTileHeight(1)
       setCompositeBoardWidth(32)
       setCompositeBoardHeight(32)
-    } else if (newType === 'floor') {
-      if (category === 'Forja Antiga' || category === 'Geral' || category === 'Avatares') {
-        setCategory('Pisos Personalizados')
-      }
-    } else if (newType === 'wall') {
-      if (category === 'Forja Antiga' || category === 'Geral' || category === 'Avatares') {
-        setCategory('Paredes das Zonas')
-      }
-    } else {
-      if (category === 'Pisos Personalizados' || category === 'Paredes das Zonas' || category === 'Avatares') {
-        setCategory('Forja Antiga')
-      }
     }
+    setCategory('Geral')
   }
 
   // Load asset data when editing an existing asset or opening in crop/compose mode
@@ -665,7 +655,7 @@ export const CustomElementModal: React.FC = () => {
     return () => clearInterval(interval)
   }, [isPlayingAnim, frames.length, frameRateMs])
 
-  // Draw main source canvas with selection box
+  // Draw main source canvas with selection box, handles, and dimensions
   useEffect(() => {
     const canvas = mainCanvasRef.current
     if (!canvas || !sourceImage) return
@@ -679,10 +669,11 @@ export const CustomElementModal: React.FC = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(sourceImage, 0, 0, canvas.width, canvas.height)
 
-    if (snapToGrid) {
+    const effectiveSnap = snapToGrid ? Math.max(1, gridSnapSize) : 1
+    if (snapToGrid && effectiveSnap > 1) {
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'
       ctx.lineWidth = 1
-      const gridPx = 32 * zoom
+      const gridPx = effectiveSnap * zoom
       for (let x = 0; x <= canvas.width; x += gridPx) {
         ctx.beginPath()
         ctx.moveTo(x + 0.5, 0)
@@ -697,15 +688,19 @@ export const CustomElementModal: React.FC = () => {
       }
     }
 
-    const sx = selection.x * zoom
-    const sy = selection.y * zoom
-    const sw = selection.w * zoom
-    const sh = selection.h * zoom
+    const sx = Math.round(selection.x * zoom)
+    const sy = Math.round(selection.y * zoom)
+    const sw = Math.round(selection.w * zoom)
+    const sh = Math.round(selection.h * zoom)
 
-    // Live preview: inside the selection, show the piece with the automatic
-    // transparency filter applied (background keyed out), so the user sees
-    // the result before cropping. Without this the filter only took effect
-    // after "Recortar & Salvar".
+    // Spotlight effect: dim area outside selection
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.42)'
+    if (sy > 0) ctx.fillRect(0, 0, canvas.width, sy)
+    if (sy + sh < canvas.height) ctx.fillRect(0, sy + sh, canvas.width, canvas.height - (sy + sh))
+    if (sx > 0) ctx.fillRect(0, sy, sx, sh)
+    if (sx + sw < canvas.width) ctx.fillRect(sx + sw, sy, canvas.width - (sx + sw), sh)
+
+    // Live preview: inside the selection, show transparency filter if enabled
     if (enableBgRemoval) {
       const processed = getProcessedSelectionCanvas()
       if (processed) {
@@ -714,20 +709,80 @@ export const CustomElementModal: React.FC = () => {
       }
     }
 
-    ctx.fillStyle = 'rgba(59, 130, 246, 0.25)'
+    // Inside tint
+    ctx.fillStyle = 'rgba(59, 130, 246, 0.12)'
     ctx.fillRect(sx, sy, sw, sh)
 
+    // Selection border
     ctx.strokeStyle = '#3b82f6'
     ctx.lineWidth = 2
-    ctx.strokeRect(sx + 0.5, sy + 0.5, sw - 1, sh - 1)
+    ctx.strokeRect(sx + 0.5, sy + 0.5, Math.max(1, sw - 1), Math.max(1, sh - 1))
 
-    ctx.fillStyle = '#ffffff'
-    const handleSize = 6
-    ctx.fillRect(sx - handleSize / 2, sy - handleSize / 2, handleSize, handleSize)
-    ctx.fillRect(sx + sw - handleSize / 2, sy - handleSize / 2, handleSize, handleSize)
-    ctx.fillRect(sx - handleSize / 2, sy + sh - handleSize / 2, handleSize, handleSize)
-    ctx.fillRect(sx + sw - handleSize / 2, sy + sh - handleSize / 2, handleSize, handleSize)
-  }, [sourceImage, zoom, selection, snapToGrid, studioMode, isCustomModalOpen, enableBgRemoval, targetColor, tolerance, removeWhiteFringe])
+    // Inner dashed guide
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([4, 4])
+    ctx.strokeRect(sx + 0.5, sy + 0.5, Math.max(1, sw - 1), Math.max(1, sh - 1))
+    ctx.setLineDash([])
+
+    // 8 Modern circular handles (nw, n, ne, e, se, s, sw, w)
+    const handleRadius = 4.5
+    const handlePoints = [
+      [sx, sy],
+      [sx + sw / 2, sy],
+      [sx + sw, sy],
+      [sx + sw, sy + sh / 2],
+      [sx + sw, sy + sh],
+      [sx + sw / 2, sy + sh],
+      [sx, sy + sh],
+      [sx, sy + sh / 2],
+    ]
+
+    handlePoints.forEach(([hx, hy]) => {
+      ctx.fillStyle = '#ffffff'
+      ctx.strokeStyle = '#2563eb'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.arc(hx, hy, handleRadius, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+    })
+
+    // Floating dimension badge
+    const label = `${selection.w} × ${selection.h} px`
+    ctx.font = 'bold 11px monospace'
+    const textMetrics = ctx.measureText(label)
+    const textW = textMetrics.width
+    const pillW = textW + 14
+    const pillH = 18
+    const pillX = Math.max(4, Math.min(canvas.width - pillW - 4, sx + (sw - pillW) / 2))
+    const pillY = sy >= 24 ? sy - 22 : sy + sh + 6
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)'
+    ctx.strokeStyle = '#3b82f6'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.roundRect(pillX, pillY, pillW, pillH, 5)
+    ctx.fill()
+    ctx.stroke()
+
+    ctx.fillStyle = '#38bdf8'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, pillX + pillW / 2, pillY + pillH / 2 + 0.5)
+  }, [
+    sourceImage,
+    zoom,
+    selection,
+    snapToGrid,
+    gridSnapSize,
+    studioMode,
+    isCustomModalOpen,
+    enableBgRemoval,
+    targetColor,
+    tolerance,
+    removeWhiteFringe,
+  ])
 
   const getProcessedSelectionCanvas = (): HTMLCanvasElement | null => {
     if (!sourceImage || selection.w <= 0 || selection.h <= 0) return null
@@ -836,17 +891,27 @@ export const CustomElementModal: React.FC = () => {
     })
 
     if (showCollisionOverlay && collisionGrid && collisionGrid.length > 0) {
-      const tilePx = 32 * renderZoom
+      const targetW = pixelWidth || tileWidth * 32
+      const targetH = pixelHeight || tileHeight * 32
       for (let r = 0; r < tileHeight; r++) {
         for (let c = 0; c < tileWidth; c++) {
           if (collisionGrid[r]?.[c]) {
-            const bx = c * tilePx
-            const by = r * tilePx
-            ctx.fillStyle = 'rgba(239, 68, 68, 0.25)'
-            ctx.fillRect(bx, by, tilePx, tilePx)
-            ctx.strokeStyle = '#ef4444'
-            ctx.lineWidth = 2
-            ctx.strokeRect(bx + 1, by + 1, tilePx - 2, tilePx - 2)
+            const cellLeft = c * 32
+            const cellTop = r * 32
+            const cellRight = Math.min((c + 1) * 32, targetW)
+            const cellBottom = Math.min((r + 1) * 32, targetH)
+            const cellW = (cellRight - cellLeft) * renderZoom
+            const cellH = (cellBottom - cellTop) * renderZoom
+
+            if (cellW > 0 && cellH > 0) {
+              const bx = cellLeft * renderZoom
+              const by = cellTop * renderZoom
+              ctx.fillStyle = 'rgba(239, 68, 68, 0.25)'
+              ctx.fillRect(bx, by, cellW, cellH)
+              ctx.strokeStyle = '#ef4444'
+              ctx.lineWidth = 2
+              ctx.strokeRect(bx + 1, by + 1, cellW - 2, cellH - 2)
+            }
           }
         }
       }
@@ -866,6 +931,8 @@ export const CustomElementModal: React.FC = () => {
     composeZoom,
     tileWidth,
     tileHeight,
+    pixelWidth,
+    pixelHeight,
   ])
 
   // Update Animation Preview Canvas
@@ -932,31 +999,82 @@ export const CustomElementModal: React.FC = () => {
     reader.readAsDataURL(file)
   }
 
-  // Handle Drag Selection on Source Canvas / Eyedropper
-  // Refs to keep the latest mouse handlers reachable from window listeners
-  // without re-binding them on every state change.
-  const dragStateRef = useRef<{
-    isDragging: boolean
-    startX: number
-    startY: number
-    clientX: number
-    clientY: number
-  }>({ isDragging: false, startX: 0, startY: 0, clientX: 0, clientY: 0 })
+  // Handle Dynamic Crop Selection (8-direction handles, move, and freeform creation)
+  type CropDragMode =
+    | 'none'
+    | 'create'
+    | 'move'
+    | 'nw'
+    | 'n'
+    | 'ne'
+    | 'e'
+    | 'se'
+    | 's'
+    | 'sw'
+    | 'w'
 
-  // Helper: convert a viewport-space point to canvas-space (image coords),
-  // clamped to the source image bounds. Returns null if the point is outside
-  // the canvas.
-  const viewportToImageCoords = (clientX: number, clientY: number): { x: number; y: number } | null => {
-    const canvas = mainCanvasRef.current
-    if (!canvas) return null
-    const rect = canvas.getBoundingClientRect()
-    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
-      return null
+  const cropDragRef = useRef<{
+    isDragging: boolean
+    mode: CropDragMode
+    startClientX: number
+    startClientY: number
+    startMouseImgX: number
+    startMouseImgY: number
+    origSelection: { x: number; y: number; w: number; h: number }
+  }>({
+    isDragging: false,
+    mode: 'none',
+    startClientX: 0,
+    startClientY: 0,
+    startMouseImgX: 0,
+    startMouseImgY: 0,
+    origSelection: { x: 0, y: 0, w: 0, h: 0 },
+  })
+
+  const getCropInteractionAtPoint = (
+    clientX: number,
+    clientY: number,
+    rect: DOMRect
+  ): { mode: CropDragMode; cursor: string } => {
+    if (isEyedropperActive) {
+      return { mode: 'none', cursor: 'crosshair' }
     }
-    return {
-      x: (clientX - rect.left) / zoom,
-      y: (clientY - rect.top) / zoom,
+
+    const mx = clientX - rect.left
+    const my = clientY - rect.top
+
+    const sx = selection.x * zoom
+    const sy = selection.y * zoom
+    const sw = selection.w * zoom
+    const sh = selection.h * zoom
+
+    const HANDLE_HIT_R = 9
+
+    const handlePoints: { mode: CropDragMode; x: number; y: number; cursor: string }[] = [
+      { mode: 'nw', x: sx, y: sy, cursor: 'nwse-resize' },
+      { mode: 'n', x: sx + sw / 2, y: sy, cursor: 'ns-resize' },
+      { mode: 'ne', x: sx + sw, y: sy, cursor: 'nesw-resize' },
+      { mode: 'e', x: sx + sw, y: sy + sh / 2, cursor: 'ew-resize' },
+      { mode: 'se', x: sx + sw, y: sy + sh, cursor: 'nwse-resize' },
+      { mode: 's', x: sx + sw / 2, y: sy + sh, cursor: 'ns-resize' },
+      { mode: 'sw', x: sx, y: sy + sh, cursor: 'nesw-resize' },
+      { mode: 'w', x: sx, y: sy + sh / 2, cursor: 'ew-resize' },
+    ]
+
+    for (const h of handlePoints) {
+      const dx = mx - h.x
+      const dy = my - h.y
+      if (dx * dx + dy * dy <= HANDLE_HIT_R * HANDLE_HIT_R) {
+        return { mode: h.mode, cursor: h.cursor }
+      }
     }
+
+    // Check if inside the existing selection box to drag/move it
+    if (mx >= sx && mx <= sx + sw && my >= sy && my <= sy + sh) {
+      return { mode: 'move', cursor: 'move' }
+    }
+
+    return { mode: 'create', cursor: 'crosshair' }
   }
 
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -988,58 +1106,181 @@ export const CustomElementModal: React.FC = () => {
       return
     }
 
-    let rawX = (e.clientX - rect.left) / zoom
-    let rawY = (e.clientY - rect.top) / zoom
+    const { mode, cursor } = getCropInteractionAtPoint(e.clientX, e.clientY, rect)
+    mainCanvasRef.current.style.cursor = cursor
 
-    if (snapToGrid) {
-      rawX = Math.floor(rawX / 32) * 32
-      rawY = Math.floor(rawY / 32) * 32
-    }
+    const imgW = sourceImage.naturalWidth
+    const imgH = sourceImage.naturalHeight
+    const rawMouseImgX = (e.clientX - rect.left) / zoom
+    const rawMouseImgY = (e.clientY - rect.top) / zoom
 
-    setIsDraggingSelection(true)
-    setDragSelectionStart({ x: rawX, y: rawY })
-    setSelection({ x: rawX, y: rawY, w: 32, h: 32 })
+    const effectiveSnap = snapToGrid ? Math.max(1, gridSnapSize) : 1
 
-    // Persist drag origin for the global window listeners.
-    dragStateRef.current = {
-      isDragging: true,
-      startX: rawX,
-      startY: rawY,
-      clientX: e.clientX,
-      clientY: e.clientY,
+    if (mode === 'create') {
+      let startX = rawMouseImgX
+      let startY = rawMouseImgY
+      if (effectiveSnap > 1) {
+        startX = Math.floor(startX / effectiveSnap) * effectiveSnap
+        startY = Math.floor(startY / effectiveSnap) * effectiveSnap
+      } else {
+        startX = Math.round(startX)
+        startY = Math.round(startY)
+      }
+      startX = Math.max(0, Math.min(imgW - 1, startX))
+      startY = Math.max(0, Math.min(imgH - 1, startY))
+
+      cropDragRef.current = {
+        isDragging: true,
+        mode: 'create',
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startMouseImgX: startX,
+        startMouseImgY: startY,
+        origSelection: { x: startX, y: startY, w: 1, h: 1 },
+      }
+      setSelection({ x: startX, y: startY, w: 1, h: 1 })
+      setIsDraggingSelection(true)
+    } else {
+      cropDragRef.current = {
+        isDragging: true,
+        mode,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startMouseImgX: rawMouseImgX,
+        startMouseImgY: rawMouseImgY,
+        origSelection: { ...selection },
+      }
+      setIsDraggingSelection(true)
     }
   }
 
-  // Global mouse move — keeps updating the selection rectangle even when the
-  // cursor leaves the canvas (e.g. user drags past the image edge). Without
-  // this the selection freezes as soon as the pointer exits the canvas.
+  // Global mouse move & up — tracks resizing, moving and creating smoothly across the whole window
   useEffect(() => {
     if (!isDraggingSelection) return
 
     const handleWindowMouseMove = (e: MouseEvent) => {
       const canvas = mainCanvasRef.current
-      if (!canvas || !dragStateRef.current.isDragging) return
+      if (!canvas || !sourceImage || !cropDragRef.current.isDragging) return
       const rect = canvas.getBoundingClientRect()
-      let currentX = (e.clientX - rect.left) / zoom
-      let currentY = (e.clientY - rect.top) / zoom
 
-      if (snapToGrid) {
-        currentX = Math.round(currentX / 32) * 32
-        currentY = Math.round(currentY / 32) * 32
+      const imgW = sourceImage.naturalWidth
+      const imgH = sourceImage.naturalHeight
+      const { mode, startClientX, startClientY, startMouseImgX, startMouseImgY, origSelection } =
+        cropDragRef.current
+
+      // Invert snap with Alt key
+      const baseSnap = snapToGrid ? Math.max(1, gridSnapSize) : 1
+      const effectiveSnap = e.altKey ? 1 : baseSnap
+
+      const currentMouseImgX = (e.clientX - rect.left) / zoom
+      const currentMouseImgY = (e.clientY - rect.top) / zoom
+
+      if (mode === 'create') {
+        let curX = currentMouseImgX
+        let curY = currentMouseImgY
+        if (effectiveSnap > 1) {
+          curX = Math.round(curX / effectiveSnap) * effectiveSnap
+          curY = Math.round(curY / effectiveSnap) * effectiveSnap
+        } else {
+          curX = Math.round(curX)
+          curY = Math.round(curY)
+        }
+        curX = Math.max(0, Math.min(imgW, curX))
+        curY = Math.max(0, Math.min(imgH, curY))
+
+        const minX = Math.max(0, Math.min(startMouseImgX, curX))
+        const minY = Math.max(0, Math.min(startMouseImgY, curY))
+        const maxX = Math.min(imgW, Math.max(startMouseImgX, curX))
+        const maxY = Math.min(imgH, Math.max(startMouseImgY, curY))
+        const w = Math.max(1, maxX - minX)
+        const h = Math.max(1, maxY - minY)
+
+        setSelection({ x: minX, y: minY, w, h })
+        return
       }
 
-      const minX = Math.min(dragSelectionStart.x, currentX)
-      const minY = Math.min(dragSelectionStart.y, currentY)
-      const width = Math.max(32, Math.abs(currentX - dragSelectionStart.x))
-      const height = Math.max(32, Math.abs(currentY - dragSelectionStart.y))
+      if (mode === 'move') {
+        const deltaX = (e.clientX - startClientX) / zoom
+        const deltaY = (e.clientY - startClientY) / zoom
 
-      setSelection({ x: minX, y: minY, w: width, h: height })
-      dragStateRef.current.clientX = e.clientX
-      dragStateRef.current.clientY = e.clientY
+        let newX = origSelection.x + deltaX
+        let newY = origSelection.y + deltaY
+
+        if (effectiveSnap > 1) {
+          newX = Math.round(newX / effectiveSnap) * effectiveSnap
+          newY = Math.round(newY / effectiveSnap) * effectiveSnap
+        } else {
+          newX = Math.round(newX)
+          newY = Math.round(newY)
+        }
+
+        newX = Math.max(0, Math.min(imgW - origSelection.w, newX))
+        newY = Math.max(0, Math.min(imgH - origSelection.h, newY))
+
+        setSelection({ x: newX, y: newY, w: origSelection.w, h: origSelection.h })
+        return
+      }
+
+      // Handle Resizing (nw, n, ne, e, se, s, sw, w)
+      const deltaX = (e.clientX - startClientX) / zoom
+      const deltaY = (e.clientY - startClientY) / zoom
+
+      let left = origSelection.x
+      let right = origSelection.x + origSelection.w
+      let top = origSelection.y
+      let bottom = origSelection.y + origSelection.h
+
+      if (['e', 'ne', 'se'].includes(mode)) {
+        let newRight = right + deltaX
+        if (effectiveSnap > 1) {
+          newRight = Math.round(newRight / effectiveSnap) * effectiveSnap
+        } else {
+          newRight = Math.round(newRight)
+        }
+        right = Math.max(left + 1, Math.min(imgW, newRight))
+      }
+
+      if (['w', 'nw', 'sw'].includes(mode)) {
+        let newLeft = left + deltaX
+        if (effectiveSnap > 1) {
+          newLeft = Math.round(newLeft / effectiveSnap) * effectiveSnap
+        } else {
+          newLeft = Math.round(newLeft)
+        }
+        left = Math.max(0, Math.min(right - 1, newLeft))
+      }
+
+      if (['s', 'se', 'sw'].includes(mode)) {
+        let newBottom = bottom + deltaY
+        if (effectiveSnap > 1) {
+          newBottom = Math.round(newBottom / effectiveSnap) * effectiveSnap
+        } else {
+          newBottom = Math.round(newBottom)
+        }
+        bottom = Math.max(top + 1, Math.min(imgH, newBottom))
+      }
+
+      if (['n', 'nw', 'ne'].includes(mode)) {
+        let newTop = top + deltaY
+        if (effectiveSnap > 1) {
+          newTop = Math.round(newTop / effectiveSnap) * effectiveSnap
+        } else {
+          newTop = Math.round(newTop)
+        }
+        top = Math.max(0, Math.min(bottom - 1, newTop))
+      }
+
+      setSelection({
+        x: left,
+        y: top,
+        w: Math.max(1, right - left),
+        h: Math.max(1, bottom - top),
+      })
     }
 
     const handleWindowMouseUp = () => {
-      dragStateRef.current.isDragging = false
+      cropDragRef.current.isDragging = false
+      cropDragRef.current.mode = 'none'
       setIsDraggingSelection(false)
     }
 
@@ -1049,33 +1290,87 @@ export const CustomElementModal: React.FC = () => {
       window.removeEventListener('mousemove', handleWindowMouseMove)
       window.removeEventListener('mouseup', handleWindowMouseUp)
     }
-  }, [isDraggingSelection, dragSelectionStart, snapToGrid, zoom])
+  }, [isDraggingSelection, snapToGrid, gridSnapSize, zoom, sourceImage])
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    // The actual drag update happens via the window-level listener above so
-    // the rectangle continues to track when the pointer leaves the canvas.
-    // Keep this handler only as a no-op so the canvas keeps receiving focus
-    // events while a drag is in progress.
-    if (!isDraggingSelection) return
-    const coords = viewportToImageCoords(e.clientX, e.clientY)
-    if (coords === null) return
-    let currentX = coords.x
-    let currentY = coords.y
-    if (snapToGrid) {
-      currentX = Math.round(currentX / 32) * 32
-      currentY = Math.round(currentY / 32) * 32
-    }
-    const minX = Math.min(dragSelectionStart.x, currentX)
-    const minY = Math.min(dragSelectionStart.y, currentY)
-    const width = Math.max(32, Math.abs(currentX - dragSelectionStart.x))
-    const height = Math.max(32, Math.abs(currentY - dragSelectionStart.y))
-    setSelection({ x: minX, y: minY, w: width, h: height })
+    if (!mainCanvasRef.current || !sourceImage) return
+    if (cropDragRef.current.isDragging) return
+    const rect = mainCanvasRef.current.getBoundingClientRect()
+    const { cursor } = getCropInteractionAtPoint(e.clientX, e.clientY, rect)
+    mainCanvasRef.current.style.cursor = cursor
   }
 
   const handleCanvasMouseUp = () => {
+    cropDragRef.current.isDragging = false
+    cropDragRef.current.mode = 'none'
     setIsDraggingSelection(false)
-    dragStateRef.current.isDragging = false
   }
+
+  // Auto-Crop / Trim to bounding box of content
+  const handleAutoCropToContent = () => {
+    if (!sourceImage || selection.w <= 0 || selection.h <= 0) return
+    const rawCrop = cropImage(sourceImage, selection.x, selection.y, selection.w, selection.h)
+    const processed = enableBgRemoval
+      ? applyBackgroundRemoval(rawCrop, targetColor, tolerance, removeWhiteFringe)
+      : rawCrop
+
+    const bounds = getTrimmedBounds(processed)
+    if (bounds) {
+      const newX = Math.max(0, selection.x + bounds.x)
+      const newY = Math.max(0, selection.y + bounds.y)
+      const newW = Math.min(sourceImage.naturalWidth - newX, bounds.w)
+      const newH = Math.min(sourceImage.naturalHeight - newY, bounds.h)
+      setSelection({ x: newX, y: newY, w: newW, h: newH })
+    }
+  }
+
+  // Keyboard navigation for pixel-level nudge adjustments
+  useEffect(() => {
+    if (studioMode !== 'crop' || !sourceImage || !isCustomModalOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+        return
+      }
+
+      const imgW = sourceImage.naturalWidth
+      const imgH = sourceImage.naturalHeight
+      const step = e.shiftKey ? 10 : 1
+
+      if (e.altKey) {
+        if (e.key === 'ArrowRight') {
+          e.preventDefault()
+          setSelection((s) => ({ ...s, w: Math.min(imgW - s.x, s.w + step) }))
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault()
+          setSelection((s) => ({ ...s, w: Math.max(1, s.w - step) }))
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setSelection((s) => ({ ...s, h: Math.min(imgH - s.y, s.h + step) }))
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setSelection((s) => ({ ...s, h: Math.max(1, s.h - step) }))
+        }
+      } else {
+        if (e.key === 'ArrowRight') {
+          e.preventDefault()
+          setSelection((s) => ({ ...s, x: Math.min(imgW - s.w, s.x + step) }))
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault()
+          setSelection((s) => ({ ...s, x: Math.max(0, s.x - step) }))
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setSelection((s) => ({ ...s, y: Math.min(imgH - s.h, s.y + step) }))
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setSelection((s) => ({ ...s, y: Math.max(0, s.y - step) }))
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [studioMode, sourceImage, isCustomModalOpen])
 
   // Composition Mouse Handlers
   const handleComposeCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1085,6 +1380,12 @@ export const CustomElementModal: React.FC = () => {
     const clickY = Math.floor((e.clientY - rect.top) / composeZoom)
 
     if (composeTool === 'collision') {
+      const targetW = pixelWidth || tileWidth * 32
+      const targetH = pixelHeight || tileHeight * 32
+      if (clickX < 0 || clickX >= targetW || clickY < 0 || clickY >= targetH) {
+        return
+      }
+
       const tileCol = Math.floor(clickX / 32)
       const tileRow = Math.floor(clickY / 32)
 
@@ -1133,6 +1434,12 @@ export const CustomElementModal: React.FC = () => {
 
     if (composeTool === 'collision') {
       if (!isPaintingCollision) return
+      const targetW = pixelWidth || tileWidth * 32
+      const targetH = pixelHeight || tileHeight * 32
+      if (currentX < 0 || currentX >= targetW || currentY < 0 || currentY >= targetH) {
+        return
+      }
+
       const tileCol = Math.floor(currentX / 32)
       const tileRow = Math.floor(currentY / 32)
 
@@ -1477,8 +1784,8 @@ export const CustomElementModal: React.FC = () => {
         }
 
         finalDirDims[d] = {
-          width: dim.tileWidth,
-          height: dim.tileHeight,
+          width: dim.pixelWidth ? dim.pixelWidth / 32 : dim.tileWidth,
+          height: dim.pixelHeight ? dim.pixelHeight / 32 : dim.tileHeight,
           pixelWidth: dim.pixelWidth,
           pixelHeight: dim.pixelHeight,
         }
@@ -1588,8 +1895,8 @@ export const CustomElementModal: React.FC = () => {
       return
     }
 
-    const baseWidth = elementType === 'furniture' && finalDirDims.down ? finalDirDims.down.width : tileWidth
-    const baseHeight = elementType === 'furniture' && finalDirDims.down ? finalDirDims.down.height : tileHeight
+    const baseWidth = elementType === 'furniture' && finalDirDims.down ? (finalDirDims.down.pixelWidth ? finalDirDims.down.pixelWidth / 32 : finalDirDims.down.width) : (pixelWidth ? pixelWidth / 32 : tileWidth)
+    const baseHeight = elementType === 'furniture' && finalDirDims.down ? (finalDirDims.down.pixelHeight ? finalDirDims.down.pixelHeight / 32 : finalDirDims.down.height) : (pixelHeight ? pixelHeight / 32 : tileHeight)
     const basePixelWidth = elementType === 'furniture' && finalDirDims.down ? (finalDirDims.down.pixelWidth || finalDirDims.down.width * 32) : (pixelWidth || tileWidth * 32)
     const basePixelHeight = elementType === 'furniture' && finalDirDims.down ? (finalDirDims.down.pixelHeight || finalDirDims.down.height * 32) : (pixelHeight || tileHeight * 32)
 
@@ -1772,6 +2079,8 @@ export const CustomElementModal: React.FC = () => {
                 setZoom={setZoom}
                 snapToGrid={snapToGrid}
                 setSnapToGrid={setSnapToGrid}
+                gridSnapSize={gridSnapSize}
+                setGridSnapSize={setGridSnapSize}
                 selection={selection}
                 setSelection={setSelection}
                 isEyedropperActive={isEyedropperActive}
@@ -1788,6 +2097,8 @@ export const CustomElementModal: React.FC = () => {
                 pixelWidth={pixelWidth}
                 pixelHeight={pixelHeight}
                 onSetBoardSizeInTiles={setBoardSizeInTiles}
+                onSetPixelSize={setPixelSize}
+                onAutoCropToContent={handleAutoCropToContent}
                 scaleFitMode={scaleFitMode}
               />
             ) : (
