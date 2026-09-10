@@ -38,6 +38,8 @@ export const AssetPalette: React.FC = () => {
     removeZone,
     removeFurnitureByDefId,
     replaceFloorGlobally,
+    eraserTarget,
+    setEraserTarget,
   } = useMapStore()
 
   const {
@@ -45,6 +47,7 @@ export const AssetPalette: React.FC = () => {
     customCategories,
     addCategory,
     setCustomModalOpen,
+    openCreateModal,
     deleteCustomAsset,
     openEditModal,
     getAllCategories,
@@ -59,7 +62,13 @@ export const AssetPalette: React.FC = () => {
   ]
   const customFloors = customAssets
     .filter((a) => a.type === 'floor')
-    .map((a) => ({ id: a.id, name: `✨ ${a.name}`, isCustom: true }))
+    .map((a) => ({
+      id: a.id,
+      name: `✨ ${a.name}`,
+      isCustom: true,
+      width: a.width || 1,
+      height: a.height || 1,
+    }))
   const floors = [...customFloors, ...baseFloors]
 
   const baseWalls: { id: WallType | string; name: string; isCustom?: boolean }[] = [
@@ -136,7 +145,14 @@ export const AssetPalette: React.FC = () => {
           </div>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setCustomModalOpen(true)}
+              onClick={() =>
+                openCreateModal(
+                  'crop',
+                  furnitureCategory !== 'Todos' && furnitureCategory !== 'Customizados'
+                    ? furnitureCategory
+                    : 'Geral'
+                )
+              }
               className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-white font-bold text-xs shadow-md transition-all border border-white/10"
               title="Adicionar e recortar novos elementos personalizados com transparência"
             >
@@ -169,7 +185,11 @@ export const AssetPalette: React.FC = () => {
           <button
             onClick={() => {
               setActiveTab('furniture')
-              setActiveTool('place_furniture')
+              if (activeTool === 'eraser') {
+                setEraserTarget('furniture')
+              } else {
+                setActiveTool('place_furniture')
+              }
             }}
             className={`flex flex-col items-center py-2 px-1 rounded-xl text-xs font-medium transition-all ${
               activeTab === 'furniture'
@@ -184,7 +204,11 @@ export const AssetPalette: React.FC = () => {
           <button
             onClick={() => {
               setActiveTab('floors')
-              setActiveTool('paint_floor')
+              if (activeTool === 'eraser') {
+                setEraserTarget('floor')
+              } else {
+                setActiveTool('paint_floor')
+              }
             }}
             className={`flex flex-col items-center py-2 px-1 rounded-xl text-xs font-medium transition-all ${
               activeTab === 'floors'
@@ -199,7 +223,11 @@ export const AssetPalette: React.FC = () => {
           <button
             onClick={() => {
               setActiveTab('zones')
-              setActiveTool('draw_zone')
+              if (activeTool === 'eraser') {
+                setEraserTarget('zone')
+              } else {
+                setActiveTool('draw_zone')
+              }
             }}
             className={`flex flex-col items-center py-2 px-1 rounded-xl text-xs font-medium transition-all ${
               activeTab === 'zones'

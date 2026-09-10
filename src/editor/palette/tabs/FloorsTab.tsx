@@ -5,7 +5,7 @@ import { FloorType } from '../../../types/map'
 import { ConfirmModal } from '../../../components/ConfirmModal'
 
 interface Props {
-  floors: { id: string; name: string; isCustom?: boolean }[]
+  floors: { id: string; name: string; isCustom?: boolean; width?: number; height?: number }[]
   selectedFloor: FloorType
   setSelectedFloor: (floor: FloorType) => void
   activeTool: string
@@ -29,22 +29,15 @@ export const FloorsTab: React.FC<Props> = ({
 
   return (
     <div className="space-y-3">
-      {/* Rule banner: floor paint only works inside zones. The user
-          has to draw a zone first (using the "Demarcar zona" tool)
-          and then click inside it to fill the whole zone with the
-          selected floor. Clicking outside a zone is a no-op (the
-          cursor preview already shows a forbidden outline). */}
+      {/* Rule banner: explanation of floor placement */}
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-2.5">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300 px-1 pb-1.5">
-          Como pintar pisos
+          Como usar pisos
         </div>
         <div className="text-[11px] text-emerald-100 px-1 leading-relaxed">
-          1. Use a aba <span className="font-semibold">Zonas</span> para
-          demarcar uma zona no mapa.
+          • <span className="font-semibold">Pisos 1×1</span>: preenchem uma zona inteira ao clicar nela, ou pintam ladrilhos livres no mapa.
           <br />
-          2. Volte aqui, escolha um piso e clique{' '}
-          <span className="font-semibold">dentro da zona</span> — ela
-          será preenchida inteira com o piso selecionado.
+          • <span className="font-semibold">Pisos multi-tiles (2×1, 4×4...)</span>: são inseridos mantendo o tamanho e proporções reais onde você clicar.
         </div>
       </div>
 
@@ -67,7 +60,17 @@ export const FloorsTab: React.FC<Props> = ({
               title={floor.name}
             >
               {/* Top Badge / Actions */}
-              <div className="w-full flex items-center justify-end z-10 pointer-events-none">
+              <div className="w-full flex items-center justify-between z-10 pointer-events-none">
+                <div>
+                  {((floor.width && floor.width > 1) || (floor.height && floor.height > 1)) && (
+                    <div
+                      className="px-1 py-0.5 rounded text-[8px] font-bold bg-indigo-500/30 text-indigo-200 border border-indigo-500/40 shadow-sm"
+                      title={`Dimensão: ${floor.width || 1}×${floor.height || 1} tiles`}
+                    >
+                      {floor.width || 1}×{floor.height || 1}
+                    </div>
+                  )}
+                </div>
                 {isDefaultFloor ? (
                   <div
                     className="px-1 py-0.5 rounded text-[8px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-0.5 shadow-sm"

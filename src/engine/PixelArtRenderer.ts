@@ -22,9 +22,12 @@ export class PixelArtRenderer {
     type: FloorType | string,
     x: number,
     y: number,
-    size: number = TILE_SIZE
+    size: number = TILE_SIZE,
+    tileX?: number,
+    tileY?: number,
+    mapFloors?: (FloorType | string)[][]
   ) {
-    FloorRenderer.drawFloor(ctx, type, x, y, size)
+    FloorRenderer.drawFloor(ctx, type, x, y, size, tileX, tileY, mapFloors)
   }
 
   /**

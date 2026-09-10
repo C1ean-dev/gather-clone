@@ -18,13 +18,33 @@ export interface SavedSpace {
 const STORAGE_KEY = 'gather_v2_saved_spaces'
 const ACTIVE_SPACE_ID_KEY = 'gather_v2_active_space_id'
 
-const syncSpacesToNativeFile = (spaces: SavedSpace[]) => {
+const syncSpacesToNativeFile = async (spaces: SavedSpace[]): Promise<boolean> => {
   try {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.saveNativeSpaces) {
-      ;(window as any).electronAPI.saveNativeSpaces(spaces)
+    if (typeof window === 'undefined') return false
+    let saved = false
+    if ((window as any).electronAPI?.saveNativeSpaces) {
+      try {
+        saved = await (window as any).electronAPI.saveNativeSpaces(spaces)
+      } catch (err) {
+        console.warn('[useSavedSpacesStore] Electron save error:', err)
+      }
     }
+    if (typeof fetch !== 'undefined') {
+      try {
+        const res = await fetch('/api/save-native-spaces', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(spaces, null, 2),
+        })
+        if (res.ok) {
+          saved = true
+        }
+      } catch {}
+    }
+    return saved
   } catch (err) {
     console.error('Failed to sync native spaces to file:', err)
+    return false
   }
 }
 
@@ -228,3 +248,15 @@ export const useSavedSpacesStore = create<SavedSpacesState>((set, get) => {
     },
   }
 })
+
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    try {
+      const state = useSavedSpacesStore.getState()
+      if (state.savedSpaces.length > 0) {
+        syncSpacesToNativeFile(state.savedSpaces)
+      }
+    } catch {}
+  }, 1000)
+}
+

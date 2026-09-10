@@ -102,7 +102,7 @@ export function getStaticLayer(map: MapData): StaticLayer | null {
       // Heuristic: dataURL frames not yet decoded (naturalWidth 0) need refresh.
       // We can't cheaply check every tile's image; instead rely on the
       // furniture/zone image checks below + a single probe per unique type.
-      FloorRenderer.drawFloor(ctx, floor, x * TILE_SIZE, y * TILE_SIZE)
+      FloorRenderer.drawFloor(ctx, floor, x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, x, y, map.floors)
     }
   }
 

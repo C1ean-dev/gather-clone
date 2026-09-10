@@ -43,13 +43,46 @@ export function getCustomAssetImage(dataUrl: string): HTMLImageElement | null {
   return img
 }
 
-const syncToNativeFile = (assets: CustomAsset[], categories: string[]) => {
+export const syncToNativeFile = async (
+  assets: CustomAsset[],
+  categories: string[]
+): Promise<boolean> => {
   try {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.saveNativeAssets) {
-      ;(window as any).electronAPI.saveNativeAssets({ categories, assets })
+    if (typeof window === 'undefined') return false
+    const payload = { categories, assets }
+
+    let saved = false
+
+    // 1. Electron IPC (desktop app)
+    if ((window as any).electronAPI?.saveNativeAssets) {
+      try {
+        saved = await (window as any).electronAPI.saveNativeAssets(payload)
+      } catch (err) {
+        console.warn('[useCustomAssetsStore] Electron saveNativeAssets error:', err)
+      }
     }
+
+    // 2. HTTP Dev Server endpoint (browser / Vite dev mode, saves directly to src/data/nativeAssets.json)
+    if (typeof fetch !== 'undefined') {
+      try {
+        const res = await fetch('/api/save-native-assets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload, null, 2),
+        })
+        if (res.ok) {
+          saved = true
+          console.info('[useCustomAssetsStore] Synced assets to src/data/nativeAssets.json (tracked by Git)')
+        }
+      } catch (err) {
+        // Dev server not reachable (standalone/offline)
+      }
+    }
+
+    return saved
   } catch (err) {
     console.error('Failed to sync native assets to file:', err)
+    return false
   }
 }
 
@@ -77,8 +110,9 @@ const loadSavedCustomAssets = (): CustomAsset[] => {
   const merged = Array.from(map.values())
 
   merged.forEach((asset: CustomAsset) => {
-    // Consolidate everything into 'Geral'
-    asset.category = 'Geral'
+    if (!asset.category || !asset.category.trim()) {
+      asset.category = 'Geral'
+    }
 
     if (Array.isArray(asset.frames)) {
       asset.frames.forEach(getCustomAssetImage)
@@ -93,6 +127,14 @@ const loadSavedCustomAssets = (): CustomAsset[] => {
       })
     }
   })
+
+  // If there are assets saved in localStorage, automatically sync them to disk so they appear in Git
+  if (savedAssets.length > 0 && typeof window !== 'undefined') {
+    setTimeout(() => {
+      syncToNativeFile(merged, loadSavedCategories())
+    }, 500)
+  }
+
   return merged
 }
 
@@ -214,9 +256,10 @@ interface CustomAssetsState {
   isCustomModalOpen: boolean
   editingAssetId: string | null
   initialStudioMode: 'crop' | 'compose'
+  initialCategory: string
   setCustomModalOpen: (open: boolean) => void
   setEditingAssetId: (id: string | null) => void
-  openCreateModal: (mode?: 'crop' | 'compose') => void
+  openCreateModal: (mode?: 'crop' | 'compose', initialCategory?: string) => void
   openEditModal: (id: string, mode?: 'crop' | 'compose') => void
   addCustomAsset: (asset: CustomAsset) => void
   updateCustomAsset: (id: string, asset: Partial<CustomAsset>) => void
@@ -229,6 +272,7 @@ interface CustomAssetsState {
   getAssetById: (id: string) => CustomAsset | undefined
   getAllCategories: () => string[]
   getFurnitureCatalog: (baseCatalog: FurnitureDefinition[]) => FurnitureDefinition[]
+  syncAllAssetsToDisk: () => Promise<boolean>
 }
 
 export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
@@ -237,14 +281,15 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
   isCustomModalOpen: false,
   editingAssetId: null,
   initialStudioMode: 'crop',
+  initialCategory: 'Geral',
   setCustomModalOpen: (open) =>
     set({
       isCustomModalOpen: open,
       editingAssetId: open ? get().editingAssetId : null,
     }),
   setEditingAssetId: (id) => set({ editingAssetId: id }),
-  openCreateModal: (mode = 'crop') =>
-    set({ isCustomModalOpen: true, editingAssetId: null, initialStudioMode: mode }),
+  openCreateModal: (mode = 'crop', initialCategory = 'Geral') =>
+    set({ isCustomModalOpen: true, editingAssetId: null, initialStudioMode: mode, initialCategory }),
   openEditModal: (id, mode = 'compose') =>
     set({ isCustomModalOpen: true, editingAssetId: id, initialStudioMode: mode }),
 
@@ -301,9 +346,14 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
       }
       return a
     })
+    let updatedCats = get().customCategories
+    if (partial.category && !updatedCats.includes(partial.category)) {
+      updatedCats = [...updatedCats, partial.category]
+      saveCategories(updatedCats)
+    }
     saveCustomAssets(updated)
-    set({ customAssets: updated })
-    syncToNativeFile(updated, get().customCategories)
+    set({ customAssets: updated, customCategories: updatedCats })
+    syncToNativeFile(updated, updatedCats)
 
     // Broadcast updated custom asset across P2P mesh
     if (fullAsset) {
@@ -428,6 +478,10 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
       }))
 
     return [...baseCatalog, ...customFurns]
+  },
+
+  syncAllAssetsToDisk: async () => {
+    return syncToNativeFile(get().customAssets, get().customCategories)
   },
 }))
 

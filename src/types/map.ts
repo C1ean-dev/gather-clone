@@ -95,3 +95,5 @@ export type EditorTool =
   | 'place_furniture' 
   | 'draw_zone' 
   | 'eraser'
+
+export type EraserTarget = 'furniture' | 'floor' | 'zone' | 'wall'

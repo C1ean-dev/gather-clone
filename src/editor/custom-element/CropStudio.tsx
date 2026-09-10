@@ -139,6 +139,15 @@ export const CropStudio: React.FC<Props> = ({
     }
   }, [setZoom])
 
+  const handleFitToScreen = () => {
+    if (!stageRef.current || !sourceImage) return
+    const stageW = stageRef.current.clientWidth - 48
+    const stageH = stageRef.current.clientHeight - 48
+    if (stageW <= 0 || stageH <= 0) return
+    const fitZoom = Math.min(1, Math.min(stageW / sourceImage.naturalWidth, stageH / sourceImage.naturalHeight))
+    setZoom(Math.max(0.1, Math.round(fitZoom * 100) / 100))
+  }
+
   return (
     <div className="flex-1 flex flex-col bg-[#12151d] rounded-2xl border border-[#2b2d31] overflow-hidden">
       {/* Top Toolbar */}
@@ -173,18 +182,18 @@ export const CropStudio: React.FC<Props> = ({
           <div className="flex items-center gap-1 bg-[#12151d] p-1 rounded-xl border border-[#2b2d31]">
             <button
               type="button"
-              onClick={() => setZoom(Math.max(0.5, zoom - 0.25))}
+              onClick={() => setZoom((z) => Math.max(0.1, Math.round((z - 0.25) * 100) / 100))}
               className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
               title="Reduzir Zoom"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="text-[10px] font-mono font-bold text-slate-300 px-1">
+            <span className="text-[10px] font-mono font-bold text-slate-300 px-1 min-w-[32px] text-center">
               {Math.round(zoom * 100)}%
             </span>
             <button
               type="button"
-              onClick={() => setZoom(Math.min(4, zoom + 0.25))}
+              onClick={() => setZoom((z) => Math.min(6, Math.round((z + 0.25) * 100) / 100))}
               className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
               title="Aumentar Zoom"
             >
@@ -193,11 +202,21 @@ export const CropStudio: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => setZoom(1)}
-              className="p-1 rounded text-slate-300 hover:text-white hover:bg-[#2b2d31]"
+              className="px-1.5 py-0.5 rounded text-[10px] font-bold text-slate-300 hover:text-white hover:bg-[#2b2d31]"
               title="Restaurar 100%"
             >
-              <Maximize2 className="w-3.5 h-3.5" />
+              100%
             </button>
+            {sourceImage && (
+              <button
+                type="button"
+                onClick={handleFitToScreen}
+                className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-600/30 text-indigo-200 hover:bg-indigo-600/50 hover:text-white border border-indigo-500/40"
+                title="Ajustar zoom para caber a imagem inteira na tela"
+              >
+                Ajustar Tela
+              </button>
+            )}
           </div>
 
           {/* Crop Mode / Grid Snap Selection */}
@@ -285,6 +304,20 @@ export const CropStudio: React.FC<Props> = ({
             </button>
           )}
 
+          {sourceImage && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelection({ x: 0, y: 0, w: sourceImage.naturalWidth, h: sourceImage.naturalHeight })
+              }}
+              className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 border border-[#2b2d31] text-slate-300 font-bold text-[11px] flex items-center gap-1 transition-all"
+              title="Selecionar toda a área da imagem carregada"
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-slate-400" />
+              <span>Selecionar Tudo</span>
+            </button>
+          )}
+
           {/* Quick Match Target Size */}
           {pixelWidth && pixelHeight && (
             <button
@@ -310,7 +343,7 @@ export const CropStudio: React.FC<Props> = ({
           file whether or not an image is already loaded. */}
       <div
         ref={stageRef}
-        className="flex-1 overflow-auto flex items-center justify-center p-4 relative bg-[#0e1015]"
+        className="flex-1 overflow-auto p-4 relative bg-[#0e1015] flex"
         onDragOver={handleDragOver}
         onDragEnter={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -318,7 +351,7 @@ export const CropStudio: React.FC<Props> = ({
       >
         {sourceImageSrc ? (
           <div
-            className={`relative border-2 rounded-lg shadow-2xl overflow-hidden bg-[#18191c] transition-colors ${
+            className={`m-auto relative border-2 rounded-lg shadow-2xl overflow-hidden bg-[#18191c] transition-colors shrink-0 ${
               isDragOverFile
                 ? 'border-indigo-400 ring-2 ring-indigo-400/40'
                 : 'border-[#2b2d31]'
@@ -344,7 +377,7 @@ export const CropStudio: React.FC<Props> = ({
         ) : (
           <div
             onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-3xl p-10 text-center cursor-pointer space-y-3 transition-colors ${
+            className={`m-auto border-2 border-dashed rounded-3xl p-10 text-center cursor-pointer space-y-3 transition-colors ${
               isDragOverFile
                 ? 'border-indigo-400 bg-indigo-500/10'
                 : 'border-slate-700 hover:border-indigo-500 bg-[#18191c]/50'

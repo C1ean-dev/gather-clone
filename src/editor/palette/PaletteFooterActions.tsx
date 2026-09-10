@@ -1,5 +1,6 @@
 import React from 'react'
 import { Trash2, RotateCcw } from 'lucide-react'
+import { useMapStore } from '../../store/useMapStore'
 
 interface Props {
   activeTool: string
@@ -12,18 +13,53 @@ export const PaletteFooterActions: React.FC<Props> = ({
   setActiveTool,
   onResetWorkspace,
 }) => {
+  const eraserTarget = useMapStore((s) => s.eraserTarget)
+
+  const handleToggleEraser = () => {
+    if (activeTool === 'eraser') {
+      if (eraserTarget === 'floor') setActiveTool('paint_floor')
+      else if (eraserTarget === 'zone') setActiveTool('draw_zone')
+      else if (eraserTarget === 'wall') setActiveTool('paint_wall')
+      else setActiveTool('place_furniture')
+    } else {
+      setActiveTool('eraser')
+    }
+  }
+
+  const getEraserLabel = () => {
+    if (activeTool === 'eraser') {
+      if (eraserTarget === 'floor') return 'Borracha: Piso'
+      if (eraserTarget === 'zone') return 'Borracha: Zonas'
+      if (eraserTarget === 'wall') return 'Borracha: Paredes'
+      return 'Borracha: Mobília'
+    }
+    if (eraserTarget === 'floor') return 'Apagar Piso'
+    if (eraserTarget === 'zone') return 'Apagar Zonas'
+    if (eraserTarget === 'wall') return 'Apagar Paredes'
+    return 'Apagar Mobília'
+  }
+
   return (
     <div className="p-3 border-t border-[#2a3142] bg-[#12151d]/80 flex gap-2">
       <button
-        onClick={() => setActiveTool(activeTool === 'eraser' ? 'place_furniture' : 'eraser')}
+        onClick={handleToggleEraser}
         className={`flex-1 py-2 px-3 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-all ${
           activeTool === 'eraser'
             ? 'bg-rose-600 text-white shadow-md ring-2 ring-rose-500/30'
             : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
         }`}
+        title={`Ativar borracha para apagar ${
+          eraserTarget === 'floor'
+            ? 'pisos'
+            : eraserTarget === 'zone'
+            ? 'zonas privadas'
+            : eraserTarget === 'wall'
+            ? 'paredes'
+            : 'mobílias'
+        }`}
       >
         <Trash2 className="w-4 h-4" />
-        <span>{activeTool === 'eraser' ? 'Borracha Ativa' : 'Borracha'}</span>
+        <span>{getEraserLabel()}</span>
       </button>
 
       <button

@@ -11,7 +11,10 @@ export class FloorRenderer {
     type: FloorType | string,
     x: number,
     y: number,
-    size: number = TILE_SIZE
+    size: number = TILE_SIZE,
+    tileX?: number,
+    tileY?: number,
+    mapFloors?: (FloorType | string)[][]
   ) {
     const px = Math.floor(x)
     const py = Math.floor(y)
@@ -26,12 +29,46 @@ export class FloorRenderer {
       const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
       const img = getCustomAssetImage(customAsset.frames[frameIdx])
       if (img && img.complete && img.naturalWidth > 0) {
-        const isDownscaling = img.naturalWidth > s * 1.2 || img.naturalHeight > s * 1.2
-        ctx.imageSmoothingEnabled = isDownscaling
-        if (isDownscaling) {
-          ctx.imageSmoothingQuality = 'high'
+        const wTiles = Math.max(1, Math.round(customAsset.width || 1))
+        const hTiles = Math.max(1, Math.round(customAsset.height || 1))
+
+        if (wTiles > 1 || hTiles > 1) {
+          const tx = tileX !== undefined ? tileX : Math.round(x / size)
+          const ty = tileY !== undefined ? tileY : Math.round(y / size)
+
+          let startX = tx
+          let startY = ty
+          if (mapFloors) {
+            while (startX > 0 && mapFloors[ty]?.[startX - 1] === type) {
+              startX--
+            }
+            while (startY > 0 && mapFloors[startY - 1]?.[tx] === type) {
+              startY--
+            }
+          }
+
+          const subCol = (((tx - startX) % wTiles) + wTiles) % wTiles
+          const subRow = (((ty - startY) % hTiles) + hTiles) % hTiles
+
+          const sliceW = img.naturalWidth / wTiles
+          const sliceH = img.naturalHeight / hTiles
+          const sx = subCol * sliceW
+          const sy = subRow * sliceH
+
+          const isDownscaling = sliceW > s * 1.2 || sliceH > s * 1.2
+          ctx.imageSmoothingEnabled = isDownscaling
+          if (isDownscaling) {
+            ctx.imageSmoothingQuality = 'high'
+          }
+          ctx.drawImage(img, sx, sy, sliceW, sliceH, px, py, s, s)
+        } else {
+          const isDownscaling = img.naturalWidth > s * 1.2 || img.naturalHeight > s * 1.2
+          ctx.imageSmoothingEnabled = isDownscaling
+          if (isDownscaling) {
+            ctx.imageSmoothingQuality = 'high'
+          }
+          ctx.drawImage(img, px, py, s, s)
         }
-        ctx.drawImage(img, px, py, s, s)
       } else {
         ctx.fillStyle = customAsset.iconColor || '#4c6ef5'
         ctx.fillRect(px, py, s, s)

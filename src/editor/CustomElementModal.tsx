@@ -42,6 +42,7 @@ export const CustomElementModal: React.FC = () => {
     setCustomModalOpen,
     editingAssetId,
     initialStudioMode,
+    initialCategory,
     updateCustomAsset,
     getAssetById,
     addCustomAsset,
@@ -454,7 +455,9 @@ export const CustomElementModal: React.FC = () => {
       setCompositeBoardWidth(32)
       setCompositeBoardHeight(32)
     }
-    setCategory('Geral')
+    if (!category) {
+      setCategory('Geral')
+    }
   }
 
   // Load asset data when editing an existing asset or opening in crop/compose mode
@@ -642,9 +645,10 @@ export const CustomElementModal: React.FC = () => {
         emptyGrid.push([false, false])
       }
       setCollisionGrid(emptyGrid)
+      setCategory(initialCategory || 'Geral')
       setStudioMode(initialStudioMode || 'crop')
     }
-  }, [isCustomModalOpen, editingAssetId, initialStudioMode])
+  }, [isCustomModalOpen, editingAssetId, initialStudioMode, initialCategory])
 
   // Animation player ticker
   useEffect(() => {
@@ -994,6 +998,12 @@ export const CustomElementModal: React.FC = () => {
         setSourceImage(img)
         setSourceImageSrc(dataUrl)
         setSelection({ x: 0, y: 0, w: Math.min(64, img.naturalWidth), h: Math.min(64, img.naturalHeight) })
+        if (img.naturalWidth > 640 || img.naturalHeight > 480) {
+          const autoFitZoom = Math.max(0.15, Math.min(1, Math.min(640 / img.naturalWidth, 480 / img.naturalHeight)))
+          setZoom(Math.round(autoFitZoom * 100) / 100)
+        } else {
+          setZoom(1)
+        }
       }
     }
     reader.readAsDataURL(file)

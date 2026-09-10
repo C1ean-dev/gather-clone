@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { PixelArtRenderer } from '../engine/PixelArtRenderer'
 import { FURNITURE_CATALOG, TILE_SIZE } from '../engine/Constants'
 import { FloorType, WallType, PlacedFurniture } from '../types/map'
-import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
+import { useCustomAssetsStore, getCustomAssetImage } from '../store/useCustomAssetsStore'
 
 interface PixelArtThumbnailProps {
   type: 'furniture' | 'floor' | 'wall'
@@ -65,7 +65,27 @@ export const PixelArtThumbnail: React.FC<PixelArtThumbnailProps> = ({
           ctx.restore()
         } else if (type === 'floor') {
           ctx.save()
-          PixelArtRenderer.drawFloor(ctx, id as FloorType, 0, 0, size)
+          const customAsset = useCustomAssetsStore.getState().getAssetById(id)
+          if (customAsset && ((customAsset.width && customAsset.width > 1) || (customAsset.height && customAsset.height > 1))) {
+            const wTiles = Math.max(1, Math.round(customAsset.width || 1))
+            const hTiles = Math.max(1, Math.round(customAsset.height || 1))
+            const maxDim = Math.max(wTiles, hTiles)
+            const availableSize = size - 8
+            const scale = availableSize / (maxDim * TILE_SIZE)
+            const drawW = wTiles * TILE_SIZE * scale
+            const drawH = hTiles * TILE_SIZE * scale
+            const offsetX = (size - drawW) / 2
+            const offsetY = (size - drawH) / 2
+            ctx.translate(offsetX, offsetY)
+            const img = customAsset.frames?.[0] ? getCustomAssetImage(customAsset.frames[0]) : null
+            if (img && img.complete && img.naturalWidth > 0) {
+              ctx.drawImage(img, 0, 0, drawW, drawH)
+            } else {
+              PixelArtRenderer.drawFloor(ctx, id as FloorType, 0, 0, size)
+            }
+          } else {
+            PixelArtRenderer.drawFloor(ctx, id as FloorType, 0, 0, size)
+          }
           ctx.restore()
         } else if (type === 'wall') {
           ctx.save()

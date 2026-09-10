@@ -4,7 +4,7 @@ import { AvatarRenderer } from '../AvatarRenderer'
 import { PetRenderer } from '../pet/PetRenderer'
 import { PetManager, PetState } from '../pet/PetManager'
 import { Player, PetConfig, Direction } from '../../types/game'
-import { PlacedFurniture } from '../../types/map'
+import { PlacedFurniture, PrivateZone } from '../../types/map'
 import { useGameStore } from '../../store/useGameStore'
 import { useMapStore } from '../../store/useMapStore'
 import { useCustomAssetsStore, getCustomAssetImage } from '../../store/useCustomAssetsStore'
@@ -88,7 +88,7 @@ export class WorldRenderer {
         // Dynamic overdraw only for animated assets (usually empty).
         for (const t of staticLayer.animatedFloorTiles) {
           if (enableCulling && (t.x < startX || t.x >= endX || t.y < startY || t.y >= endY)) continue
-          PixelArtRenderer.drawFloor(ctx, t.type, t.x * TILE_SIZE, t.y * TILE_SIZE)
+          PixelArtRenderer.drawFloor(ctx, t.type, t.x * TILE_SIZE, t.y * TILE_SIZE, TILE_SIZE, t.x, t.y, map.floors)
         }
         for (const zone of staticLayer.animatedZones) {
           PixelArtRenderer.drawGatherRoom(ctx, zone, map.zones || [])
@@ -116,7 +116,7 @@ export class WorldRenderer {
         for (let y = startY; y < endY; y++) {
           for (let x = startX; x < endX; x++) {
             const floor = map.floors?.[y]?.[x] || 'habbo_parquet'
-            PixelArtRenderer.drawFloor(ctx, floor, x * TILE_SIZE, y * TILE_SIZE)
+            PixelArtRenderer.drawFloor(ctx, floor, x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, x, y, map.floors)
           }
         }
 
@@ -381,62 +381,117 @@ export class WorldRenderer {
           FurnitureRenderer.drawFurniture(ctx, dummyFurn)
           ctx.restore()
         } else if (activeTool === 'paint_floor') {
-          // Floor paint only works inside zones. When the cursor is
-          // over a zone, highlight the whole zone footprint so the
-          // user can see what will be filled. When the cursor is
-          // outside any zone, show a small "forbidden" outline so
-          // the user knows why nothing will happen on click.
-          const zones = (mapStore as any).mapData?.zones as
-            | { id: string; x: number; y: number; width: number; height: number }[]
-            | undefined
-          let insideZone: { x: number; y: number; width: number; height: number } | null = null
-          if (zones) {
-            let best: { x: number; y: number; width: number; height: number } | null = null
-            let bestArea = Number.POSITIVE_INFINITY
-            for (const z of zones) {
-              if (tx < z.x || tx >= z.x + z.width) continue
-              if (ty < z.y || ty >= z.y + z.height) continue
-              const area = z.width * z.height
-              if (area < bestArea) {
-                best = z
-                bestArea = area
+          const selectedFloor = mapStore.selectedFloor
+          const customAsset = useCustomAssetsStore.getState().getAssetById(selectedFloor)
+          const floorW = Math.max(1, Math.round(customAsset?.width || 1))
+          const floorH = Math.max(1, Math.round(customAsset?.height || 1))
+
+          if (floorW > 1 || floorH > 1) {
+            // Multi-tile floor preview (e.g. 2x1, 4x4)
+            const footprintW = floorW * TILE_SIZE
+            const footprintH = floorH * TILE_SIZE
+
+            // Ghost image of floor
+            if (customAsset && customAsset.frames && customAsset.frames.length > 0) {
+              const img = getCustomAssetImage(customAsset.frames[0])
+              if (img && img.complete && img.naturalWidth > 0) {
+                ctx.save()
+                ctx.globalAlpha = 0.65
+                ctx.drawImage(img, tx * TILE_SIZE, ty * TILE_SIZE, footprintW, footprintH)
+                ctx.restore()
               }
             }
-            insideZone = best
-          }
-          if (insideZone) {
-            ctx.fillStyle = 'rgba(32, 201, 151, 0.18)'
-            ctx.fillRect(
-              insideZone.x * TILE_SIZE,
-              insideZone.y * TILE_SIZE,
-              insideZone.width * TILE_SIZE,
-              insideZone.height * TILE_SIZE
-            )
+
+            // Outer footprint bounding box
+            ctx.fillStyle = 'rgba(32, 201, 151, 0.2)'
+            ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, footprintW, footprintH)
             ctx.strokeStyle = '#20c997'
             ctx.lineWidth = 2
-            ctx.strokeRect(
-              insideZone.x * TILE_SIZE + 0.5,
-              insideZone.y * TILE_SIZE + 0.5,
-              insideZone.width * TILE_SIZE - 1,
-              insideZone.height * TILE_SIZE - 1
-            )
+            ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, footprintW - 1, footprintH - 1)
+
+            // Inner grid dividers
+            ctx.strokeStyle = 'rgba(32, 201, 151, 0.45)'
+            ctx.lineWidth = 1
+            for (let gx = 1; gx < floorW; gx++) {
+              ctx.beginPath()
+              ctx.moveTo((tx + gx) * TILE_SIZE, ty * TILE_SIZE)
+              ctx.lineTo((tx + gx) * TILE_SIZE, (ty + floorH) * TILE_SIZE)
+              ctx.stroke()
+            }
+            for (let gy = 1; gy < floorH; gy++) {
+              ctx.beginPath()
+              ctx.moveTo(tx * TILE_SIZE, (ty + gy) * TILE_SIZE)
+              ctx.lineTo((tx + floorW) * TILE_SIZE, (ty + gy) * TILE_SIZE)
+              ctx.stroke()
+            }
+
+            // Size badge tag
+            ctx.save()
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)'
+            ctx.strokeStyle = '#20c997'
+            ctx.lineWidth = 1
+            const badgeText = `${floorW}×${floorH}`
+            ctx.font = 'bold 10px sans-serif'
+            const textWidth = ctx.measureText(badgeText).width
+            const badgeW = textWidth + 8
+            const badgeH = 16
+            const badgeX = tx * TILE_SIZE + 4
+            const badgeY = ty * TILE_SIZE + 4
+            ctx.fillRect(badgeX, badgeY, badgeW, badgeH)
+            ctx.strokeRect(badgeX, badgeY, badgeW, badgeH)
+            ctx.fillStyle = '#20c997'
+            ctx.textBaseline = 'middle'
+            ctx.fillText(badgeText, badgeX + 4, badgeY + badgeH / 2)
+            ctx.restore()
           } else {
-            // Forbidden — paint is a no-op outside zones.
-            ctx.strokeStyle = '#fa5252'
-            ctx.lineWidth = 2
-            ctx.strokeRect(
-              tx * TILE_SIZE + 0.5,
-              ty * TILE_SIZE + 0.5,
-              TILE_SIZE - 1,
-              TILE_SIZE - 1
-            )
-            // Diagonal slash to make the "no entry" read clear.
-            ctx.beginPath()
-            ctx.moveTo(tx * TILE_SIZE + 4, ty * TILE_SIZE + 4)
-            ctx.lineTo(tx * TILE_SIZE + TILE_SIZE - 5, ty * TILE_SIZE + TILE_SIZE - 5)
-            ctx.moveTo(tx * TILE_SIZE + TILE_SIZE - 5, ty * TILE_SIZE + 4)
-            ctx.lineTo(tx * TILE_SIZE + 4, ty * TILE_SIZE + TILE_SIZE - 5)
-            ctx.stroke()
+            // 1x1 floor: if over a zone, show zone outline for full-room fill; otherwise show 1x1 placement tile
+            const zones = (mapStore as any).mapData?.zones as
+              | { id: string; x: number; y: number; width: number; height: number }[]
+              | undefined
+            let insideZone: { x: number; y: number; width: number; height: number } | null = null
+            if (zones) {
+              let best: { x: number; y: number; width: number; height: number } | null = null
+              let bestArea = Number.POSITIVE_INFINITY
+              for (const z of zones) {
+                if (tx < z.x || tx >= z.x + z.width) continue
+                if (ty < z.y || ty >= z.y + z.height) continue
+                const area = z.width * z.height
+                if (area < bestArea) {
+                  best = z
+                  bestArea = area
+                }
+              }
+              insideZone = best
+            }
+            if (insideZone) {
+              ctx.fillStyle = 'rgba(32, 201, 151, 0.18)'
+              ctx.fillRect(
+                insideZone.x * TILE_SIZE,
+                insideZone.y * TILE_SIZE,
+                insideZone.width * TILE_SIZE,
+                insideZone.height * TILE_SIZE
+              )
+              ctx.strokeStyle = '#20c997'
+              ctx.lineWidth = 2
+              ctx.strokeRect(
+                insideZone.x * TILE_SIZE + 0.5,
+                insideZone.y * TILE_SIZE + 0.5,
+                insideZone.width * TILE_SIZE - 1,
+                insideZone.height * TILE_SIZE - 1
+              )
+            } else {
+              // 1x1 tile placement outside zone
+              ctx.fillStyle = 'rgba(32, 201, 151, 0.2)'
+              ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+              ctx.strokeStyle = '#20c997'
+              ctx.lineWidth = 2
+              ctx.strokeRect(
+                tx * TILE_SIZE + 0.5,
+                ty * TILE_SIZE + 0.5,
+                TILE_SIZE - 1,
+                TILE_SIZE - 1
+              )
+            }
           }
         } else if (activeTool === 'paint_wall') {
           ctx.fillStyle = 'rgba(232, 212, 162, 0.4)'
@@ -445,11 +500,64 @@ export class WorldRenderer {
           ctx.lineWidth = 2
           ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1)
         } else if (activeTool === 'eraser') {
-          ctx.fillStyle = 'rgba(224, 49, 49, 0.3)'
-          ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-          ctx.strokeStyle = '#fa5252'
-          ctx.lineWidth = 2
-          ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1)
+          const eraserTarget = (mapStore as any).eraserTarget || 'furniture'
+
+          if (eraserTarget === 'furniture') {
+            const customAssets = useCustomAssetsStore.getState().customAssets
+            const hoveredFurn = map.furniture?.find((f) => {
+              const custom = customAssets.find((a) => a.id === f.defId)
+              const def = custom || FURNITURE_CATALOG.find((cat) => cat.id === f.defId)
+              const { tileW: w, tileH: h } = resolveFurnitureDimensions(f, custom, def)
+              return tx >= f.x - 0.05 && tx < f.x + w + 0.05 && ty >= f.y - 0.05 && ty < f.y + h + 0.05
+            })
+
+            if (hoveredFurn) {
+              const custom = customAssets.find((a) => a.id === hoveredFurn.defId)
+              const def = custom || FURNITURE_CATALOG.find((cat) => cat.id === hoveredFurn.defId)
+              const { tileW: w, tileH: h } = resolveFurnitureDimensions(hoveredFurn, custom, def)
+              ctx.fillStyle = 'rgba(239, 68, 68, 0.3)'
+              ctx.fillRect(hoveredFurn.x * TILE_SIZE, hoveredFurn.y * TILE_SIZE, w * TILE_SIZE, h * TILE_SIZE)
+              ctx.strokeStyle = '#ef4444'
+              ctx.lineWidth = 2
+              ctx.strokeRect(hoveredFurn.x * TILE_SIZE + 0.5, hoveredFurn.y * TILE_SIZE + 0.5, w * TILE_SIZE - 1, h * TILE_SIZE - 1)
+            } else {
+              ctx.fillStyle = 'rgba(239, 68, 68, 0.2)'
+              ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+              ctx.strokeStyle = '#ef4444'
+              ctx.lineWidth = 2
+              ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1)
+            }
+          } else if (eraserTarget === 'zone') {
+            const zones = map.zones || []
+            let hoveredZone: PrivateZone | null = null
+            for (const z of zones) {
+              if (tx >= z.x && tx < z.x + z.width && ty >= z.y && ty < z.y + z.height) {
+                hoveredZone = z
+                break
+              }
+            }
+
+            if (hoveredZone) {
+              ctx.fillStyle = 'rgba(239, 68, 68, 0.22)'
+              ctx.fillRect(hoveredZone.x * TILE_SIZE, hoveredZone.y * TILE_SIZE, hoveredZone.width * TILE_SIZE, hoveredZone.height * TILE_SIZE)
+              ctx.strokeStyle = '#ef4444'
+              ctx.lineWidth = 2
+              ctx.strokeRect(hoveredZone.x * TILE_SIZE + 0.5, hoveredZone.y * TILE_SIZE + 0.5, hoveredZone.width * TILE_SIZE - 1, hoveredZone.height * TILE_SIZE - 1)
+            } else {
+              ctx.fillStyle = 'rgba(239, 68, 68, 0.2)'
+              ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+              ctx.strokeStyle = '#ef4444'
+              ctx.lineWidth = 2
+              ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1)
+            }
+          } else {
+            // 'floor' or 'wall'
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.22)'
+            ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+            ctx.strokeStyle = '#ef4444'
+            ctx.lineWidth = 2
+            ctx.strokeRect(tx * TILE_SIZE + 0.5, ty * TILE_SIZE + 0.5, TILE_SIZE - 1, TILE_SIZE - 1)
+          }
         } else {
           ctx.strokeStyle = '#20c997'
           ctx.lineWidth = 2

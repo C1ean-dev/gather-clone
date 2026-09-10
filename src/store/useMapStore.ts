@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { MapData, FloorType, WallType, PlacedFurniture, PrivateZone, EditorTool } from '../types/map'
+import { MapData, FloorType, WallType, PlacedFurniture, PrivateZone, EditorTool, EraserTarget } from '../types/map'
 import { Direction } from '../types/game'
 import { createEmptyWorkspace, createBlacksmithWorkshopTemplate } from '../editor/templates'
 import { generateWallsAndDoorsForZones, snapAndAlignZone } from '../editor/zoneWallGenerator'
@@ -84,6 +84,8 @@ interface MapStore {
   setEditorOpen: (open: boolean) => void
   activeTool: EditorTool
   setActiveTool: (tool: EditorTool) => void
+  eraserTarget: EraserTarget
+  setEraserTarget: (target: EraserTarget) => void
 
   // Selected brush items
   selectedFloor: FloorType
@@ -193,16 +195,26 @@ export const useMapStore = create<MapStore>((set, get) => ({
   },
 
   activeTool: 'place_furniture',
-  setActiveTool: (tool) => set({ activeTool: tool }),
+  eraserTarget: 'furniture',
+  setEraserTarget: (target) => set({ eraserTarget: target }),
+  setActiveTool: (tool) =>
+    set((state) => {
+      let target = state.eraserTarget
+      if (tool === 'place_furniture') target = 'furniture'
+      else if (tool === 'paint_floor') target = 'floor'
+      else if (tool === 'draw_zone') target = 'zone'
+      else if (tool === 'paint_wall') target = 'wall'
+      return { activeTool: tool, eraserTarget: target }
+    }),
 
   selectedFloor: 'habbo_parquet',
-  setSelectedFloor: (floor) => set({ selectedFloor: floor, activeTool: 'paint_floor' }),
+  setSelectedFloor: (floor) => set({ selectedFloor: floor, activeTool: 'paint_floor', eraserTarget: 'floor' }),
 
   selectedWall: 'drywall_white',
-  setSelectedWall: (wall) => set({ selectedWall: wall, activeTool: 'paint_wall' }),
+  setSelectedWall: (wall) => set({ selectedWall: wall, activeTool: 'paint_wall', eraserTarget: 'wall' }),
 
   selectedFurnitureDefId: 'window_grid_large',
-  setSelectedFurnitureDefId: (defId) => set({ selectedFurnitureDefId: defId, activeTool: 'place_furniture' }),
+  setSelectedFurnitureDefId: (defId) => set({ selectedFurnitureDefId: defId, activeTool: 'place_furniture', eraserTarget: 'furniture' }),
 
   placementDirection: 'down',
   setPlacementDirection: (dir) => set({ placementDirection: dir }),
@@ -254,7 +266,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
     hasWalls: true,
     wallType: 'drywall_white',
   },
-  setZoneDraft: (zoneDraft) => set({ zoneDraft }),
+  setZoneDraft: (zoneDraft) => set({ zoneDraft, eraserTarget: 'zone' }),
 
   setFloorTile: (x, y, floor) =>
     set((state) => {

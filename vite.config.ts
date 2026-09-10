@@ -99,13 +99,37 @@ export default defineConfig({
             })
             req.on('end', () => {
               try {
+                const parsed = JSON.parse(body)
                 const targetPath = path.resolve(process.cwd(), 'src/data/nativeAssets.json')
-                fs.writeFileSync(targetPath, body, 'utf-8')
-                console.log('[DiskMiddleware] Saved nativeAssets.json to disk')
+                fs.writeFileSync(targetPath, JSON.stringify(parsed, null, 2), 'utf-8')
+                console.log('[DiskMiddleware] Saved nativeAssets.json to disk successfully')
                 res.setHeader('Content-Type', 'application/json')
                 res.statusCode = 200
                 res.end(JSON.stringify({ success: true }))
               } catch (e) {
+                console.error('[DiskMiddleware] Error saving nativeAssets.json:', e)
+                res.statusCode = 500
+                res.end(JSON.stringify({ error: String(e) }))
+              }
+            })
+            return
+          }
+          if (req.url === '/api/save-native-spaces' && req.method === 'POST') {
+            let body = ''
+            req.on('data', (chunk) => {
+              body += chunk
+            })
+            req.on('end', () => {
+              try {
+                const parsed = JSON.parse(body)
+                const targetPath = path.resolve(process.cwd(), 'src/data/nativeSpaces.json')
+                fs.writeFileSync(targetPath, JSON.stringify(parsed, null, 2), 'utf-8')
+                console.log('[DiskMiddleware] Saved nativeSpaces.json to disk successfully')
+                res.setHeader('Content-Type', 'application/json')
+                res.statusCode = 200
+                res.end(JSON.stringify({ success: true }))
+              } catch (e) {
+                console.error('[DiskMiddleware] Error saving nativeSpaces.json:', e)
                 res.statusCode = 500
                 res.end(JSON.stringify({ error: String(e) }))
               }

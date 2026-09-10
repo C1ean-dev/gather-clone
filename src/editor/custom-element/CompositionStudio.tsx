@@ -124,7 +124,7 @@ export const CompositionStudio: React.FC<Props> = ({
               <input
                 type="number"
                 min={1}
-                max={10}
+                max={32}
                 value={tileWidth}
                 onChange={(e) => {
                   const val = parseInt(e.target.value, 10)
@@ -146,7 +146,7 @@ export const CompositionStudio: React.FC<Props> = ({
               <input
                 type="number"
                 min={1}
-                max={10}
+                max={32}
                 value={tileHeight}
                 onChange={(e) => {
                   const val = parseInt(e.target.value, 10)
@@ -345,8 +345,8 @@ export const CompositionStudio: React.FC<Props> = ({
       )}
 
       {/* Composition Canvas Stage */}
-      <div ref={stageRef} className="flex-1 overflow-auto flex items-center justify-center p-6 bg-[#0e1015] relative">
-        <div className="relative border-2 border-indigo-500/50 rounded-2xl shadow-2xl overflow-hidden bg-[#18191c]/90">
+      <div ref={stageRef} className="flex-1 overflow-auto p-6 bg-[#0e1015] relative flex">
+        <div className="m-auto relative border-2 border-indigo-500/50 rounded-2xl shadow-2xl overflow-hidden bg-[#18191c]/90 shrink-0">
           <canvas
             ref={composeCanvasRef}
             onMouseDown={onComposeMouseDown}

@@ -8,7 +8,7 @@ import { useGameStore } from '../store/useGameStore'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { Direction } from '../types/game'
-import { PlacedFurniture, PrivateZone } from '../types/map'
+import { PlacedFurniture, PrivateZone, FloorType } from '../types/map'
 import { MapControlsWidget } from './MapControlsWidget'
 import { SimplifiedMapView } from './SimplifiedMapView'
 import { FurnitureContextMenu } from '../editor/FurnitureContextMenu'
@@ -33,6 +33,7 @@ export const MapViewport: React.FC = () => {
   const updateFurniture = useMapStore((s) => s.updateFurniture)
   const zoneDraft = useMapStore((s) => s.zoneDraft)
   const setWallTile = useMapStore((s) => s.setWallTile)
+  const setFloorTile = useMapStore((s) => s.setFloorTile)
   const addFurniture = useMapStore((s) => s.addFurniture)
   const removeFurnitureAt = useMapStore((s) => s.removeFurnitureAt)
   const removeZoneAt = useMapStore((s) => s.removeZoneAt)
@@ -42,6 +43,7 @@ export const MapViewport: React.FC = () => {
   const mapData = useMapStore((s) => s.mapData)
   const placementDirection = useMapStore((s) => s.placementDirection)
   const rotatePlacementDirection = useMapStore((s) => s.rotatePlacementDirection)
+  const eraserTarget = useMapStore((s) => s.eraserTarget)
 
   useEffect(() => {
     if (!isEditorOpen || activeTool !== 'place_furniture') return
@@ -240,13 +242,16 @@ export const MapViewport: React.FC = () => {
       // If clicked on furniture and not painting floors/walls or drawing zone:
       if (clickedFurn && activeTool !== 'paint_floor' && activeTool !== 'paint_wall' && activeTool !== 'draw_zone') {
         if (activeTool === 'eraser') {
-          removeFurnitureAt(tile.x, tile.y)
-          PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
+          if (eraserTarget === 'furniture') {
+            removeFurnitureAt(tile.x, tile.y)
+            PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
+            return
+          }
         } else {
           // Select furniture and open contextual menu
           setSelectedPlacedFurnitureId(clickedFurn.id)
+          return
         }
-        return
       }
 
       // If clicked on empty space and not moving, deselect furniture
@@ -258,11 +263,32 @@ export const MapViewport: React.FC = () => {
         engineRef.current.zoneDragStart = tile
         engineRef.current.zoneDragCurrent = tile
       } else if (activeTool === 'paint_floor') {
-        // Floor paint only works inside zones. If the click is
-        // outside any zone, do nothing — the cursor preview
-        // already shows the "forbidden" outline so the user gets
-        // visual feedback for why nothing changed.
-        applyFloorToZoneAt(tile.x, tile.y, selectedFloor)
+        const customAsset = useCustomAssetsStore.getState().getAssetById(selectedFloor)
+        const floorW = Math.max(1, Math.round(customAsset?.width || 1))
+        const floorH = Math.max(1, Math.round(customAsset?.height || 1))
+
+        if (floorW > 1 || floorH > 1) {
+          for (let dy = 0; dy < floorH; dy++) {
+            for (let dx = 0; dx < floorW; dx++) {
+              const tx = tile.x + dx
+              const ty = tile.y + dy
+              if (tx >= 0 && tx < mapData.width && ty >= 0 && ty < mapData.height) {
+                setFloorTile(tx, ty, selectedFloor as FloorType)
+                PeerManager.getInstance().sendMapEdit('set_floor', { x: tx, y: ty, floor: selectedFloor })
+              }
+            }
+          }
+        } else {
+          const insideZone = findZoneAt(tile.x, tile.y)
+          if (insideZone && !e.shiftKey) {
+            applyFloorToZoneAt(tile.x, tile.y, selectedFloor)
+          } else {
+            if (tile.x >= 0 && tile.x < mapData.width && tile.y >= 0 && tile.y < mapData.height) {
+              setFloorTile(tile.x, tile.y, selectedFloor as FloorType)
+              PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: selectedFloor })
+            }
+          }
+        }
       } else if (activeTool === 'paint_wall') {
         setWallTile(tile.x, tile.y, selectedWall)
         PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: selectedWall })
@@ -284,23 +310,19 @@ export const MapViewport: React.FC = () => {
         addFurniture(newFurn)
         PeerManager.getInstance().sendMapEdit('add_furniture', { furniture: newFurn })
       } else if (activeTool === 'eraser') {
-        const hadFurniture = removeFurnitureAt(tile.x, tile.y)
-        setWallTile(tile.x, tile.y, null)
-        // Eraser on a floor inside a zone: revert the whole zone to
-        // the default floor (same behaviour as before, but applied
-        // to the whole zone, not a single cell).
-        const zone = findZoneAt(tile.x, tile.y)
-        if (zone) {
-          paintFloorInZone(zone.id, 'habbo_parquet')
-          PeerManager.getInstance().sendMapEdit('paint_floor_in_zone', {
-            zoneId: zone.id,
-            floor: 'habbo_parquet',
-          })
-        }
-        PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
-        PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: null })
-        if (!hadFurniture) {
+        if (eraserTarget === 'furniture') {
+          const hadFurniture = removeFurnitureAt(tile.x, tile.y)
+          if (hadFurniture) {
+            PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
+          }
+        } else if (eraserTarget === 'floor') {
+          setFloorTile(tile.x, tile.y, 'habbo_parquet')
+          PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: 'habbo_parquet' })
+        } else if (eraserTarget === 'zone') {
           removeZoneAt(tile.x, tile.y)
+        } else if (eraserTarget === 'wall') {
+          setWallTile(tile.x, tile.y, null)
+          PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: null })
         }
       }
     } else {
@@ -334,27 +356,49 @@ export const MapViewport: React.FC = () => {
       if (lastPaintedTileRef.current !== tileKey) {
         lastPaintedTileRef.current = tileKey
         if (activeTool === 'paint_floor') {
-          // Floor paint only works inside zones; outside a zone
-          // the click is a no-op.
-          applyFloorToZoneAt(tile.x, tile.y, selectedFloor)
+          const customAsset = useCustomAssetsStore.getState().getAssetById(selectedFloor)
+          const floorW = Math.max(1, Math.round(customAsset?.width || 1))
+          const floorH = Math.max(1, Math.round(customAsset?.height || 1))
+
+          if (floorW > 1 || floorH > 1) {
+            for (let dy = 0; dy < floorH; dy++) {
+              for (let dx = 0; dx < floorW; dx++) {
+                const tx = tile.x + dx
+                const ty = tile.y + dy
+                if (tx >= 0 && tx < mapData.width && ty >= 0 && ty < mapData.height) {
+                  setFloorTile(tx, ty, selectedFloor as FloorType)
+                  PeerManager.getInstance().sendMapEdit('set_floor', { x: tx, y: ty, floor: selectedFloor })
+                }
+              }
+            }
+          } else {
+            const insideZone = findZoneAt(tile.x, tile.y)
+            if (insideZone && !e.shiftKey) {
+              applyFloorToZoneAt(tile.x, tile.y, selectedFloor)
+            } else {
+              if (tile.x >= 0 && tile.x < mapData.width && tile.y >= 0 && tile.y < mapData.height) {
+                setFloorTile(tile.x, tile.y, selectedFloor as FloorType)
+                PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: selectedFloor })
+              }
+            }
+          }
         } else if (activeTool === 'paint_wall') {
           setWallTile(tile.x, tile.y, selectedWall)
           PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: selectedWall })
         } else if (activeTool === 'eraser') {
-          const hadFurniture = removeFurnitureAt(tile.x, tile.y)
-          setWallTile(tile.x, tile.y, null)
-          const zone = findZoneAt(tile.x, tile.y)
-          if (zone) {
-            paintFloorInZone(zone.id, 'habbo_parquet')
-            PeerManager.getInstance().sendMapEdit('paint_floor_in_zone', {
-              zoneId: zone.id,
-              floor: 'habbo_parquet',
-            })
-          }
-          PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
-          PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: null })
-          if (!hadFurniture) {
+          if (eraserTarget === 'furniture') {
+            const hadFurniture = removeFurnitureAt(tile.x, tile.y)
+            if (hadFurniture) {
+              PeerManager.getInstance().sendMapEdit('remove_furniture', { x: tile.x, y: tile.y })
+            }
+          } else if (eraserTarget === 'floor') {
+            setFloorTile(tile.x, tile.y, 'habbo_parquet')
+            PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: 'habbo_parquet' })
+          } else if (eraserTarget === 'zone') {
             removeZoneAt(tile.x, tile.y)
+          } else if (eraserTarget === 'wall') {
+            setWallTile(tile.x, tile.y, null)
+            PeerManager.getInstance().sendMapEdit('set_wall', { x: tile.x, y: tile.y, wall: null })
           }
         }
       }

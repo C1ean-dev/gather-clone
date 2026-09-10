@@ -4,6 +4,8 @@ import { PixelArtThumbnail } from '../PixelArtThumbnail'
 import { FloorType, WallType } from '../../types/map'
 import { FurnitureDef } from '../../engine/PixelArtRenderer'
 
+import { useMapStore } from '../../store/useMapStore'
+
 interface Props {
   activeTool: string
   zoneDraft: { name: string; color: string }
@@ -25,12 +27,41 @@ export const ActiveItemSummary: React.FC<Props> = ({
   selectedWall,
   selectedFurnitureDefId,
 }) => {
+  const eraserTarget = useMapStore((s) => s.eraserTarget)
+
   const getSummary = () => {
     if (activeTool === 'eraser') {
-      return {
+      const info = {
+        furniture: {
+          title: 'Borracha: Mobília',
+          subtitle: 'Clique ou arraste sobre móveis para removê-los',
+          badge: 'Apagar Mobília',
+        },
+        floor: {
+          title: 'Borracha: Piso',
+          subtitle: 'Clique ou arraste no chão para restaurar o piso padrão',
+          badge: 'Apagar Piso',
+        },
+        zone: {
+          title: 'Borracha: Zonas',
+          subtitle: 'Clique sobre uma zona privada para removê-la',
+          badge: 'Apagar Zonas',
+        },
+        wall: {
+          title: 'Borracha: Paredes',
+          subtitle: 'Clique ou arraste sobre paredes para removê-las',
+          badge: 'Apagar Paredes',
+        },
+      }[eraserTarget || 'furniture'] || {
         title: 'Borracha Ativa',
-        subtitle: 'Clique em móveis, paredes ou zonas para remover',
-        badge: 'Ferramenta',
+        subtitle: 'Clique para apagar elementos',
+        badge: 'Borracha',
+      }
+
+      return {
+        title: info.title,
+        subtitle: info.subtitle,
+        badge: info.badge,
         thumbnail: (
           <div className="w-12 h-12 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center">
             <Trash2 className="w-6 h-6 text-rose-400" />
