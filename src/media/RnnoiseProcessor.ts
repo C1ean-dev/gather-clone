@@ -491,6 +491,7 @@ export class RnnoiseProcessor {
       this.workletBlobUrl = null
     }
     try {
+      this.workletNode?.port.postMessage({ type: 'destroy' })
       this.workletNode?.port.close()
     } catch {}
     this.workletNode?.disconnect()

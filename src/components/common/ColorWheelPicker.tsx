@@ -151,8 +151,8 @@ export const ColorWheelPicker: React.FC<ColorWheelPickerProps> = ({
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    const x = clientX - rect.left - canvas.width / 2
-    const y = clientY - rect.top - canvas.height / 2
+    const x = clientX - (rect.left + rect.width / 2)
+    const y = clientY - (rect.top + rect.height / 2)
 
     let angle = Math.atan2(y, x) * (180 / Math.PI)
     if (angle < 0) angle += 360

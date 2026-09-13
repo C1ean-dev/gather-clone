@@ -28,6 +28,10 @@ function playKnockSound() {
     const now = ctx.currentTime
     playTap(now, 190)
     playTap(now + 0.13, 160)
+
+    setTimeout(() => {
+      ctx.close().catch(() => {})
+    }, 300)
   } catch (e) {
     // Ignore audio context autoplay restrictions
   }

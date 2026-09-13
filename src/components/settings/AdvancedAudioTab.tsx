@@ -65,10 +65,34 @@ export const AdvancedAudioTab: React.FC = () => {
     }
   } | null>(null)
   const lastTickRef = useRef(0)
+  const revokeCalibrationUrls = (cal: typeof lastCalibration) => {
+    if (!cal) return
+    if (cal.rawAudioUrl) {
+      try { URL.revokeObjectURL(cal.rawAudioUrl) } catch {}
+    }
+    if (cal.processedAudioUrl) {
+      try { URL.revokeObjectURL(cal.processedAudioUrl) } catch {}
+    }
+    if (cal.processedSamples) {
+      try { URL.revokeObjectURL(cal.processedSamples.classic.audioUrl) } catch {}
+      try { URL.revokeObjectURL(cal.processedSamples.soft.audioUrl) } catch {}
+      try { URL.revokeObjectURL(cal.processedSamples.rnnoise.audioUrl) } catch {}
+    }
+  }
+
+  // Cleanup audio blob URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      revokeCalibrationUrls(lastCalibration)
+    }
+  }, [lastCalibration])
 
   const currentCalibration = micCalibrations[selectedAudioInput] || null
 
   const handleCalibrate = async () => {
+    // Revoke any previous calibration blob URLs
+    revokeCalibrationUrls(lastCalibration)
+
     const mgr = MediaManager.getInstance()
     // Grab the raw mic stream directly so we measure the actual environment,
     // not the post-processed output.
@@ -109,12 +133,11 @@ export const AdvancedAudioTab: React.FC = () => {
       const result = await mgr.calibrateMicrophone(
         rawStream,
         5000,
-        (elapsedMs, _totalMs, _currentDb, liveWf) => {
-          const elapsedSec = elapsedMs / 1000
-          setCalProgress(Math.min(1, elapsedSec / 5))
-          setCalSecondsLeft(Math.max(0, 5 - Math.ceil(elapsedSec)))
-          if (liveWf && liveWf.length > 0) {
-            setLiveWaveform(liveWf)
+        (elapsed, total, currentDb, waveform) => {
+          setCalProgress(Math.min(1, elapsed / total))
+          setCalSecondsLeft(Math.max(0, Math.ceil((total - elapsed) / 1000)))
+          if (waveform && waveform.length > 0) {
+            setLiveWaveform(waveform)
           }
         }
       )
@@ -140,6 +163,7 @@ export const AdvancedAudioTab: React.FC = () => {
 
   const handleResetCalibration = () => {
     clearMicCalibration(selectedAudioInput)
+    revokeCalibrationUrls(lastCalibration)
     setLastCalibration(null)
   }
 

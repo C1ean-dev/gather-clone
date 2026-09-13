@@ -38,7 +38,7 @@ export class FloorRenderer {
 
           let startX = tx
           let startY = ty
-          if (mapFloors) {
+          if (mapFloors && Array.isArray(mapFloors)) {
             while (startX > 0 && mapFloors[ty]?.[startX - 1] === type) {
               startX--
             }
@@ -47,8 +47,12 @@ export class FloorRenderer {
             }
           }
 
-          const subCol = (((tx - startX) % wTiles) + wTiles) % wTiles
-          const subRow = (((ty - startY) % hTiles) + hTiles) % hTiles
+          const subCol = mapFloors
+            ? ((((tx - startX) % wTiles) + wTiles) % wTiles)
+            : (((tx % wTiles) + wTiles) % wTiles)
+          const subRow = mapFloors
+            ? ((((ty - startY) % hTiles) + hTiles) % hTiles)
+            : (((ty % hTiles) + hTiles) % hTiles)
 
           const sliceW = img.naturalWidth / wTiles
           const sliceH = img.naturalHeight / hTiles
@@ -150,7 +154,7 @@ export class FloorRenderer {
 
       case 'habbo_hc_carpet':
         ctx.fillStyle = '#1b5e20'
-        ctx.fillRect(px, py, size, size)
+        ctx.fillRect(px, py, s, s)
         ctx.fillStyle = '#2e7d32'
         ctx.fillRect(px + 2, py + 2, size - 4, size - 4)
         ctx.fillStyle = '#f59f00'
@@ -161,7 +165,7 @@ export class FloorRenderer {
 
       case 'habbo_checker_red':
         ctx.fillStyle = '#f1f3f5'
-        ctx.fillRect(px, py, size, size)
+        ctx.fillRect(px, py, s, s)
         ctx.fillStyle = '#c92a2a'
         ctx.fillRect(px, py, size / 2, size / 2)
         ctx.fillRect(px + size / 2, py + size / 2, size / 2, size / 2)
@@ -169,7 +173,7 @@ export class FloorRenderer {
 
       case 'habbo_pool_water':
         ctx.fillStyle = '#22b8cf'
-        ctx.fillRect(px, py, size, size)
+        ctx.fillRect(px, py, s, s)
         ctx.fillStyle = '#15aabf'
         ctx.fillRect(px + 2, py + 2, size - 4, size - 4)
         ctx.fillStyle = '#66d9e8'
@@ -181,7 +185,7 @@ export class FloorRenderer {
         const discoColors = ['#e64980', '#7950f2', '#12b886', '#fab005', '#228be6']
         const colorIdx = (Math.floor(px / size) + Math.floor(py / size)) % discoColors.length
         ctx.fillStyle = discoColors[colorIdx]
-        ctx.fillRect(px, py, size, size)
+        ctx.fillRect(px, py, s, s)
         ctx.fillStyle = 'rgba(255,255,255,0.4)'
         ctx.fillRect(px + 2, py + 2, size - 4, size - 4)
         break
@@ -189,7 +193,7 @@ export class FloorRenderer {
 
       case 'habbo_executive_rug':
         ctx.fillStyle = '#800020'
-        ctx.fillRect(px, py, size, size)
+        ctx.fillRect(px, py, s, s)
         ctx.fillStyle = '#a01030'
         ctx.fillRect(px + 4, py + 4, size - 8, size - 8)
         ctx.fillStyle = '#fcc419'
@@ -199,7 +203,7 @@ export class FloorRenderer {
 
       case 'wood_dark':
         ctx.fillStyle = '#8c5e3c'
-        ctx.fillRect(px, py, size, size)
+        ctx.fillRect(px, py, s, s)
         ctx.fillStyle = '#7a5133'
         ctx.fillRect(px, py + size / 2, size, 1)
         ctx.fillStyle = '#6b4529'
@@ -208,7 +212,7 @@ export class FloorRenderer {
 
       case 'carpet_blue':
         ctx.fillStyle = '#9aa5b1'
-        ctx.fillRect(px, py, size, size)
+        ctx.fillRect(px, py, s, s)
         ctx.fillStyle = '#8895a5'
         ctx.fillRect(px, py, size / 2, size / 2)
         ctx.fillRect(px + size / 2, py + size / 2, size / 2, size / 2)
@@ -216,14 +220,14 @@ export class FloorRenderer {
 
       case 'carpet_gray':
         ctx.fillStyle = '#343a40'
-        ctx.fillRect(px, py, size, size)
+        ctx.fillRect(px, py, s, s)
         ctx.fillStyle = '#212529'
         ctx.fillRect(px + 6, py + 6, 2, 2)
         break
 
       case 'tile_white':
         ctx.fillStyle = '#e9ecef'
-        ctx.fillRect(px, py, size, size)
+        ctx.fillRect(px, py, s, s)
         ctx.strokeStyle = '#ced4da'
         ctx.lineWidth = 1
         ctx.strokeRect(px + 0.5, py + 0.5, size - 1, size - 1)
@@ -232,7 +236,7 @@ export class FloorRenderer {
       case 'grass':
         // Soft green corridor surrounding the room
         ctx.fillStyle = '#d3e8d2'
-        ctx.fillRect(px, py, size, size)
+        ctx.fillRect(px, py, s, s)
         ctx.fillStyle = '#c0dbc0'
         ctx.fillRect(px + 4, py + 8, 2, 3)
         ctx.fillRect(px + 18, py + 4, 2, 3)
@@ -241,7 +245,7 @@ export class FloorRenderer {
       case 'concrete':
       default:
         ctx.fillStyle = '#495057'
-        ctx.fillRect(px, py, size, size)
+        ctx.fillRect(px, py, s, s)
         ctx.strokeStyle = '#343a40'
         ctx.strokeRect(px + 0.5, py + 0.5, size - 1, size - 1)
         break

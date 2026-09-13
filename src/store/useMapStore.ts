@@ -412,6 +412,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
           floors,
         }
         saveMap(updatedMap)
+        autoSaveCurrentSpace()
         PeerManager.getInstance().sendMapEdit('sync_map', { mapData: updatedMap })
         return { mapData: updatedMap }
       }
@@ -685,6 +686,17 @@ export const useMapStore = create<MapStore>((set, get) => ({
         walls: updatedWalls,
       }
       saveMap(updatedMap)
+      autoSaveCurrentSpace()
+
+      // If the local player was inside the deleted zone, exit the zone cleanly
+      try {
+        const local = useGameStore.getState().localPlayer
+        if (local && local.currentZoneId === id) {
+          useGameStore.getState().setCurrentZoneId(null)
+          PeerManager.getInstance().sendPlayerUpdate({ currentZoneId: null })
+        }
+      } catch {}
+
       return { mapData: updatedMap }
     }),
 

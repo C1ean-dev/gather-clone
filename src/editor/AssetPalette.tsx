@@ -94,11 +94,13 @@ export const AssetPalette: React.FC = () => {
     }))
   const allFurniture = [...customFurnitureDefs, ...FURNITURE_CATALOG]
 
+  const effectiveCategory = categories.includes(furnitureCategory) ? furnitureCategory : (categories[0] || 'Geral')
+
   const filteredFurniture = useMemo(() => {
-    if (furnitureCategory === 'Todos') return allFurniture
-    if (furnitureCategory === 'Customizados') return allFurniture.filter((f) => (f as any).isCustom)
-    return allFurniture.filter((f) => f.category === furnitureCategory)
-  }, [allFurniture, furnitureCategory])
+    if (effectiveCategory === 'Todos') return allFurniture
+    if (effectiveCategory === 'Customizados') return allFurniture.filter((f) => (f as any).isCustom)
+    return allFurniture.filter((f) => f.category === effectiveCategory)
+  }, [allFurniture, effectiveCategory])
 
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false)
 
@@ -245,7 +247,7 @@ export const AssetPalette: React.FC = () => {
           {activeTab === 'furniture' && (
             <FurnitureTab
               categories={categories}
-              furnitureCategory={furnitureCategory}
+              furnitureCategory={effectiveCategory}
               setFurnitureCategory={setFurnitureCategory}
               addCategory={addCategory}
               allFurniture={allFurniture}

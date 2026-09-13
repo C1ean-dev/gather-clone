@@ -9,7 +9,7 @@ import { bakeLayersToDataUrl } from '../utils/imageResize'
 const ASSETS_STORAGE_KEY = 'gather_v2_custom_user_assets'
 const CATEGORIES_STORAGE_KEY = 'gather_v2_custom_categories'
 
-const DEFAULT_CATEGORIES = ['Geral']
+const DEFAULT_CATEGORIES = ['Geral', 'pokemon']
 
 // In-memory HTMLImageElement cache for fast canvas rendering
 const imageCache: Map<string, HTMLImageElement> = new Map()
@@ -110,7 +110,17 @@ const loadSavedCustomAssets = (): CustomAsset[] => {
   const merged = Array.from(map.values())
 
   merged.forEach((asset: CustomAsset) => {
-    if (!asset.category || !asset.category.trim()) {
+    const legacyCats = new Set([
+      'Forja Antiga',
+      'Escritório',
+      'Medieval',
+      'Decoração',
+      'Avatares',
+      'Pisos Personalizados',
+      'Paredes das Zonas',
+      'Mascotes',
+    ])
+    if (!asset.category || !asset.category.trim() || legacyCats.has(asset.category)) {
       asset.category = 'Geral'
     }
 
@@ -237,7 +247,18 @@ const loadSavedCategories = (): string[] => {
     console.error('Failed to load custom categories:', e)
   }
   const merged = Array.from(new Set([...DEFAULT_CATEGORIES, ...nativeCats, ...savedCats]))
-  return merged.length > 0 ? merged : ['Geral']
+  const legacyCats = new Set([
+    'Forja Antiga',
+    'Escritório',
+    'Medieval',
+    'Decoração',
+    'Avatares',
+    'Pisos Personalizados',
+    'Paredes das Zonas',
+    'Mascotes',
+  ])
+  const filtered = merged.filter((c) => !legacyCats.has(c))
+  return filtered.length > 0 ? filtered : DEFAULT_CATEGORIES
 }
 
 const saveCategories = (cats: string[]) => {
@@ -379,6 +400,15 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
       if (Array.isArray(asset.frames)) {
         asset.frames.forEach(getCustomAssetImage)
       }
+      if (asset.directionalFrames) {
+        Object.values(asset.directionalFrames).forEach((frames) => {
+          if (Array.isArray(frames)) {
+            frames.forEach((f) => f && getCustomAssetImage(f))
+          } else if (typeof frames === 'string' && frames.length > 0) {
+            getCustomAssetImage(frames)
+          }
+        })
+      }
     })
 
     // Merge incoming assets with existing assets (overwriting matching IDs, preserving others)
@@ -408,6 +438,15 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
     if (!asset || !asset.id) return
     if (Array.isArray(asset.frames)) {
       asset.frames.forEach(getCustomAssetImage)
+    }
+    if (asset.directionalFrames) {
+      Object.values(asset.directionalFrames).forEach((frames) => {
+        if (Array.isArray(frames)) {
+          frames.forEach((f) => f && getCustomAssetImage(f))
+        } else if (typeof frames === 'string' && frames.length > 0) {
+          getCustomAssetImage(frames)
+        }
+      })
     }
     const current = get().customAssets
     const exists = current.some((a) => a.id === asset.id)
@@ -441,17 +480,41 @@ export const useCustomAssetsStore = create<CustomAssetsState>((set, get) => ({
   },
 
   deleteCategory: (categoryName) => {
-    const updated = get().customCategories.filter((c) => c !== categoryName)
-    saveCategories(updated)
-    set({ customCategories: updated })
-    syncToNativeFile(get().customAssets, updated)
+    if (!categoryName || categoryName === 'Geral') return
+    const updatedCats = get().customCategories.filter((c) => c !== categoryName)
+    saveCategories(updatedCats)
+
+    // Safely reassign any assets that used this category to 'Geral'
+    let assetsChanged = false
+    const updatedAssets = get().customAssets.map((asset) => {
+      if (asset.category === categoryName) {
+        assetsChanged = true
+        return { ...asset, category: 'Geral' }
+      }
+      return asset
+    })
+
+    if (assetsChanged) {
+      saveCustomAssets(updatedAssets)
+    }
+
+    set({ customCategories: updatedCats, customAssets: updatedAssets })
+    syncToNativeFile(updatedAssets, updatedCats)
   },
 
   getAllCategories: () => {
-    const fromAssets = get().customAssets.map((a) => a.category).filter(Boolean)
-    const setCats = new Set([...get().customCategories, ...fromAssets])
-    const list = Array.from(setCats)
-    return list.length > 0 ? list : ['Geral']
+    const legacyCats = new Set([
+      'Forja Antiga',
+      'Escritório',
+      'Medieval',
+      'Decoração',
+      'Avatares',
+      'Pisos Personalizados',
+      'Paredes das Zonas',
+      'Mascotes',
+    ])
+    const list = get().customCategories.filter((c) => !legacyCats.has(c))
+    return list.length > 0 ? list : DEFAULT_CATEGORIES
   },
 
   getAssetById: (id) => {

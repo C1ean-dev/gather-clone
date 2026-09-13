@@ -95,6 +95,10 @@ export function cropContentBoundingBox(
   sourceCanvas: HTMLCanvasElement,
   padding: number = 1
 ): string {
+  if (typeof document === 'undefined') {
+    return typeof sourceCanvas?.toDataURL === 'function' ? sourceCanvas.toDataURL() : ''
+  }
+
   const w = sourceCanvas.width
   const h = sourceCanvas.height
   const ctx = sourceCanvas.getContext('2d', { willReadFrequently: true })
@@ -125,8 +129,14 @@ export function cropContentBoundingBox(
     return sourceCanvas.toDataURL()
   }
 
-  const cropW = maxX - minX + 1
-  const cropH = maxY - minY + 1
+  const pad = Math.max(0, Math.floor(padding))
+  const finalMinX = Math.max(0, minX - pad)
+  const finalMinY = Math.max(0, minY - pad)
+  const finalMaxX = Math.min(w - 1, maxX + pad)
+  const finalMaxY = Math.min(h - 1, maxY + pad)
+
+  const cropW = finalMaxX - finalMinX + 1
+  const cropH = finalMaxY - finalMinY + 1
 
   const cropCanvas = document.createElement('canvas')
   cropCanvas.width = cropW
@@ -137,8 +147,8 @@ export function cropContentBoundingBox(
   cropCtx.imageSmoothingEnabled = false
   cropCtx.drawImage(
     sourceCanvas,
-    minX,
-    minY,
+    finalMinX,
+    finalMinY,
     cropW,
     cropH,
     0,

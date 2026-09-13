@@ -81,10 +81,36 @@ class RnnoiseWorkletProcessor extends AudioWorkletProcessor {
           this.outLen = 0
         }
         this.bypass = wantBypass
+      } else if (data.type === 'destroy') {
+        this._destroy()
       }
     }
 
     this._init()
+  }
+
+  _destroy() {
+    if (this.module) {
+      try {
+        if (this.statePtr && typeof this.module._rnnoise_destroy === 'function') {
+          this.module._rnnoise_destroy(this.statePtr)
+        }
+        if (this.inputPtr && typeof this.module._free === 'function') {
+          this.module._free(this.inputPtr)
+        }
+        if (this.outputPtr && typeof this.module._free === 'function') {
+          this.module._free(this.outputPtr)
+        }
+      } catch (e) {
+        console.warn('[rnnoise-worklet] destroy failed:', e)
+      }
+    }
+    this.statePtr = 0
+    this.inputPtr = 0
+    this.outputPtr = 0
+    this.module = null
+    this.inLen = 0
+    this.outLen = 0
   }
 
   async _init() {
