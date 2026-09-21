@@ -21,6 +21,7 @@ import {
   Lock,
   Unlock,
   Shield,
+  Headphones,
 } from 'lucide-react'
 import { useMediaStore } from '../store/useMediaStore'
 import { useGameStore } from '../store/useGameStore'
@@ -31,11 +32,16 @@ import { PeerManager } from '../p2p/PeerManager'
 import { ScreenShareModal } from './ScreenShareModal'
 import { RoomSettingsModal } from './RoomSettingsModal'
 import { attachStreamToVideo } from '../media/attachVideoElement'
+import { ParticipantContextMenu } from './grid/ParticipantContextMenu'
+import { ParticipantData } from './grid/GridParticipantTile'
 
 interface VideoTileProps {
+  id?: string
   stream: MediaStream | null
   name: string
   isMuted?: boolean
+  isMutedByAdmin?: boolean
+  isDeafened?: boolean
   isCameraOff?: boolean
   isLocal?: boolean
   isScreenSharing?: boolean
@@ -44,13 +50,17 @@ interface VideoTileProps {
   callState?: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'
   onRetryCall?: () => void
   onClick?: () => void
+  onContextMenu?: (e: React.MouseEvent) => void
   suppressAudio?: boolean
 }
 
 const VideoTile: React.FC<VideoTileProps> = ({
+  id,
   stream,
   name,
   isMuted,
+  isMutedByAdmin,
+  isDeafened,
   isCameraOff,
   isLocal,
   isScreenSharing,
@@ -59,6 +69,7 @@ const VideoTile: React.FC<VideoTileProps> = ({
   callState,
   onRetryCall,
   onClick,
+  onContextMenu,
   suppressAudio = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -68,27 +79,28 @@ const VideoTile: React.FC<VideoTileProps> = ({
   const selectedAudioOutput = useMediaStore((s) => s.selectedAudioOutput)
   const participantVolumes = useMediaStore((s) => s.participantVolumes)
   const setParticipantVolume = useMediaStore((s) => s.setParticipantVolume)
-  const rawVolume = participantVolumes[name] !== undefined ? participantVolumes[name] : 100
+  const isGlobalDeafened = useMediaStore((s) => s.isDeafened)
+  const isSilenced = useMediaStore((s) => (id ? s.isUserSilenced(id, name) : false))
+  const rawVolume = (id && participantVolumes[id] !== undefined) ? participantVolumes[id] : 100
+
+  const isEffectivelyMuted = Boolean(isLocal || suppressAudio || isGlobalDeafened || isSilenced || rawVolume === 0)
 
   useEffect(() => {
     const video = videoRef.current
     if (!video || !stream) return
 
-    // Imperative muted — the muted={} JSX prop alone does not mute in
-    // Chromium (attribute vs IDL property), leaking a delayed local echo.
-    video.muted = !!isLocal || suppressAudio
-    // Shared attach with play-failure recovery. See attachVideoElement.ts.
+    video.muted = isEffectivelyMuted
     return attachStreamToVideo(video, stream, {
       tile: 'mini',
       peer: name,
       isLocal: !!isLocal,
-      muted: !!isLocal || suppressAudio,
+      muted: isEffectivelyMuted,
     })
-  }, [stream, isLocal, suppressAudio])
+  }, [stream, isLocal, isEffectivelyMuted])
 
   useEffect(() => {
     if (videoRef.current && !isLocal) {
-      const effectiveVol = Math.max(0, Math.min(1, (outputVolume / 100) * (rawVolume / 100)))
+      const effectiveVol = isEffectivelyMuted ? 0 : Math.max(0, Math.min(1, (outputVolume / 100) * (rawVolume / 100)))
       videoRef.current.volume = effectiveVol
       if (typeof (videoRef.current as any).setSinkId === 'function' && selectedAudioOutput) {
         ;(videoRef.current as any)
@@ -96,11 +108,16 @@ const VideoTile: React.FC<VideoTileProps> = ({
           .catch(() => {})
       }
     }
-  }, [rawVolume, outputVolume, selectedAudioOutput, isLocal])
+  }, [rawVolume, outputVolume, selectedAudioOutput, isLocal, isEffectivelyMuted])
 
   return (
     <div
       onClick={onClick}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        onContextMenu?.(e)
+      }}
       className={`group relative w-32 h-24 bg-[#12151d] rounded-2xl overflow-hidden border-2 transition-all flex items-center justify-center shrink-0 cursor-pointer hover:scale-105 shadow-lg select-none ${
         isScreenTrack
           ? 'border-rose-500/80 hover:border-rose-400'
@@ -195,7 +212,7 @@ const VideoTile: React.FC<VideoTileProps> = ({
             <input
               type="range"
               min="0"
-              max="100"
+              max="200"
               value={rawVolume}
               onClick={(e) => e.stopPropagation()}
               onChange={(e) => setParticipantVolume(name, Number(e.target.value))}
@@ -212,12 +229,29 @@ const VideoTile: React.FC<VideoTileProps> = ({
           {isScreenTrack ? `Tela (${name})` : isLocal ? `${name} (Você)` : name}
         </span>
         <div className="flex items-center gap-1 shrink-0">
-          {!isLocal && rawVolume === 0 && (
+          {isDeafened && (
+            <span title={isLocal ? "Você mutou o som para si" : "Usuário mutou o som para si (ensurdecido)"} className="flex items-center">
+              <Headphones className="w-2.5 h-2.5 text-amber-400" />
+            </span>
+          )}
+          {!isLocal && isSilenced && (
+            <span title="Silenciado mutuamente" className="flex items-center">
+              <VolumeX className="w-2.5 h-2.5 text-amber-400" />
+            </span>
+          )}
+          {!isLocal && !isSilenced && rawVolume === 0 && (
             <span title="Mutado para você" className="flex items-center">
               <VolumeX className="w-2.5 h-2.5 text-rose-400" />
             </span>
           )}
-          {isMuted && !isScreenTrack && <MicOff className="w-2.5 h-2.5 text-rose-400 shrink-0" />}
+          {isMuted && !isScreenTrack && (
+            <span
+              title={isMutedByAdmin ? "Mutado pelo Administrador" : "Microfone mutado"}
+              className="flex items-center"
+            >
+              <MicOff className={`w-2.5 h-2.5 shrink-0 ${isMutedByAdmin ? 'text-amber-400' : 'text-rose-400'}`} />
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -419,10 +453,12 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
   const localScreenStream = useMediaStore((s) => s.localScreenStream)
   const peerStreams = useMediaStore((s) => s.peerStreams)
   const isMuted = useMediaStore((s) => s.isMuted)
+  const isDeafened = useMediaStore((s) => s.isDeafened)
   const isCameraOff = useMediaStore((s) => s.isCameraOff)
   const isScreenSharing = useMediaStore((s) => s.isScreenSharing)
   const setGridCallOpen = useMediaStore((s) => s.setGridCallOpen)
   const toggleMute = useMediaStore((s) => s.toggleMute)
+  const toggleDeafen = useMediaStore((s) => s.toggleDeafen)
   const toggleCamera = useMediaStore((s) => s.toggleCamera)
 
   const { localPlayer, remotePlayers, callStates } = useGameStore()
@@ -436,6 +472,7 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
   const [isScreenModalOpen, setIsScreenModalOpen] = useState(false)
   const [isFloatingPreviewVisible, setIsFloatingPreviewVisible] = useState(true)
   const [isRoomSettingsOpen, setIsRoomSettingsOpen] = useState(false)
+  const [contextMenuState, setContextMenuState] = useState<{ user: ParticipantData; x: number; y: number } | null>(null)
 
   // Only display if user is in a Private Zone (grid-open gate lives in outer).
   if (!localPlayer.currentZoneId) return null
@@ -568,15 +605,36 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
           <div className="flex gap-2 items-center overflow-x-auto pb-1 max-w-sm sm:max-w-md">
             {/* Local User Camera */}
             <VideoTile
+              id={localPlayer.id}
               stream={localStream}
               name={localPlayer.name}
               isMuted={isMuted}
+              isMutedByAdmin={localPlayer.isMutedByAdmin}
+              isDeafened={isDeafened}
               isCameraOff={isCameraOff}
               isLocal={true}
               isScreenSharing={false}
               suppressAudio={suppressAudio}
               color={localPlayer.avatar.shirtColor}
               onClick={() => setGridCallOpen(true)}
+              onContextMenu={(e) => {
+                setContextMenuState({
+                  user: {
+                    id: localPlayer.id,
+                    gameId: localPlayer.gameId || localPlayer.id,
+                    name: localPlayer.name,
+                    stream: localStream,
+                    isLocal: true,
+                    isMuted,
+                    isMutedByAdmin: localPlayer.isMutedByAdmin,
+                    isDeafened,
+                    shirtColor: localPlayer.avatar.shirtColor,
+                    statusEmoji: localPlayer.statusEmoji,
+                  },
+                  x: e.clientX,
+                  y: e.clientY,
+                })
+              }}
             />
 
             {/* Local Screen Share Tile (if sharing) */}
@@ -596,9 +654,12 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
             {peersInSameZone.map((peer) => (
               <VideoTile
                 key={peer.id}
+                id={peer.id}
                 stream={peerStreams[peer.id] || null}
                 name={peer.name}
                 isMuted={peer.isMuted}
+                isMutedByAdmin={peer.isMutedByAdmin}
+                isDeafened={peer.isDeafened}
                 isCameraOff={peer.isCameraOff}
                 isLocal={false}
                 isScreenSharing={peer.isScreenSharing}
@@ -608,6 +669,24 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
                 callState={callStates[peer.id] || peer.callState || 'idle'}
                 onRetryCall={() => PeerManager.getInstance().retryZoneCall(peer.id)}
                 onClick={() => setGridCallOpen(true)}
+                onContextMenu={(e) => {
+                  setContextMenuState({
+                    user: {
+                      id: peer.id,
+                      gameId: peer.gameId || peer.id,
+                      name: peer.name,
+                      stream: peerStreams[peer.id] || null,
+                      isLocal: false,
+                      isMuted: peer.isMuted,
+                      isMutedByAdmin: peer.isMutedByAdmin,
+                      isDeafened: peer.isDeafened,
+                      shirtColor: peer.avatar.shirtColor,
+                      statusEmoji: peer.statusEmoji,
+                    },
+                    x: e.clientX,
+                    y: e.clientY,
+                  })
+                }}
               />
             ))}
           </div>
@@ -618,11 +697,42 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
             <button
               onClick={toggleMute}
               className={`p-2 rounded-xl text-xs font-medium transition-colors ${
-                isMuted ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                localPlayer.isMutedByAdmin
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50 hover:bg-amber-500/30'
+                  : isMuted
+                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500/30'
+                  : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
               }`}
-              title={isMuted ? 'Desmutar Microfone' : 'Mutar Microfone'}
+              title={
+                localPlayer.isMutedByAdmin
+                  ? 'Microfone mutado pelo Administrador (Clique para desmutar)'
+                  : isMuted
+                  ? 'Desmutar Microfone'
+                  : 'Mutar Microfone'
+              }
             >
-              {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              {isMuted ? (
+                <MicOff className={`w-4 h-4 ${localPlayer.isMutedByAdmin ? 'text-amber-400' : ''}`} />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
+            </button>
+
+            {/* Mutar som para si (Ensurdecer / Deafen) */}
+            <button
+              onClick={toggleDeafen}
+              className={`p-2 rounded-xl text-xs font-medium transition-colors ${
+                isDeafened
+                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500/30 shadow-md shadow-rose-500/10'
+                  : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+              }`}
+              title={
+                isDeafened
+                  ? 'Reativar som da chamada para você'
+                  : 'Mutar o som para mim (Ensurdecer)'
+              }
+            >
+              <Headphones className="w-4 h-4" />
             </button>
 
             {/* Camera */}
@@ -722,6 +832,16 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
           isOpen={isRoomSettingsOpen}
           onClose={() => setIsRoomSettingsOpen(false)}
           initialTab="permissions"
+        />
+      )}
+
+      {/* Participant Right-Click Context Menu */}
+      {contextMenuState && (
+        <ParticipantContextMenu
+          user={contextMenuState.user}
+          x={contextMenuState.x}
+          y={contextMenuState.y}
+          onClose={() => setContextMenuState(null)}
         />
       )}
     </>

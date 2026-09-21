@@ -20,6 +20,9 @@ export type NetworkMessageType =
   | 'ROOM_LOCK_TOGGLE'
   | 'ROOM_KNOCK_REQUEST'
   | 'ROOM_KNOCK_RESPONSE'
+  | 'USER_AUDIO_ISOLATION'
+  | 'ADMIN_MUTE_PARTICIPANT'
+  | 'ADMIN_DEAFEN_PARTICIPANT'
 
 export interface NetworkMessage {
   type: NetworkMessageType
@@ -49,4 +52,27 @@ export interface PeerConnectionState {
   isConnected: boolean
   isHost: boolean
   latency?: number
+}
+
+export interface UserAudioIsolationPayload {
+  targetUserId: string
+  sourceUserId: string
+  sourceUserName?: string
+  isSilenced: boolean
+}
+
+export interface AdminMutePayload {
+  targetUserId: string
+  targetGameId?: string
+  targetUserName?: string
+  mute: boolean
+  adminName: string
+}
+
+export interface AdminDeafenPayload {
+  targetUserId: string
+  targetGameId?: string
+  targetUserName?: string
+  deafen: boolean
+  adminName: string
 }

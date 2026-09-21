@@ -51,6 +51,10 @@ export class PeerManager {
     return this.mediaCalls
   }
 
+  public getPeerId(): string | null {
+    return this.peer ? this.peer.id : null
+  }
+
   /**
    * Host a new Room
    */
@@ -737,7 +741,8 @@ export class PeerManager {
       this.isHost,
       (m, exclude) => this.broadcast(m, exclude),
       (pid) => this.removePeer(pid),
-      (remotePlayer) => this.checkZoneCallEligibility(remotePlayer)
+      (remotePlayer) => this.checkZoneCallEligibility(remotePlayer),
+      this.peer ? this.peer.id : null
     )
   }
 
@@ -1056,6 +1061,99 @@ export class PeerManager {
       type: 'ROOM_KNOCK_RESPONSE',
       senderId,
       payload: { zoneId, requesterId, approved, approverName, requesterName },
+      timestamp: Date.now(),
+    }
+    this.broadcast(msg)
+  }
+
+  /**
+   * Send mutual audio isolation signal (bidirectional silence)
+   */
+  public sendUserAudioIsolation(targetUserId: string, isSilenced: boolean) {
+    const localPlayer = useGameStore.getState().localPlayer
+    const senderId = this.peer ? this.peer.id : localPlayer.id
+    const msg: NetworkMessage = {
+      type: 'USER_AUDIO_ISOLATION',
+      senderId,
+      payload: {
+        targetUserId,
+        sourceUserId: localPlayer.id,
+        sourceUserName: localPlayer.name,
+        isSilenced,
+      },
+      timestamp: Date.now(),
+    }
+    this.broadcast(msg)
+  }
+
+  /**
+   * Broadcast Admin Mute Participant command
+   */
+  public sendAdminMuteParticipant(targetUserId: string, mute: boolean, targetUserName?: string, targetGameId?: string) {
+    const localPlayer = useGameStore.getState().localPlayer
+    const senderId = this.peer ? this.peer.id : localPlayer.id
+    // Update local perception immediately for the admin
+    const remotePlayers = useGameStore.getState().remotePlayers
+    for (const [rId, rPlayer] of Object.entries(remotePlayers)) {
+      if (
+        rId === targetUserId ||
+        rPlayer.id === targetUserId ||
+        rPlayer.gameId === targetUserId ||
+        (targetGameId && (rPlayer.id === targetGameId || rPlayer.gameId === targetGameId))
+      ) {
+        useGameStore.getState().setRemotePlayer({
+          ...rPlayer,
+          isMuted: mute,
+          isMutedByAdmin: mute,
+        })
+      }
+    }
+    const msg: NetworkMessage = {
+      type: 'ADMIN_MUTE_PARTICIPANT',
+      senderId,
+      payload: {
+        targetUserId,
+        targetGameId,
+        targetUserName,
+        mute,
+        adminName: localPlayer.name,
+      },
+      timestamp: Date.now(),
+    }
+    this.broadcast(msg)
+  }
+
+  /**
+   * Broadcast Admin Deafen Participant command
+   */
+  public sendAdminDeafenParticipant(targetUserId: string, deafen: boolean, targetUserName?: string, targetGameId?: string) {
+    const localPlayer = useGameStore.getState().localPlayer
+    const senderId = this.peer ? this.peer.id : localPlayer.id
+    // Update local perception immediately for the admin
+    const remotePlayers = useGameStore.getState().remotePlayers
+    for (const [rId, rPlayer] of Object.entries(remotePlayers)) {
+      if (
+        rId === targetUserId ||
+        rPlayer.id === targetUserId ||
+        rPlayer.gameId === targetUserId ||
+        (targetGameId && (rPlayer.id === targetGameId || rPlayer.gameId === targetGameId))
+      ) {
+        useGameStore.getState().setRemotePlayer({
+          ...rPlayer,
+          isDeafened: deafen,
+        })
+      }
+    }
+    const msg: NetworkMessage = {
+      type: 'ADMIN_DEAFEN_PARTICIPANT',
+      senderId,
+      payload: {
+        targetUserId,
+        targetGameId,
+        targetUserName,
+        deafen,
+        adminName: localPlayer.name,
+      },
       timestamp: Date.now(),
     }
     this.broadcast(msg)

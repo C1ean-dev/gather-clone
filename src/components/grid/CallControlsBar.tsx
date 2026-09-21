@@ -14,6 +14,7 @@ import {
   Lock,
   Unlock,
   Shield,
+  Headphones,
 } from 'lucide-react'
 import { useMediaStore } from '../../store/useMediaStore'
 import { useGameStore } from '../../store/useGameStore'
@@ -43,10 +44,12 @@ export const CallControlsBar: React.FC<Props> = ({
   // Granular selectors — booleans/toggles only change on user action, but
   // whole-store would also re-render this bar on every VU-meter tick.
   const isMuted = useMediaStore((s) => s.isMuted)
+  const isDeafened = useMediaStore((s) => s.isDeafened)
   const isCameraOff = useMediaStore((s) => s.isCameraOff)
   const isScreenSharing = useMediaStore((s) => s.isScreenSharing)
   const isNoiseSuppressionEnabled = useMediaStore((s) => s.isNoiseSuppressionEnabled)
   const toggleMute = useMediaStore((s) => s.toggleMute)
+  const toggleDeafen = useMediaStore((s) => s.toggleDeafen)
   const toggleCamera = useMediaStore((s) => s.toggleCamera)
   const toggleNoiseSuppression = useMediaStore((s) => s.toggleNoiseSuppression)
 
@@ -128,13 +131,42 @@ export const CallControlsBar: React.FC<Props> = ({
         <button
           onClick={toggleMute}
           className={`p-3 rounded-xl flex items-center justify-center transition-all ${
-            isMuted
+            localPlayer.isMutedByAdmin
+              ? 'bg-amber-500/20 text-amber-400 border border-amber-500/50 hover:bg-amber-500/30 shadow-lg shadow-amber-500/20'
+              : isMuted
               ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500/30'
               : 'bg-[#1b202c] text-white border border-[#2a3142] hover:bg-slate-700'
           }`}
-          title={isMuted ? 'Desmutar Microfone (M)' : 'Mutar Microfone (M)'}
+          title={
+            localPlayer.isMutedByAdmin
+              ? 'Microfone mutado pelo Administrador (Clique para desmutar)'
+              : isMuted
+              ? 'Desmutar Microfone (M)'
+              : 'Mutar Microfone (M)'
+          }
         >
-          {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+          {isMuted ? (
+            <MicOff className={`w-4 h-4 ${localPlayer.isMutedByAdmin ? 'text-amber-400' : ''}`} />
+          ) : (
+            <Mic className="w-4 h-4" />
+          )}
+        </button>
+
+        {/* Mutar som para mim (Ensurdecer / Deafen) */}
+        <button
+          onClick={toggleDeafen}
+          className={`p-3 rounded-xl flex items-center justify-center transition-all ${
+            isDeafened
+              ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500/30 shadow-lg shadow-rose-500/20'
+              : 'bg-[#1b202c] text-slate-300 border border-[#2a3142] hover:bg-slate-700 hover:text-white'
+          }`}
+          title={
+            isDeafened
+              ? 'Som Desativado para Você (Clique para ouvir a chamada)'
+              : 'Mutar o Som para Mim (Ensurdecer)'
+          }
+        >
+          <Headphones className="w-4 h-4" />
         </button>
 
         {/* Camera */}

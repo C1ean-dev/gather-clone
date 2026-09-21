@@ -736,8 +736,8 @@ export class MediaManager {
     return nextMute
   }
 
-  public syncMuteState(isMuted: boolean): void {
-    diagLog('media', 'mute', { isMuted })
+  public syncMuteState(isMuted: boolean, isMutedByAdmin?: boolean): void {
+    diagLog('media', 'mute', { isMuted, isMutedByAdmin })
     try {
       // Sender proof for the next diagnostic: is audio RTP actually flowing?
       PeerManager.getInstance().logSenderSnapshot(isMuted ? 'mute-on' : 'mute-off')
@@ -751,11 +751,12 @@ export class MediaManager {
         track.enabled = !isMuted
       })
     }
+    const nextMutedByAdmin = isMutedByAdmin !== undefined ? isMutedByAdmin : false
     try {
-      useGameStore.getState().setLocalPlayer({ isMuted })
+      useGameStore.getState().setLocalPlayer({ isMuted, isMutedByAdmin: nextMutedByAdmin })
     } catch {}
     try {
-      PeerManager.getInstance().sendPlayerUpdate({ isMuted })
+      PeerManager.getInstance().sendPlayerUpdate({ isMuted, isMutedByAdmin: nextMutedByAdmin })
     } catch {}
   }
 

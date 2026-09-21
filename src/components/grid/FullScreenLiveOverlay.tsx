@@ -74,7 +74,7 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
   }, [rawVolume, outputVolume, user.isLocal])
 
   const handleVolumeChange = (newVal: number) => {
-    const clamped = Math.max(0, Math.min(100, newVal))
+    const clamped = Math.max(0, Math.min(200, newVal))
     setLiveStreamVolume(clamped)
     setParticipantVolume(user.id, clamped)
     if (user.name) {
@@ -225,7 +225,7 @@ export const FullScreenLiveOverlay: React.FC<Props> = ({ user, onClose }) => {
               <input
                 type="range"
                 min="0"
-                max="100"
+                max="200"
                 value={rawVolume}
                 onChange={(e) => handleVolumeChange(Number(e.target.value))}
                 onMouseDown={() => {

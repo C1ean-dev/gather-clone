@@ -4,6 +4,7 @@ import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
 import { useChatStore } from '../store/useChatStore'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
+import { useMediaStore } from '../store/useMediaStore'
 import { PublicRoomsService } from '../services/publicRoomsService'
 
 export function processNetworkMessage(
@@ -12,7 +13,8 @@ export function processNetworkMessage(
   isHost: boolean,
   broadcast: (msg: NetworkMessage, excludePeerId?: string) => void,
   removePeer: (peerId: string) => void,
-  checkZoneCallEligibility: (remotePlayer: Player) => void
+  checkZoneCallEligibility: (remotePlayer: Player) => void,
+  myPeerId?: string | null
 ) {
   switch (msg.type) {
     case 'HEARTBEAT': {
@@ -83,14 +85,28 @@ export function processNetworkMessage(
     }
 
     case 'PLAYER_UPDATE': {
-      if (peerId === useGameStore.getState().localPlayer.id) break
+      const localId = useGameStore.getState().localPlayer.id
+      if (peerId === localId || msg.senderId === localId || (myPeerId && (peerId === myPeerId || msg.senderId === myPeerId))) break
       const updated = msg.payload.player
-      const existing = useGameStore.getState().remotePlayers[peerId]
-      if (existing) {
-        const isPeerHost = peerId.endsWith('-host')
+      const remotePlayers = useGameStore.getState().remotePlayers
+      let existingKey = remotePlayers[peerId] ? peerId : undefined
+      if (!existingKey) {
+        existingKey = Object.keys(remotePlayers).find(
+          (k) =>
+            k === msg.senderId ||
+            remotePlayers[k].id === msg.senderId ||
+            remotePlayers[k].gameId === msg.senderId ||
+            (updated?.id && (remotePlayers[k].id === updated.id || remotePlayers[k].gameId === updated.id)) ||
+            (updated?.name && remotePlayers[k].name === updated.name)
+        )
+      }
+      const existing = existingKey ? remotePlayers[existingKey] : undefined
+      if (existing && existingKey) {
+        const isPeerHost = existingKey.endsWith('-host')
         const nextPlayer: Player = {
           ...existing,
           ...updated,
+          id: existingKey,
           isHost: isPeerHost,
           role: isPeerHost ? 'host' : updated?.role || existing.role || 'member',
         }
@@ -205,6 +221,111 @@ export function processNetworkMessage(
         useGameStore.getState().setMyKnockStatus(zoneId, approved ? 'approved' : 'denied')
       }
       useGameStore.getState().removeKnockRequest(requesterId)
+      break
+    }
+
+    case 'USER_AUDIO_ISOLATION': {
+      const { targetUserId, sourceUserId, isSilenced } = msg.payload
+      const local = useGameStore.getState().localPlayer
+      if (
+        (myPeerId && myPeerId === targetUserId) ||
+        local.id === targetUserId ||
+        (local.gameId && local.gameId === targetUserId)
+      ) {
+        useMediaStore.getState().setMutuallySilencedBy(sourceUserId, isSilenced)
+      }
+      break
+    }
+
+    case 'ADMIN_MUTE_PARTICIPANT': {
+      const { targetUserId, targetGameId, mute, adminName } = msg.payload
+      const local = useGameStore.getState().localPlayer
+
+      // Sender is the admin who triggered this; never apply it to self
+      if (msg.senderId === local.id || (myPeerId && msg.senderId === myPeerId)) {
+        break
+      }
+
+      const isTarget =
+        (myPeerId && myPeerId === targetUserId) ||
+        local.id === targetUserId ||
+        (local.gameId && local.gameId === targetUserId) ||
+        (targetGameId && (local.id === targetGameId || local.gameId === targetGameId))
+
+      if (isTarget) {
+        useMediaStore.getState().setMuted(mute)
+        useGameStore.getState().setLocalPlayer({ isMuted: mute, isMutedByAdmin: mute })
+        try {
+          import('../media/MediaManager').then(({ MediaManager }) => {
+            MediaManager.getInstance().syncMuteState(mute, mute)
+          }).catch(() => {})
+        } catch {}
+        useMediaStore.getState().setAdminNotice({
+          message: mute
+            ? `Você foi mutado pelo administrador ${adminName || 'da sala'}.`
+            : `Seu microfone foi reativado pelo administrador ${adminName || 'da sala'}.`,
+          type: 'mute',
+        })
+      }
+      // Update remote player state for everyone in the room
+      const remotePlayers = useGameStore.getState().remotePlayers
+      for (const [rId, rPlayer] of Object.entries(remotePlayers)) {
+        if (
+          rId === targetUserId ||
+          rPlayer.id === targetUserId ||
+          rPlayer.gameId === targetUserId ||
+          (targetGameId && (rPlayer.id === targetGameId || rPlayer.gameId === targetGameId))
+        ) {
+          useGameStore.getState().setRemotePlayer({
+            ...rPlayer,
+            isMuted: mute,
+            isMutedByAdmin: mute,
+          })
+        }
+      }
+      break
+    }
+
+    case 'ADMIN_DEAFEN_PARTICIPANT': {
+      const { targetUserId, targetGameId, deafen, adminName } = msg.payload
+      const local = useGameStore.getState().localPlayer
+
+      // Sender is the admin who triggered this; never apply it to self
+      if (msg.senderId === local.id || (myPeerId && msg.senderId === myPeerId)) {
+        break
+      }
+
+      const isTarget =
+        (myPeerId && myPeerId === targetUserId) ||
+        local.id === targetUserId ||
+        (local.gameId && local.gameId === targetUserId) ||
+        (targetGameId && (local.id === targetGameId || local.gameId === targetGameId))
+
+      if (isTarget) {
+        useMediaStore.getState().setDeafened(deafen)
+        useGameStore.getState().setLocalPlayer({ isDeafened: deafen })
+        useMediaStore.getState().setAdminNotice({
+          message: deafen
+            ? `Seu áudio foi silenciado pelo administrador ${adminName || 'da sala'}.`
+            : `Seu áudio foi reativado pelo administrador ${adminName || 'da sala'}.`,
+          type: 'deafen',
+        })
+      }
+      // Update remote player state for everyone in the room
+      const remotePlayers = useGameStore.getState().remotePlayers
+      for (const [rId, rPlayer] of Object.entries(remotePlayers)) {
+        if (
+          rId === targetUserId ||
+          rPlayer.id === targetUserId ||
+          rPlayer.gameId === targetUserId ||
+          (targetGameId && (rPlayer.id === targetGameId || rPlayer.gameId === targetGameId))
+        ) {
+          useGameStore.getState().setRemotePlayer({
+            ...rPlayer,
+            isDeafened: deafen,
+          })
+        }
+      }
       break
     }
   }

@@ -277,9 +277,11 @@ describe('Audio & Media Store - Expected Behaviors', () => {
     expect(useMediaStore.getState().liveStreamVolume).toBe(42)
     expect(useMediaStore.getState().participantVolumes['live']).toBe(42)
 
-    // Clamping
+    // Clamping (0 to 200%)
     setLiveStreamVolume(150)
-    expect(useMediaStore.getState().liveStreamVolume).toBe(100)
+    expect(useMediaStore.getState().liveStreamVolume).toBe(150)
+    setLiveStreamVolume(250)
+    expect(useMediaStore.getState().liveStreamVolume).toBe(200)
 
     setLiveStreamVolume(-10)
     expect(useMediaStore.getState().liveStreamVolume).toBe(0)

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { SensitivityMode, AudioProcessorMode } from '../types/audio'
+import { useGameStore } from './useGameStore'
 
 export interface MicCalibration {
   noiseFloorDb: number
@@ -24,16 +25,28 @@ interface MediaStore {
   isNoiseSuppressionEnabled: boolean
   isGridCallOpen: boolean
   isSettingsModalOpen: boolean
+  isDeafened: boolean // Mutes all incoming call sound for self
+  silencedUsers: Record<string, boolean> // Users mutually silenced by self
+  mutuallySilencedBy: Record<string, boolean> // Users who have silenced self
+  adminNotice: { message: string; type: 'mute' | 'deafen'; timestamp: number } | null
 
   toggleMute: () => void
   toggleCamera: () => void
+  toggleDeafen: () => void
   setMuted: (muted: boolean) => void
   setCameraOff: (cameraOff: boolean) => void
+  setDeafened: (deafened: boolean) => void
   setScreenSharing: (sharing: boolean) => void
   toggleNoiseSuppression: () => void
   toggleGridCall: () => void
   setGridCallOpen: (open: boolean) => void
   setSettingsModalOpen: (open: boolean) => void
+  toggleSilenceUser: (userId: string, userName?: string) => boolean
+  isUserSilenced: (userId: string, userName?: string) => boolean
+  setMutuallySilencedBy: (peerId: string, silenced: boolean) => void
+  isUserLocallyMuted: (userId: string, userName?: string) => boolean
+  toggleLocalMuteUser: (userId: string, userName?: string) => boolean
+  setAdminNotice: (notice: { message: string; type: 'mute' | 'deafen' } | null) => void
 
   // Audio & Video Device & Control Settings
   selectedAudioInput: string
@@ -318,17 +331,21 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   setIsCalibrating: (isCalibrating) => set({ isCalibrating }),
 
   toggleMute: () => {
-    const { localStream, isMuted } = get()
-    const nextMute = !isMuted
+    const nextMute = !get().isMuted
+    const { localStream } = get()
     if (localStream) {
       localStream.getAudioTracks().forEach((track) => {
         track.enabled = !nextMute
       })
     }
     set({ isMuted: nextMute })
+    useGameStore.getState().setLocalPlayer({
+      isMuted: nextMute,
+      isMutedByAdmin: false,
+    })
     try {
       import('../media/MediaManager').then(({ MediaManager }) => {
-        MediaManager.getInstance().syncMuteState(nextMute)
+        MediaManager.getInstance().syncMuteState(nextMute, false)
       }).catch(() => {})
     } catch {}
   },
@@ -341,9 +358,13 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
       })
     }
     set({ isMuted })
+    useGameStore.getState().setLocalPlayer({
+      isMuted,
+      isMutedByAdmin: false,
+    })
     try {
       import('../media/MediaManager').then(({ MediaManager }) => {
-        MediaManager.getInstance().syncMuteState(isMuted)
+        MediaManager.getInstance().syncMuteState(isMuted, false)
       }).catch(() => {})
     } catch {}
   },
@@ -380,13 +401,87 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   setGridCallOpen: (open) => set({ isGridCallOpen: open }),
   setSettingsModalOpen: (isSettingsModalOpen) => set({ isSettingsModalOpen }),
 
+  isDeafened: false,
+  toggleDeafen: () => {
+    const next = !get().isDeafened
+    set({ isDeafened: next })
+    useGameStore.getState().setLocalPlayer({ isDeafened: next })
+    try {
+      import('../p2p/PeerManager').then(({ PeerManager }) => {
+        PeerManager.getInstance().sendPlayerUpdate({ isDeafened: next })
+      }).catch(() => {})
+    } catch {}
+  },
+  setDeafened: (isDeafened) => {
+    set({ isDeafened })
+    useGameStore.getState().setLocalPlayer({ isDeafened })
+    try {
+      import('../p2p/PeerManager').then(({ PeerManager }) => {
+        PeerManager.getInstance().sendPlayerUpdate({ isDeafened })
+      }).catch(() => {})
+    } catch {}
+  },
+
+  silencedUsers: {},
+  mutuallySilencedBy: {},
+  toggleSilenceUser: (userId, userName) => {
+    const current = { ...get().silencedUsers }
+    const isCurrentlySilenced = !!current[userId] || (!!userName && !!current[userName])
+    const nextState = !isCurrentlySilenced
+    if (nextState) {
+      current[userId] = true
+      if (userName) current[userName] = true
+    } else {
+      delete current[userId]
+      if (userName) delete current[userName]
+    }
+    set({ silencedUsers: current })
+    return nextState
+  },
+  isUserSilenced: (userId, userName) => {
+    const { silencedUsers, mutuallySilencedBy } = get()
+    return !!(
+      silencedUsers[userId] ||
+      (userName && silencedUsers[userName]) ||
+      mutuallySilencedBy[userId] ||
+      (userName && mutuallySilencedBy[userName])
+    )
+  },
+  setMutuallySilencedBy: (peerId, silenced) => {
+    const next = { ...get().mutuallySilencedBy }
+    if (silenced) {
+      next[peerId] = true
+    } else {
+      delete next[peerId]
+    }
+    set({ mutuallySilencedBy: next })
+  },
+  isUserLocallyMuted: (userId, userName) => {
+    const vols = get().participantVolumes || {}
+    if (vols[userId] !== undefined) return vols[userId] === 0
+    if (userName && userName !== 'Player' && vols[userName] !== undefined) return vols[userName] === 0
+    return false
+  },
+  toggleLocalMuteUser: (userId, userName) => {
+    const isMuted = get().isUserLocallyMuted(userId, userName)
+    const nextVol = isMuted ? 100 : 0
+    get().setParticipantVolume(userId, nextVol)
+    if (userName && userName !== 'Player') get().setParticipantVolume(userName, nextVol)
+    return !isMuted
+  },
+
+  adminNotice: null,
+  setAdminNotice: (notice) => set({
+    adminNotice: notice ? { ...notice, timestamp: Date.now() } : null
+  }),
+
   peerStreams: {},
   peerScreenStreams: {},
   participantVolumes: saved.participantVolumes || {},
   liveStreamVolume: typeof saved.liveStreamVolume === 'number' ? saved.liveStreamVolume : 100,
 
   setParticipantVolume: (id, volume) => {
-    const clamped = Math.max(0, Math.min(100, Math.round(volume)))
+    const clamped = Math.max(0, Math.min(200, Math.round(volume)))
     const current = get().participantVolumes || {}
     if (current[id] === clamped) return
     const next = { ...current, [id]: clamped }
@@ -395,16 +490,21 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   },
 
   setLiveStreamVolume: (volume) => {
-    const clamped = Math.max(0, Math.min(100, Math.round(volume)))
+    const clamped = Math.max(0, Math.min(200, Math.round(volume)))
     const current = get().participantVolumes || {}
     const nextVolumes = { ...current, live: clamped }
     saveAudioSettingsDebounced({ liveStreamVolume: clamped, participantVolumes: nextVolumes })
     set({ liveStreamVolume: clamped, participantVolumes: nextVolumes })
   },
 
-  getEffectiveParticipantVolume: (id) => {
+  getEffectiveParticipantVolume: (id, name?: string) => {
+    if (get().isDeafened) return 0
+    const silenced = get().silencedUsers || {}
+    const mutual = get().mutuallySilencedBy || {}
+    if (silenced[id] || (name && silenced[name]) || mutual[id] || (name && mutual[name])) return 0
+
     const vols = get().participantVolumes || {}
-    const pVol = vols[id] !== undefined ? vols[id] : 100
+    const pVol = vols[id] !== undefined ? vols[id] : (name && vols[name] !== undefined ? vols[name] : 100)
     const master = (get().outputVolume !== undefined ? get().outputVolume : 100) / 100
     return Math.max(0, Math.min(1, master * (pVol / 100)))
   },

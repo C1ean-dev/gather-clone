@@ -1,14 +1,17 @@
 import React, { useEffect, useRef } from 'react'
-import { Radio, MicOff, Maximize, Pin, Maximize2, Volume2, Volume1, VolumeX } from 'lucide-react'
+import { Radio, MicOff, Maximize, Pin, Maximize2, Volume2, Volume1, VolumeX, Headphones } from 'lucide-react'
 import { useMediaStore } from '../../store/useMediaStore'
 import { attachStreamToVideo } from '../../media/attachVideoElement'
 
 export interface ParticipantData {
   id: string
+  gameId?: string
   name: string
   stream: MediaStream | null
   screenStream?: MediaStream | null
   isMuted?: boolean
+  isMutedByAdmin?: boolean
+  isDeafened?: boolean
   isCameraOff?: boolean
   isLocal?: boolean
   isScreenSharing?: boolean
@@ -25,6 +28,7 @@ interface Props {
   isSidebar?: boolean
   onFocus?: () => void
   onOpenLiveFullscreen?: (user: ParticipantData) => void
+  onContextMenu?: (user: ParticipantData, e: React.MouseEvent) => void
 }
 
 export const GridParticipantTile: React.FC<Props> = ({
@@ -33,6 +37,7 @@ export const GridParticipantTile: React.FC<Props> = ({
   isSidebar = false,
   onFocus,
   onOpenLiveFullscreen,
+  onContextMenu,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const isLive = Boolean(user.screenStream || user.isScreenSharing)
@@ -47,47 +52,49 @@ export const GridParticipantTile: React.FC<Props> = ({
   const setLiveStreamVolume = useMediaStore((s) => s.setLiveStreamVolume)
   const outputVolume = useMediaStore((s) => s.outputVolume)
   const selectedAudioOutput = useMediaStore((s) => s.selectedAudioOutput)
+  const isDeafened = useMediaStore((s) => s.isDeafened)
+  const isSilenced = useMediaStore((s) => s.isUserSilenced(user.id, user.name))
 
   const rawVolume =
     participantVolumes[user.id] !== undefined
       ? participantVolumes[user.id]
-      : user.name && participantVolumes[user.name] !== undefined
-      ? participantVolumes[user.name]
+      : user.gameId && participantVolumes[user.gameId] !== undefined
+      ? participantVolumes[user.gameId]
       : isLive && liveStreamVolume !== undefined
       ? liveStreamVolume
       : 100
 
+  const isEffectivelyMuted = Boolean(user.isLocal || isDeafened || isSilenced || rawVolume === 0)
+
   // Apply viewer's volume preference & audio output sink
   useEffect(() => {
     if (videoRef.current && !user.isLocal) {
-      const effectiveVol = Math.max(0, Math.min(1, (outputVolume / 100) * (rawVolume / 100)))
+      const effectiveVol = isEffectivelyMuted
+        ? 0
+        : Math.max(0, Math.min(1, (outputVolume / 100) * (rawVolume / 100)))
       videoRef.current.volume = effectiveVol
+      videoRef.current.muted = isEffectivelyMuted
       if (typeof (videoRef.current as any).setSinkId === 'function' && selectedAudioOutput) {
         ;(videoRef.current as any)
           .setSinkId(selectedAudioOutput === 'default' ? '' : selectedAudioOutput)
           .catch(() => {})
       }
     }
-  }, [rawVolume, outputVolume, selectedAudioOutput, user.isLocal])
+  }, [rawVolume, outputVolume, selectedAudioOutput, user.isLocal, isEffectivelyMuted])
 
   useEffect(() => {
     const video = videoRef.current
     if (!video || !activeStream) return
 
-    // Imperative muted (NOT just the muted={} JSX prop): React sets the
-    // `muted` *attribute* but Chromium reads the IDL *property* — without
-    // this line the local preview is NOT muted and the user hears their own
-    // DSP-processed voice ~30-80ms late ("delay"/echo na chamada).
-    video.muted = !!user.isLocal
-    // Shared attach with play-failure recovery (AbortError on stream swap,
-    // retry on audio/video unmute and click). See attachVideoElement.ts.
+    video.muted = isEffectivelyMuted
     return attachStreamToVideo(video, activeStream, {
       tile: 'grid',
       peer: user.id,
       isLocal: !!user.isLocal,
+      muted: isEffectivelyMuted,
       isLive,
     })
-  }, [activeStream, isLive, user.isLocal])
+  }, [activeStream, isLive, user.isLocal, isEffectivelyMuted])
 
   const handleFullscreenClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -101,6 +108,11 @@ export const GridParticipantTile: React.FC<Props> = ({
     return (
       <div
         onClick={onFocus}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          onContextMenu?.(user, e)
+        }}
         className={`group relative w-full aspect-video bg-[#12151d] rounded-2xl overflow-hidden border-2 transition-all flex items-center justify-center cursor-pointer shadow-md shrink-0 select-none ${
           user.isSpeaking
             ? 'border-emerald-500 ring-2 ring-emerald-500/30'
@@ -181,12 +193,26 @@ export const GridParticipantTile: React.FC<Props> = ({
             {isLive ? `Tela (${user.name})` : user.isLocal ? `${user.name} (Você)` : user.name}
           </span>
           <div className="flex items-center gap-1 shrink-0">
-            {!user.isLocal && rawVolume === 0 && (
+            {user.isDeafened && (
+              <span title={user.isLocal ? "Você mutou o som para si" : "Usuário mutou o som para si (ensurdecido)"} className="flex items-center">
+                <Headphones className="w-2.5 h-2.5 text-amber-400" />
+              </span>
+            )}
+            {!user.isLocal && isSilenced && (
+              <span title="Silenciado para você (mútuo)" className="flex items-center">
+                <VolumeX className="w-2.5 h-2.5 text-amber-400" />
+              </span>
+            )}
+            {!user.isLocal && !isSilenced && rawVolume === 0 && (
               <span title="Você mutou este áudio" className="flex items-center">
                 <VolumeX className="w-2.5 h-2.5 text-rose-400" />
               </span>
             )}
-            {user.isMuted && !isLive && <MicOff className="w-2.5 h-2.5 text-rose-400 shrink-0" />}
+            {user.isMuted && !isLive && (
+              <span title={user.isMutedByAdmin ? "Mutado pelo Administrador" : "Microfone mutado"} className="flex items-center">
+                <MicOff className={`w-2.5 h-2.5 shrink-0 ${user.isMutedByAdmin ? 'text-amber-400' : 'text-rose-400'}`} />
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -198,6 +224,11 @@ export const GridParticipantTile: React.FC<Props> = ({
     <div
       onClick={onFocus}
       onDoubleClick={handleFullscreenClick}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        onContextMenu?.(user, e)
+      }}
       className={`group relative w-full h-full bg-[#12151d] rounded-3xl overflow-hidden border-2 transition-all flex items-center justify-center shadow-2xl cursor-pointer select-none ${
         user.isSpeaking
           ? 'border-emerald-500 shadow-emerald-500/20 shadow-lg ring-2 ring-emerald-500/30'
@@ -369,13 +400,40 @@ export const GridParticipantTile: React.FC<Props> = ({
       <div className="absolute bottom-3 left-3 pointer-events-none z-10">
         <div className="bg-black/80 backdrop-blur-md px-3.5 py-1.5 rounded-xl flex items-center gap-2 border border-white/10 text-xs font-semibold text-white pointer-events-auto">
           <span>{isLive ? `Tela de ${user.name}` : user.isLocal ? `${user.name} (Você)` : user.name}</span>
-          {!user.isLocal && rawVolume === 0 && (
+          {user.isDeafened && (
+            <span
+              className="flex items-center gap-1 text-[10px] text-amber-300 bg-amber-950/70 px-1.5 py-0.5 rounded border border-amber-800/50"
+              title={user.isLocal ? "Você mutou o som para si" : "Usuário mutou o som para si (ensurdecido)"}
+            >
+              <Headphones className="w-3 h-3 text-amber-400" />
+              <span>Som Desativado</span>
+            </span>
+          )}
+          {!user.isLocal && isSilenced && (
+            <span className="flex items-center gap-1 text-[10px] text-amber-400 bg-amber-950/70 px-1.5 py-0.5 rounded border border-amber-800/40" title="Silenciado mutuamente">
+              <VolumeX className="w-3 h-3" />
+              <span>Silenciado para você</span>
+            </span>
+          )}
+          {!user.isLocal && !isSilenced && rawVolume === 0 && (
             <span className="flex items-center gap-1 text-[10px] text-rose-400 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-800/40">
               <VolumeX className="w-3 h-3" />
               <span>Mutado para você</span>
             </span>
           )}
-          {user.isMuted && !isLive && <MicOff className="w-3.5 h-3.5 text-rose-400" />}
+          {user.isMuted && !isLive && (
+            <div
+              className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
+                user.isMutedByAdmin
+                  ? 'text-amber-300 bg-amber-950/70 border-amber-800/50 font-bold'
+                  : 'text-rose-400 border-transparent'
+              }`}
+              title={user.isMutedByAdmin ? "Mutado pelo Administrador" : "Microfone mutado"}
+            >
+              <MicOff className={`w-3.5 h-3.5 ${user.isMutedByAdmin ? 'text-amber-400' : 'text-rose-400'}`} />
+              {user.isMutedByAdmin && <span>Mutado por ADM</span>}
+            </div>
+          )}
         </div>
       </div>
     </div>

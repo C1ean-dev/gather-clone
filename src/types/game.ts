@@ -133,6 +133,8 @@ export interface Player {
   role?: UserRole
   permissions?: PlayerPermissions
   isMuted?: boolean
+  isMutedByAdmin?: boolean
+  isDeafened?: boolean
   isCameraOff?: boolean
   isScreenSharing?: boolean
   /**

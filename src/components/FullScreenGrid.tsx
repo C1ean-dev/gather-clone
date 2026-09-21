@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Shield, Users, Minimize2 } from 'lucide-react'
+import { Shield, Users, Minimize2, X } from 'lucide-react'
 import { useMediaStore } from '../store/useMediaStore'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
@@ -9,6 +9,7 @@ import { ScreenShareModal } from './ScreenShareModal'
 import { GridParticipantTile, ParticipantData } from './grid/GridParticipantTile'
 import { FullScreenLiveOverlay } from './grid/FullScreenLiveOverlay'
 import { CallControlsBar } from './grid/CallControlsBar'
+import { ParticipantContextMenu } from './grid/ParticipantContextMenu'
 
 /**
  * Outer gate: subscribes ONLY to isGridCallOpen so 60Hz position updates
@@ -29,6 +30,7 @@ const FullScreenGridInner: React.FC = () => {
   const peerStreams = useMediaStore((s) => s.peerStreams)
   const peerScreenStreams = useMediaStore((s) => s.peerScreenStreams)
   const isMuted = useMediaStore((s) => s.isMuted)
+  const isDeafened = useMediaStore((s) => s.isDeafened)
   const isCameraOff = useMediaStore((s) => s.isCameraOff)
   const isScreenSharing = useMediaStore((s) => s.isScreenSharing)
   const localAudioLevel = useMediaStore((s) => s.localAudioLevel)
@@ -42,6 +44,28 @@ const FullScreenGridInner: React.FC = () => {
   const [focusedUserId, setFocusedUserId] = useState<string | null>(null)
   const [liveTheaterUser, setLiveTheaterUser] = useState<ParticipantData | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [contextMenuState, setContextMenuState] = useState<{
+    user: ParticipantData
+    x: number
+    y: number
+  } | null>(null)
+
+  const adminNotice = useMediaStore((s) => s.adminNotice)
+  const setAdminNotice = useMediaStore((s) => s.setAdminNotice)
+
+  // Auto-dismiss admin notice after 6 seconds
+  React.useEffect(() => {
+    if (adminNotice) {
+      const timer = setTimeout(() => {
+        setAdminNotice(null)
+      }, 6000)
+      return () => clearTimeout(timer)
+    }
+  }, [adminNotice, setAdminNotice])
+
+  const handleParticipantContextMenu = (user: ParticipantData, e: React.MouseEvent) => {
+    setContextMenuState({ user, x: e.clientX, y: e.clientY })
+  }
 
   const currentZone = mapData.zones.find((z) => z.id === localPlayer.currentZoneId)
   const zoneTitle = currentZone?.name || 'Revisão & Call de Time'
@@ -56,10 +80,13 @@ const FullScreenGridInner: React.FC = () => {
     return [
       {
         id: localPlayer.id,
+        gameId: localPlayer.gameId || localPlayer.id,
         name: localPlayer.name,
         stream: localStream,
         screenStream: localScreenStream,
         isMuted,
+        isMutedByAdmin: localPlayer.isMutedByAdmin,
+        isDeafened: isDeafened,
         isCameraOff,
         isLocal: true,
         isScreenSharing: localPlayer.isScreenSharing,
@@ -69,10 +96,13 @@ const FullScreenGridInner: React.FC = () => {
       },
       ...peersInSameZone.map((p) => ({
         id: p.id,
+        gameId: p.gameId || p.id,
         name: p.name,
         stream: peerStreams[p.id] || null,
         screenStream: peerScreenStreams[p.id] || (p.isScreenSharing ? peerStreams[p.id] : null),
         isMuted: p.isMuted,
+        isMutedByAdmin: p.isMutedByAdmin,
+        isDeafened: p.isDeafened,
         isCameraOff: p.isCameraOff,
         isLocal: false,
         isScreenSharing: p.isScreenSharing,
@@ -91,6 +121,7 @@ const FullScreenGridInner: React.FC = () => {
     peerStreams,
     peerScreenStreams,
     isMuted,
+    isDeafened,
     isCameraOff,
     isLocalSpeaking,
     callStates,
@@ -142,6 +173,21 @@ const FullScreenGridInner: React.FC = () => {
             </span>
           </div>
 
+          {/* Admin Moderation Notice Alert */}
+          {adminNotice && (
+            <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/20 border border-amber-500/40 text-amber-300 rounded-xl text-xs font-semibold animate-in fade-in slide-in-from-top-2 duration-150">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              <span>{adminNotice.message}</span>
+              <button
+                onClick={() => setAdminNotice(null)}
+                className="p-0.5 hover:bg-amber-500/30 rounded text-amber-300"
+                title="Fechar aviso"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             {/* Toggle Sidebar button */}
             {otherParticipants.length > 0 && (
@@ -179,6 +225,7 @@ const FullScreenGridInner: React.FC = () => {
                 isFocused={true}
                 isSidebar={false}
                 onOpenLiveFullscreen={(u) => setLiveTheaterUser(u)}
+                onContextMenu={handleParticipantContextMenu}
               />
             ) : (
               <div className="text-slate-400 text-sm">Nenhum participante conectado</div>
@@ -200,6 +247,7 @@ const FullScreenGridInner: React.FC = () => {
                   isSidebar={true}
                   onFocus={() => setFocusedUserId(otherUser.id)}
                   onOpenLiveFullscreen={(u) => setLiveTheaterUser(u)}
+                  onContextMenu={handleParticipantContextMenu}
                 />
               ))}
             </div>
@@ -245,6 +293,16 @@ const FullScreenGridInner: React.FC = () => {
         isOpen={isScreenModalOpen}
         onClose={() => setIsScreenModalOpen(false)}
       />
+
+      {/* Right-click Context Menu for Participants */}
+      {contextMenuState && (
+        <ParticipantContextMenu
+          user={contextMenuState.user}
+          x={contextMenuState.x}
+          y={contextMenuState.y}
+          onClose={() => setContextMenuState(null)}
+        />
+      )}
     </>
   )
 }
