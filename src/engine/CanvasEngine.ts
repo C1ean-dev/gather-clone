@@ -8,6 +8,7 @@ import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { PeerManager } from '../p2p/PeerManager'
+import { getZoneDoorTarget } from '../utils/doorKnockHelper'
 
 export class CanvasEngine {
   private canvas: HTMLCanvasElement
@@ -56,8 +57,40 @@ export class CanvasEngine {
    */
   public setClickTarget(tileX: number, tileY: number) {
     const local = useGameStore.getState().localPlayer
-    const map = useMapStore.getState().mapData
-    const path = findPath(local.x, local.y, tileX, tileY, map)
+    const mapStore = useMapStore.getState()
+    const map = mapStore.mapData
+
+    let targetX = tileX
+    let targetY = tileY
+
+    // If destination is inside a locked room and player is not authorized, route to door
+    const targetZone = map.zones?.find(
+      (z) =>
+        tileX >= z.x &&
+        tileX < z.x + z.width &&
+        tileY >= z.y &&
+        tileY < z.y + z.height
+    )
+
+    if (targetZone && targetZone.isLocked) {
+      const isPlayerInside =
+        local.currentZoneId === targetZone.id ||
+        (local.x >= targetZone.x &&
+          local.x < targetZone.x + targetZone.width &&
+          local.y >= targetZone.y &&
+          local.y < targetZone.y + targetZone.height)
+      const isAuthorized =
+        isPlayerInside ||
+        mapStore.isPeerAuthorizedForZone(targetZone.id, local.id, local.name)
+
+      if (!isAuthorized) {
+        const door = getZoneDoorTarget(targetZone, map.width, map.height)
+        targetX = door.x
+        targetY = door.y
+      }
+    }
+
+    const path = findPath(local.x, local.y, targetX, targetY, map)
     if (path.length > 0) {
       this.input.setPath(path)
       this.stuckCounter = 0
@@ -281,8 +314,18 @@ export class CanvasEngine {
       checkZonePresence(finalX, finalY, map)
     } else {
       if (local.isMoving) {
-        gameStore.setLocalPosition(local.x, local.y, local.direction, false)
-        PeerManager.getInstance().sendMovement(local.x, local.y, local.direction, false)
+        let finalDirection = local.direction
+        const lockedZone = map.zones?.find((z) => {
+          if (!z.isLocked) return false
+          const door = getZoneDoorTarget(z, map.width, map.height)
+          return Math.abs(local.x - door.x) <= 1.0 && Math.abs(local.y - door.y) <= 1.2
+        })
+        if (lockedZone) {
+          finalDirection = 'up'
+        }
+
+        gameStore.setLocalPosition(local.x, local.y, finalDirection, false)
+        PeerManager.getInstance().sendMovement(local.x, local.y, finalDirection, false)
         this.lastMovementBroadcast = performance.now()
       }
 

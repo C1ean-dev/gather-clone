@@ -7,6 +7,24 @@ import { PeerManager } from '../p2p/PeerManager'
 import { MediaManager } from '../media/MediaManager'
 
 /**
+ * Calculates the front entrance doorway target tile for a zone.
+ * Placed in the corridor outside the south entrance door.
+ */
+export function getZoneDoorTarget(
+  zone: PrivateZone,
+  mapWidth: number = 32,
+  mapHeight: number = 24
+): { x: number; y: number } {
+  const doorW = Math.min(zone.width * 0.38, 2.0)
+  const doorStartX = zone.x + (zone.width - doorW) / 2
+  const doorCenterX = Math.round(doorStartX + doorW / 2)
+  const doorX = Math.max(1, Math.min(mapWidth - 1, doorCenterX))
+  const maxY = zone.y + zone.height
+  const doorY = Math.min(mapHeight - 1, Math.round(maxY))
+  return { x: doorX, y: doorY }
+}
+
+/**
  * Handles attempting to teleport or enter a locked room when unauthorized.
  * Instead of entering the room, places the player outside the doorway entrance
  * and automatically triggers a knock on the door ("bater na porta").

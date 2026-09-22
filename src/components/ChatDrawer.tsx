@@ -12,7 +12,7 @@ import {
   Maximize2,
   AlertCircle,
 } from 'lucide-react'
-import { useChatStore } from '../store/useChatStore'
+import { useChatStore, getDmChannelId } from '../store/useChatStore'
 import { useGameStore } from '../store/useGameStore'
 import { useMediaStore } from '../store/useMediaStore'
 import { PeerManager } from '../p2p/PeerManager'
@@ -60,6 +60,7 @@ const ChatDrawerInner: React.FC = () => {
     messages,
     setChatOpen,
     setActiveChannel,
+    openDirectMessage,
     addMessage,
     addReactionToMessage,
   } = useChatStore()
@@ -122,6 +123,7 @@ const ChatDrawerInner: React.FC = () => {
       timestamp: Date.now(),
       avatarConfig: localPlayer.avatar,
       attachment: pendingAttachment || undefined,
+      recipientId: activeChannel?.type === 'dm' ? activeChannel.recipientId : undefined,
     }
 
     addMessage(newMsg)
@@ -191,7 +193,7 @@ const ChatDrawerInner: React.FC = () => {
               <ChevronDown className="w-3 h-3" />
             </div>
 
-            {channels.map((ch) => {
+            {channels.filter((c) => c.type !== 'dm').map((ch) => {
               const isCurrent = ch.id === activeChannelId
               return (
                 <button
@@ -212,7 +214,7 @@ const ChatDrawerInner: React.FC = () => {
                     <span className="truncate">{ch.name}</span>
                   </div>
                   {ch.unreadCount > 0 && (
-                    <span className="bg-indigo-500 text-white text-[10px] px-1.5 py-0.2 rounded-full">
+                    <span className="bg-indigo-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
                       {ch.unreadCount}
                     </span>
                   )}
@@ -230,24 +232,84 @@ const ChatDrawerInner: React.FC = () => {
             {remotePlayerList.length === 0 ? (
               <div className="text-[11px] text-slate-400 px-2 py-1 italic">Ninguém online</div>
             ) : (
-              remotePlayerList.map((player) => (
-                <div
-                  key={player.id}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-slate-300 hover:bg-slate-800/40 cursor-pointer"
-                >
-                  <div className="relative">
-                    <div
-                      className="w-5 h-5 rounded-full border border-white/20 flex items-center justify-center text-[10px] font-bold text-white"
-                      style={{ backgroundColor: player.avatar.shirtColor || '#4c6ef5' }}
-                    >
-                      {player.name.charAt(0).toUpperCase()}
+              remotePlayerList.map((player) => {
+                const dmChannelId = getDmChannelId(localPlayer.id, player.id)
+                const isCurrent = activeChannelId === dmChannelId
+                const dmChannel = channels.find((c) => c.id === dmChannelId)
+                const unreadCount = dmChannel?.unreadCount || 0
+
+                return (
+                  <button
+                    key={player.id}
+                    type="button"
+                    onClick={() => openDirectMessage({ id: player.id, name: player.name })}
+                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs transition-all ${
+                      isCurrent
+                        ? 'bg-indigo-600/30 text-indigo-300 font-semibold border border-indigo-500/30'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <div className="relative shrink-0">
+                        <div
+                          className="w-5 h-5 rounded-full border border-white/20 flex items-center justify-center text-[10px] font-bold text-white shadow-sm"
+                          style={{ backgroundColor: player.avatar?.shirtColor || player.avatar?.topColor || '#4c6ef5' }}
+                        >
+                          {player.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-[#0d1017]" />
+                      </div>
+                      <span className="truncate text-xs">{player.name}</span>
                     </div>
-                    <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-slate-900" />
-                  </div>
-                  <span className="truncate text-xs">{player.name}</span>
-                </div>
-              ))
+                    {unreadCount > 0 && (
+                      <span className="bg-indigo-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </button>
+                )
+              })
             )}
+
+            {/* Offline DMs with chat history */}
+            {channels
+              .filter(
+                (c) =>
+                  c.type === 'dm' &&
+                  !remotePlayerList.some(
+                    (p) => getDmChannelId(localPlayer.id, p.id) === c.id
+                  )
+              )
+              .map((dm) => {
+                const isCurrent = activeChannelId === dm.id
+                return (
+                  <button
+                    key={dm.id}
+                    type="button"
+                    onClick={() => setActiveChannel(dm.id)}
+                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs transition-all ${
+                      isCurrent
+                        ? 'bg-indigo-600/30 text-indigo-300 font-semibold border border-indigo-500/30'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <div className="relative shrink-0">
+                        <div className="w-5 h-5 rounded-full bg-slate-700 border border-white/10 flex items-center justify-center text-[10px] font-bold text-slate-300">
+                          {dm.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-slate-500 ring-1 ring-[#0d1017]" />
+                      </div>
+                      <span className="truncate text-xs">{dm.name}</span>
+                    </div>
+                    {dm.unreadCount > 0 && (
+                      <span className="bg-indigo-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+                        {dm.unreadCount}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
           </div>
         </div>
 
@@ -256,17 +318,38 @@ const ChatDrawerInner: React.FC = () => {
           {/* Channel Info Bar */}
           <div className="px-3 py-2 border-b border-[#2a3142] flex items-center justify-between bg-[#161a24] shrink-0">
             <div className="flex items-center gap-1.5 truncate">
-              <Hash className="w-4 h-4 text-slate-400 shrink-0" />
+              {activeChannel.type === 'dm' ? (
+                <div className="w-4 h-4 rounded-full bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-[10px] font-bold text-indigo-300 shrink-0">
+                  @
+                </div>
+              ) : activeChannel.type === 'zone' ? (
+                <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <Hash className="w-4 h-4 text-slate-400 shrink-0" />
+              )}
               <span className="text-xs font-bold text-slate-200 truncate">{activeChannel.name}</span>
             </div>
-            <span className="text-[10px] text-slate-400 truncate max-w-[180px]">{activeChannel.description}</span>
+            <span className="text-[10px] text-slate-400 truncate max-w-[180px]">
+              {activeChannel.type === 'dm'
+                ? `Conversa privada com ${activeChannel.name}`
+                : activeChannel.description}
+            </span>
           </div>
 
           {/* Messages List */}
           <div className="flex-1 p-3 overflow-y-auto space-y-3">
             {filteredMessages.length === 0 ? (
-              <div className="text-center text-xs text-slate-400 py-8">
-                Nenhuma mensagem enviada ainda. Envie uma mensagem ou arquivo!
+              <div className="text-center text-xs text-slate-400 py-8 space-y-1">
+                <div className="font-semibold text-slate-300">
+                  {activeChannel.type === 'dm'
+                    ? `Conversa direta com ${activeChannel.name}`
+                    : 'Nenhuma mensagem enviada ainda.'}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  {activeChannel.type === 'dm'
+                    ? 'Envie uma mensagem ou arquivo para iniciar o papo!'
+                    : 'Envie uma mensagem ou arquivo para todos no canal!'}
+                </div>
               </div>
             ) : (
               filteredMessages.map((msg) => {
@@ -480,6 +563,8 @@ const ChatDrawerInner: React.FC = () => {
                 placeholder={
                   pendingAttachment
                     ? 'Adicione uma legenda (opcional)...'
+                    : activeChannel.type === 'dm'
+                    ? `Mensagem para @${activeChannel.name}...`
                     : `Mensagem em #${activeChannel.name}...`
                 }
                 className="flex-1 bg-transparent text-xs text-slate-100 placeholder-slate-400 focus:outline-none"

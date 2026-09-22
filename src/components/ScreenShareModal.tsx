@@ -9,6 +9,7 @@ import {
   Sliders,
   RefreshCw,
   ShieldCheck,
+  StopCircle,
 } from 'lucide-react'
 import { MediaManager, ScreenShareConfig } from '../media/MediaManager'
 import { useMediaStore } from '../store/useMediaStore'
@@ -38,18 +39,23 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
   // miniaturas não existe e o caminho correto é o seletor nativo.
   const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI?.getSources
 
+  const isScreenSharing = useMediaStore((s) => s.isScreenSharing)
+  const screenShareAudioVolume = useMediaStore((s) => s.screenShareAudioVolume)
+  const setScreenShareAudioVolume = useMediaStore((s) => s.setScreenShareAudioVolume)
+
   // Source-only audio is mandatory. It is never a user-selectable mode.
   const includeAudio = true
   const [resolution, setResolution] = useState<'480p' | '720p' | '1080p'>('1080p')
   const [fps, setFps] = useState<30 | 60>(30)
-  const [captureMethod, setCaptureMethod] = useState<'auto' | 'wgc' | 'dxgi' | 'bitblt' | 'graphics-hook'>('auto')
+
   const captureMethods = [
-    { id: 'auto', label: 'Automático', limits: 'Escolhe o melhor método disponível; pode mudar conforme GPU, driver e permissões.' },
-    { id: 'wgc', label: 'WGC', limits: 'Melhor qualidade e menor latência; pode falhar em apps protegidos, overlays e drivers antigos.' },
-    { id: 'dxgi', label: 'DXGI', limits: 'Bom para jogos e monitores; pode capturar tela preta em HDR, UAC ou conteúdos protegidos.' },
-    { id: 'bitblt', label: 'BitBlt', limits: 'Maior compatibilidade; mais uso de CPU, sem aceleração moderna e pode não capturar janelas minimizadas.' },
-    { id: 'graphics-hook', label: 'Graphics Hook', limits: 'Pode capturar renderização exclusiva; exige integração/injeção no app e pode ser bloqueado por anti-cheat.' },
-  ] as const
+    { id: 'auto', label: 'Auto (Recomendado)', limits: 'Seleciona o melhor método suportado pelo hardware automaticamente.' },
+    { id: 'wgc', label: 'WGC', limits: 'Requer Windows 10 1903+. Pode requerer suporte a Direct3D 11.' },
+    { id: 'dxgi', label: 'DXGI Desktop Duplication', limits: 'Apenas tela inteira. Baixíssima latência via GPU.' },
+    { id: 'bitblt', label: 'BitBlt (GDI)', limits: 'Compatibilidade universal. Consome mais CPU.' },
+    { id: 'graphics-hook', label: 'Graphics Hook', limits: 'Captura direta de jogos Direct3D/Vulkan.' },
+  ]
+  const [captureMethod, setCaptureMethod] = useState<'auto' | 'wgc' | 'dxgi' | 'bitblt' | 'graphics-hook'>('auto')
 
   const fetchSources = async () => {
     setLoading(true)
@@ -144,9 +150,20 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
               <ScreenShare className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-100">Compartilhar Tela & Áudio</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-100">
+                  {isScreenSharing ? 'Configurações da Transmissão' : 'Compartilhar Tela & Áudio'}
+                </h2>
+                {isScreenSharing && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                    Ao Vivo
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-400">
-                Transmita somente o áudio do aplicativo escolhido, sem vazar o som das demais janelas
+                {isScreenSharing
+                  ? 'Ajuste a resolução, FPS, volume ou selecione outra tela/janela em tempo real'
+                  : 'Transmita somente o áudio do aplicativo escolhido, sem vazar o som das demais janelas'}
               </p>
             </div>
           </div>
@@ -170,7 +187,12 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
         {/* Tab Selection */}
         <div className="flex gap-2 px-6 pt-3 border-b border-[#2a3142] bg-[#12151d]/40">
           <button
-            onClick={() => setActiveTab('screen')}
+            onClick={() => {
+              setActiveTab('screen')
+              if (screens.length > 0 && (!selectedSourceId || selectedSourceId.startsWith('window:'))) {
+                setSelectedSourceId(screens[0].id)
+              }
+            }}
             className={`flex items-center gap-2 pb-3 px-3 text-xs font-bold border-b-2 transition-all ${
               activeTab === 'screen'
                 ? 'border-indigo-500 text-indigo-400'
@@ -181,7 +203,13 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
             Telas Inteiras ({screens.length || 1})
           </button>
           <button
-            onClick={() => setActiveTab('window')}
+            onClick={() => {
+              setActiveTab('window')
+              if (windows.length > 0 && (!selectedSourceId || selectedSourceId.startsWith('screen:'))) {
+                setSelectedSourceId(windows[0].id)
+                setSelectedAudioSourceId(windows[0].id)
+              }
+            }}
             className={`flex items-center gap-2 pb-3 px-3 text-xs font-bold border-b-2 transition-all ${
               activeTab === 'window'
                 ? 'border-indigo-500 text-indigo-400'
@@ -375,9 +403,17 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Método de captura</label>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   {captureMethods.map((method) => (
-                    <button key={method.id} type="button" onClick={() => setCaptureMethod(method.id)}
+                    <button
+                      key={method.id}
+                      type="button"
+                      onClick={() => setCaptureMethod(method.id as any)}
                       title={method.limits}
-                      className={`py-2 px-2 rounded-xl text-center border transition-all ${captureMethod === method.id ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-500/30' : 'border-[#2a3142] bg-[#1b202c] text-slate-400 hover:text-slate-200'}`}>
+                      className={`py-2 px-2 rounded-xl text-center border transition-all ${
+                        captureMethod === method.id
+                          ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-500/30'
+                          : 'border-[#2a3142] bg-[#1b202c] text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
                       <div className="text-xs font-bold">{method.label}</div>
                     </button>
                   ))}
@@ -386,6 +422,7 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   Limitação: {captureMethods.find((method) => method.id === captureMethod)?.limits}
                 </p>
               </div>
+
               {/* Resolution Options: 480p, 720p, 1080p */}
               <div>
                 <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Resolução de Vídeo</label>
@@ -463,16 +500,17 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-[11px] text-slate-300">
                     <span>Volume da Transmissão</span>
-                    <span className="font-bold text-indigo-400">{useMediaStore.getState().screenShareAudioVolume}%</span>
+                    <span className="font-bold text-indigo-400">{screenShareAudioVolume}%</span>
                   </div>
                   <input
                     type="range"
                     min={0}
-                    max={100}
-                    value={useMediaStore.getState().screenShareAudioVolume}
+                    max={200}
+                    step={1}
+                    value={screenShareAudioVolume}
                     onChange={(e) => {
                       const val = Number(e.target.value)
-                      useMediaStore.getState().setScreenShareAudioVolume(val)
+                      setScreenShareAudioVolume(val)
                       MediaManager.getInstance().updateScreenShareAudioVolume(val)
                     }}
                     className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
@@ -506,7 +544,21 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
             <span className="text-slate-300"> • Som exclusivo da fonte</span>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex items-center gap-2.5">
+            {isScreenSharing && (
+              <button
+                type="button"
+                onClick={() => {
+                  MediaManager.getInstance().stopScreenShare()
+                  onClose()
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 transition-all flex items-center gap-1.5"
+                title="Parar de transmitir agora"
+              >
+                <StopCircle className="w-4 h-4" />
+                Encerrar Live
+              </button>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
@@ -516,10 +568,10 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
             <button
               onClick={handleConfirm}
               disabled={!selectedSourceId || !!audioCapabilityError}
-              className="px-6 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 text-white shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all active:scale-98"
+              className="px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 text-white shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all active:scale-98"
             >
               <ScreenShare className="w-4 h-4" />
-              Iniciar Apresentação
+              {isScreenSharing ? 'Atualizar Transmissão' : 'Iniciar Apresentação'}
             </button>
           </div>
         </div>

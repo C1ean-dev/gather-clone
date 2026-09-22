@@ -35,11 +35,9 @@ const FullScreenGridInner: React.FC = () => {
   const isScreenSharing = useMediaStore((s) => s.isScreenSharing)
   const localAudioLevel = useMediaStore((s) => s.localAudioLevel)
 
-  const { localPlayer, remotePlayers, callStates, addReaction } = useGameStore()
+  const { localPlayer, remotePlayers, callStates } = useGameStore()
   const { mapData } = useMapStore()
 
-  const [handRaised, setHandRaised] = useState(false)
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [isScreenModalOpen, setIsScreenModalOpen] = useState(false)
   const [focusedUserId, setFocusedUserId] = useState<string | null>(null)
   const [liveTheaterUser, setLiveTheaterUser] = useState<ParticipantData | null>(null)
@@ -134,25 +132,7 @@ const FullScreenGridInner: React.FC = () => {
     : activePresenter || (allInMeeting.length > 0 ? allInMeeting[0] : null)
 
   const handleToggleScreenShare = async () => {
-    if (isScreenSharing) {
-      MediaManager.getInstance().stopScreenShare()
-    } else {
-      setIsScreenModalOpen(true)
-    }
-  }
-
-  const handleSendReaction = (emoji: string) => {
-    const reaction = {
-      id: 'react-' + Math.random().toString(36).substring(2, 7),
-      playerId: localPlayer.id,
-      emoji,
-      x: localPlayer.x,
-      y: localPlayer.y,
-      createdAt: Date.now(),
-    }
-    addReaction(reaction)
-    PeerManager.getInstance().sendReaction(reaction)
-    setShowEmojiPicker(false)
+    setIsScreenModalOpen(true)
   }
 
   const otherParticipants = allInMeeting.filter((u) => u.id !== focusedUser?.id)
@@ -254,27 +234,8 @@ const FullScreenGridInner: React.FC = () => {
           )}
         </div>
 
-        {/* Floating Emoji Picker Popover */}
-        {showEmojiPicker && (
-          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-[#1b202c] border border-[#2a3142] rounded-2xl p-2 shadow-2xl flex gap-2 animate-in zoom-in-95 duration-150 z-50">
-            {['❤️', '👍', '👏', '😂', '🎉', '🔥', '🚀', '✋'].map((emoji) => (
-              <button
-                key={emoji}
-                onClick={() => handleSendReaction(emoji)}
-                className="text-2xl p-2 hover:bg-slate-800 rounded-xl transition-transform hover:scale-125"
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Bottom Controls Bar (Gather V2 Dock) */}
         <CallControlsBar
-          handRaised={handRaised}
-          setHandRaised={setHandRaised}
-          showEmojiPicker={showEmojiPicker}
-          setShowEmojiPicker={setShowEmojiPicker}
           onToggleScreenShare={handleToggleScreenShare}
           onLeaveCall={() => setGridCallOpen(false)}
         />

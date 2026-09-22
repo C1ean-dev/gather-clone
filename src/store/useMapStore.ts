@@ -528,7 +528,6 @@ export const useMapStore = create<MapStore>((set, get) => ({
           localPlayer.role === 'admin' ||
           localPlayer.role === 'host'
         ) {
-          addUnique(admins, localPlayer.id)
           addUnique(admins, localPlayer.name)
         }
       }

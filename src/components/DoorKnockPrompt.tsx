@@ -20,9 +20,14 @@ export const DoorKnockPrompt: React.FC = () => {
     for (const zone of zones) {
       if (!zone.isLocked) continue
 
-      // If already inside or authorized, skip
+      // If already inside, skip
       if (localPlayer.currentZoneId === zone.id) continue
-      if (isPeerAuthorizedForZone(zone.id, localPlayer.id, localPlayer.name)) continue
+
+      const isAuth = isPeerAuthorizedForZone(zone.id, localPlayer.id, localPlayer.name)
+      const currentStatus = myKnockStatus[zone.id] || 'idle'
+
+      // If already authorized permanently (and not currently in 'approved' status awaiting entry), skip
+      if (isAuth && currentStatus !== 'approved') continue
 
       const doorW = Math.min(zone.width * 0.38, 2.0)
       const doorStartX = zone.x + (zone.width - doorW) / 2
@@ -48,11 +53,32 @@ export const DoorKnockPrompt: React.FC = () => {
       }
     }
     return null
-  }, [localPlayer.x, localPlayer.y, localPlayer.currentZoneId, localPlayer.id, localPlayer.name, zones, isPeerAuthorizedForZone])
+  }, [
+    localPlayer.x,
+    localPlayer.y,
+    localPlayer.currentZoneId,
+    localPlayer.id,
+    localPlayer.name,
+    zones,
+    isPeerAuthorizedForZone,
+    myKnockStatus,
+  ])
+
+  // Security: If player is NOT authorized for lockedZone, they CANNOT have 'approved' status
+  const isAuth = lockedZone
+    ? isPeerAuthorizedForZone(lockedZone.id, localPlayer.id, localPlayer.name)
+    : false
+  const rawStatus = lockedZone ? myKnockStatus[lockedZone.id] || 'idle' : 'idle'
+  const status = !isAuth && rawStatus === 'approved' ? 'idle' : rawStatus
+
+  // Automatically reset stale 'approved' status if authorization was revoked by an admin
+  React.useEffect(() => {
+    if (lockedZone && !isAuth && myKnockStatus[lockedZone.id] === 'approved') {
+      setMyKnockStatus(lockedZone.id, 'idle')
+    }
+  }, [lockedZone?.id, isAuth, myKnockStatus, setMyKnockStatus])
 
   if (!lockedZone) return null
-
-  const status = myKnockStatus[lockedZone.id] || 'idle'
 
   const handleKnock = () => {
     const req: RoomKnockRequest = {
@@ -74,6 +100,12 @@ export const DoorKnockPrompt: React.FC = () => {
   }
 
   const handleEnterApproved = () => {
+    // Security check: Must be authorized to enter the room
+    if (!isPeerAuthorizedForZone(lockedZone.id, localPlayer.id, localPlayer.name)) {
+      setMyKnockStatus(lockedZone.id, 'idle')
+      return
+    }
+
     const targetX = Math.floor(lockedZone.x + lockedZone.width / 2)
     const targetY = Math.floor(lockedZone.y + lockedZone.height / 2)
     useGameStore.getState().setLocalPlayer({

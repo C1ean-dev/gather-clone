@@ -14,6 +14,7 @@ import { bakeAllAvatarDirections, cropContentDataUrl } from '../engine/avatar/av
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { CustomAsset } from '../types/customAsset'
 import { saveAssetFileToDisk, savePetAtlasToDisk } from '../utils/diskAssetPersistence'
+import { resolveUniquePlayerName } from '../utils/playerName'
 
 import { DEFAULT_AVATAR } from '../engine/Constants'
 
@@ -217,7 +218,9 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
   }
 
   const handleSave = () => {
-    const finalName = name.trim() || localPlayer.name
+    const rawName = name.trim() || localPlayer.name
+    const otherNames = Object.values(useGameStore.getState().remotePlayers).map((p) => p.name)
+    const finalName = resolveUniquePlayerName(rawName, otherNames)
     setLocalPlayer({ name: finalName, avatar, status })
     setLocalStatus(status)
     PeerManager.getInstance().sendPlayerUpdate({

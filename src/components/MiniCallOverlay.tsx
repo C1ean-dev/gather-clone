@@ -22,6 +22,8 @@ import {
   Unlock,
   Shield,
   Headphones,
+  Sliders,
+  StopCircle,
 } from 'lucide-react'
 import { useMediaStore } from '../store/useMediaStore'
 import { useGameStore } from '../store/useGameStore'
@@ -470,9 +472,31 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
   const unreadZoneCount = zoneChannel?.unreadCount || 0
 
   const [isScreenModalOpen, setIsScreenModalOpen] = useState(false)
+  const [isActiveStreamMenuOpen, setIsActiveStreamMenuOpen] = useState(false)
   const [isFloatingPreviewVisible, setIsFloatingPreviewVisible] = useState(true)
   const [isRoomSettingsOpen, setIsRoomSettingsOpen] = useState(false)
   const [contextMenuState, setContextMenuState] = useState<{ user: ParticipantData; x: number; y: number } | null>(null)
+
+  const streamMenuRef = useRef<HTMLDivElement>(null)
+
+  // Fecha o mini-menu ao clicar fora ou pressionar ESC
+  useEffect(() => {
+    if (!isActiveStreamMenuOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (streamMenuRef.current && !streamMenuRef.current.contains(e.target as Node)) {
+        setIsActiveStreamMenuOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsActiveStreamMenuOpen(false)
+    }
+    window.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isActiveStreamMenuOpen])
 
   // Only display if user is in a Private Zone (grid-open gate lives in outer).
   if (!localPlayer.currentZoneId) return null
@@ -526,7 +550,7 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
 
   const handleToggleScreenShare = async () => {
     if (isScreenSharing) {
-      MediaManager.getInstance().stopScreenShare()
+      setIsActiveStreamMenuOpen((prev) => !prev)
     } else {
       setIsScreenModalOpen(true)
     }
@@ -746,18 +770,56 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
               {isCameraOff ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
             </button>
 
-            {/* Screen Share (Flashing and glowing when active) */}
-            <button
-              onClick={handleToggleScreenShare}
-              className={`p-2 rounded-xl text-xs font-medium transition-all ${
-                isScreenSharing
-                  ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/40 animate-pulse'
-                  : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-              }`}
-              title={isScreenSharing ? 'Parar Compartilhamento de Tela' : 'Compartilhar Tela'}
-            >
-              <ScreenShare className="w-4 h-4" />
-            </button>
+            {/* Screen Share (Flashing and glowing when active) with small list menu */}
+            <div className="relative">
+              <button
+                onClick={handleToggleScreenShare}
+                className={`p-2 rounded-xl text-xs font-medium transition-all ${
+                  isScreenSharing
+                    ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/40 animate-pulse'
+                    : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                }`}
+                title={isScreenSharing ? 'Opções da Transmissão (Ao Vivo)' : 'Compartilhar Tela'}
+              >
+                <ScreenShare className="w-4 h-4" />
+              </button>
+
+              {/* Menu compacto em lista de opções da transmissão */}
+              {isScreenSharing && isActiveStreamMenuOpen && (
+                <div
+                  ref={streamMenuRef}
+                  className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 w-48 bg-[#12151d]/95 backdrop-blur-xl border border-[#2a3142] rounded-2xl shadow-2xl p-1.5 z-50 select-none animate-in fade-in zoom-in-95 duration-150"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-2.5 py-1 text-[10px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5 border-b border-[#2a3142]/60 mb-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                    Ao Vivo
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsActiveStreamMenuOpen(false)
+                      setIsScreenModalOpen(true)
+                    }}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800/80 transition-colors text-left"
+                  >
+                    <Sliders className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    <span>Trocar configurações</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsActiveStreamMenuOpen(false)
+                      MediaManager.getInstance().stopScreenShare()
+                    }}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-200 hover:bg-rose-950/40 transition-colors text-left"
+                  >
+                    <StopCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                    <span>Encerrar transmissão</span>
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Chat da Sala */}
             <button
@@ -798,7 +860,7 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
               {isRoomLocked ? <Lock className="w-4 h-4 text-amber-400" /> : <Unlock className="w-4 h-4" />}
             </button>
 
-            {/* Room Permissions & Allowed Users */}
+            {/* Room Permissions & Allowed Users (Escudo para gerenciar permissões da sala) */}
             <button
               onClick={() => setIsRoomSettingsOpen(true)}
               className="p-2 rounded-xl text-xs font-medium bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-indigo-300 transition-colors"
@@ -807,7 +869,7 @@ const MiniCallOverlayInner: React.FC<{ suppressAudio?: boolean }> = ({ suppressA
               <Shield className="w-4 h-4" />
             </button>
 
-            {/* Settings */}
+            {/* Settings (Configurações de Áudio e Voz) */}
             <button
               onClick={() => useMediaStore.getState().setSettingsModalOpen(true)}
               className="p-2 rounded-xl text-xs font-medium bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white transition-colors"

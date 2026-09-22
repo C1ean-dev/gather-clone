@@ -502,7 +502,13 @@ export class PeerManager {
       this.sendToPeer(conn, {
         type: 'PLAYER_JOIN',
         senderId: this.peer!.id,
-        payload: { player: localPlayer },
+        payload: {
+          player: {
+            ...localPlayer,
+            id: this.peer!.id,
+            gameId: localPlayer.gameId || localPlayer.id,
+          },
+        },
         timestamp: Date.now(),
       })
 
@@ -574,22 +580,61 @@ export class PeerManager {
 
     conn.on('error', (err) => {
       console.warn('[P2P Data] Peer connection error:', conn.peer, err)
-      this.removePeer(conn.peer)
     })
 
-    // Monitor underlying RTCPeerConnection states
+    // Monitor underlying RTCPeerConnection states with a grace period for transient disconnections
     const pc = (conn as any).peerConnection as RTCPeerConnection
     if (pc) {
+      let dataConnDisconnectTimer: any = null
+
+      const clearDisconnectTimer = () => {
+        if (dataConnDisconnectTimer) {
+          clearTimeout(dataConnDisconnectTimer)
+          dataConnDisconnectTimer = null
+        }
+      }
+
       pc.addEventListener('connectionstatechange', () => {
-        if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-          console.log(`[P2P WebRTC] Connection state ${pc.connectionState} for ${conn.peer}`)
+        const state = pc.connectionState
+        if (state === 'connected') {
+          clearDisconnectTimer()
+        } else if (state === 'closed' || state === 'failed') {
+          clearDisconnectTimer()
+          console.log(`[P2P WebRTC] Terminal connection state ${state} for ${conn.peer}`)
           this.removePeer(conn.peer)
+        } else if (state === 'disconnected') {
+          console.log(`[P2P WebRTC] Transient disconnected state for ${conn.peer}, starting 8s grace period...`)
+          if (!dataConnDisconnectTimer) {
+            dataConnDisconnectTimer = setTimeout(() => {
+              dataConnDisconnectTimer = null
+              if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+                console.log(`[P2P WebRTC] Disconnect grace period expired for ${conn.peer}. Removing peer.`)
+                this.removePeer(conn.peer)
+              }
+            }, 8000)
+          }
         }
       })
+
       pc.addEventListener('iceconnectionstatechange', () => {
-        if (['disconnected', 'failed', 'closed'].includes(pc.iceConnectionState)) {
-          console.log(`[P2P ICE] State ${pc.iceConnectionState} for ${conn.peer}`)
+        const ice = pc.iceConnectionState
+        if (ice === 'connected' || ice === 'completed') {
+          clearDisconnectTimer()
+        } else if (ice === 'failed' || ice === 'closed') {
+          clearDisconnectTimer()
+          console.log(`[P2P ICE] Terminal ICE state ${ice} for ${conn.peer}`)
           this.removePeer(conn.peer)
+        } else if (ice === 'disconnected') {
+          console.log(`[P2P ICE] Transient ICE disconnected for ${conn.peer}, starting 8s grace period...`)
+          if (!dataConnDisconnectTimer) {
+            dataConnDisconnectTimer = setTimeout(() => {
+              dataConnDisconnectTimer = null
+              if (['disconnected', 'failed', 'closed'].includes(pc.iceConnectionState)) {
+                console.log(`[P2P ICE] Disconnect grace period expired for ${conn.peer}. Removing peer.`)
+                this.removePeer(conn.peer)
+              }
+            }, 8000)
+          }
         }
       })
     }
@@ -744,6 +789,15 @@ export class PeerManager {
       (remotePlayer) => this.checkZoneCallEligibility(remotePlayer),
       this.peer ? this.peer.id : null
     )
+
+    if (msg.type === 'PLAYER_UPDATE' && msg.payload?.player?.isScreenSharing !== undefined) {
+      if (useMediaStore.getState().isScreenSharing) {
+        import('../media/MediaManager').then(({ MediaManager }) => {
+          const { targetBitrate } = MediaManager.resolveOptimalScreenQuality()
+          this.updateScreenShareBitrate(targetBitrate)
+        }).catch(() => {})
+      }
+    }
   }
 
   /**
@@ -752,7 +806,7 @@ export class PeerManager {
   private startHeartbeat() {
     this.stopHeartbeat()
 
-    // 1. Send heartbeat packet every 2.5s
+    // 1. Send heartbeat packet every 3s
     this.heartbeatInterval = setInterval(() => {
       if (!this.peer || this.connections.size === 0) return
       const pingMsg: NetworkMessage = {
@@ -762,20 +816,21 @@ export class PeerManager {
         timestamp: Date.now(),
       }
       this.broadcast(pingMsg)
-    }, 2500)
+    }, 3000)
 
-    // 2. Prune silent peers (no message for >6s)
+    // 2. Prune silent peers (no message for >18s, or 25s if actively engaged in a media call)
     this.staleCheckInterval = setInterval(() => {
       const now = Date.now()
-      const STALE_TIMEOUT_MS = 6000
 
       this.peerLastSeen.forEach((lastSeen, peerId) => {
-        if (now - lastSeen > STALE_TIMEOUT_MS) {
+        const hasActiveMedia = this.mediaCalls.has(peerId)
+        const timeoutMs = hasActiveMedia ? 25000 : 18000
+        if (now - lastSeen > timeoutMs) {
           console.log(`[P2P] Peer ${peerId} timed out (${now - lastSeen}ms silent). Pruning.`)
           this.removePeer(peerId)
         }
       })
-    }, 3000)
+    }, 4000)
   }
 
   private stopHeartbeat() {
@@ -878,6 +933,13 @@ export class PeerManager {
     maxFramerate: number = 60
   ) {
     MediaCallHandler.replaceVideoTrack(this.mediaCalls, newTrack, isScreenShare, maxBitrate, maxFramerate)
+  }
+
+  /**
+   * Dynamically adjust active video encoding bitrate on all active calls
+   */
+  public updateScreenShareBitrate(maxBitrate: number) {
+    MediaCallHandler.updateScreenShareBitrate(this.mediaCalls, maxBitrate)
   }
 
   /**

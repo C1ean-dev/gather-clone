@@ -63,7 +63,7 @@ const OnlineUsersMenuInner: React.FC = () => {
   } = useGameStore()
 
   const { mapData } = useMapStore()
-  const { toggleChat } = useChatStore()
+  const { toggleChat, openDirectMessage } = useChatStore()
   const peerStreams = useMediaStore((s) => s.peerStreams)
   const callStates = useGameStore((s) => s.callStates)
 
@@ -304,7 +304,7 @@ const OnlineUsersMenuInner: React.FC = () => {
                           <>
                             <span>•</span>
                             <span className="truncate max-w-[90px]">
-                              {player.statusEmoji} {player.statusText}
+                              {player.statusText}
                             </span>
                           </>
                         )}
@@ -350,6 +350,17 @@ const OnlineUsersMenuInner: React.FC = () => {
                         <Tv className="w-3 h-3 text-blue-400 animate-pulse" />
                       )}
                     </div>
+
+                    {/* Quick Message Button */}
+                    {!isLocal && (
+                      <button
+                        onClick={() => openDirectMessage({ id: player.id, name: player.name })}
+                        className="p-1.5 rounded-lg bg-slate-800/60 text-slate-400 hover:text-indigo-300 hover:bg-indigo-600/20 border border-slate-700 hover:border-indigo-500/40 transition-colors"
+                        title={`Conversar com ${player.name}`}
+                      >
+                        <MessageSquare className="w-3 h-3 text-indigo-400" />
+                      </button>
+                    )}
 
                     {/* Friend Toggle */}
                     {!isLocal && (
@@ -418,7 +429,7 @@ const OnlineUsersMenuInner: React.FC = () => {
 
                       <button
                         onClick={() => {
-                          toggleChat()
+                          openDirectMessage({ id: player.id, name: player.name })
                           setSelectedUserMenuId(null)
                         }}
                         className="py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 border border-slate-700 transition-colors"

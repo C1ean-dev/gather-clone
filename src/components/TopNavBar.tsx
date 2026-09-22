@@ -6,13 +6,9 @@ import {
   MessageSquare,
   Users,
   Settings,
-  Sparkles,
-  Share2,
   Lock,
   Globe,
-  Rocket,
-  Volume2,
-  VolumeX,
+  Download,
   LogOut,
 } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
@@ -38,14 +34,12 @@ export const TopNavBar: React.FC<Props> = ({
   // re-render this bar at 60Hz on every movement frame. Select only UI fields.
   const localPlayerName = useGameStore((s) => s.localPlayer.name)
   const localPlayerAvatarColor = useGameStore((s) => s.localPlayer.avatar?.shirtColor)
-  const localPlayerStatusEmoji = useGameStore((s) => s.localPlayer.statusEmoji)
   const localPlayerStatusText = useGameStore((s) => s.localPlayer.statusText)
   const localPlayerCurrentZoneId = useGameStore((s) => s.localPlayer.currentZoneId)
   const roomId = useGameStore((s) => s.roomId)
   const isOwner = useGameStore((s) => s.isOwner)
   const isRoomPublic = useGameStore((s) => s.isRoomPublic)
   const toggleRoomPrivacy = useGameStore((s) => s.toggleRoomPrivacy)
-  const roomName = useGameStore((s) => s.roomName)
   const isOnlineUsersOpen = useGameStore((s) => s.isOnlineUsersOpen)
   const toggleOnlineUsers = useGameStore((s) => s.toggleOnlineUsers)
   const remotePlayerCount = useGameStore((s) => Object.keys(s.remotePlayers).length)
@@ -85,29 +79,20 @@ export const TopNavBar: React.FC<Props> = ({
     <header className="h-14 bg-[#12151d]/90 backdrop-blur-md border-b border-[#2a3142] px-4 flex items-center justify-between z-30 select-none">
       {/* Left: Brand + Room Code + Privacy Toggle */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-500/20">
             <span className="text-white font-extrabold text-sm">G</span>
           </div>
-          <div>
-            <span className="text-sm font-extrabold tracking-tight text-white flex items-center gap-1.5">
-              Gather <span className="text-[10px] bg-indigo-500/30 text-indigo-300 px-1.5 py-0.2 rounded">V2</span>
-            </span>
-          </div>
         </div>
 
-        {/* Room Name & Code Badge */}
+        {/* Room ID Badge */}
         {roomId && (
           <button
             onClick={handleCopyCode}
             className="flex items-center gap-2 px-3 py-1.5 bg-[#1b202c] hover:bg-slate-800 border border-[#2a3142] rounded-xl text-xs font-semibold text-slate-200 transition-all group"
-            title={`Código Fixo da Sala: ${roomId}\n(Clique para copiar)`}
+            title={`ID do Espaço: ${roomId}\n(Clique para copiar)`}
           >
-            {roomName && roomName !== 'Espaço Principal' ? (
-              <span className="text-slate-200 font-bold max-w-[100px] sm:max-w-[140px] truncate">{roomName}:</span>
-            ) : (
-              <span className="text-slate-400 font-normal">Sala:</span>
-            )}
+            <span className="text-slate-400 font-normal">ID do Espaço:</span>
             <span className="font-mono text-indigo-400 font-bold max-w-[110px] sm:max-w-[200px] truncate">{roomId}</span>
             {copied ? (
               <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -190,12 +175,6 @@ export const TopNavBar: React.FC<Props> = ({
           <span className="text-xs font-semibold text-slate-200">
             {currentZone ? currentZone.name : 'Corredor Geral'}
           </span>
-          {currentZone && (
-            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-medium px-2 py-0.2 rounded-full flex items-center gap-1">
-              <Lock className="w-2.5 h-2.5" />
-              Áudio Privado
-            </span>
-          )}
         </div>
       </div>
 
@@ -255,15 +234,14 @@ export const TopNavBar: React.FC<Props> = ({
           <span>{remotePlayerCount + 1}</span>
         </button>
 
-        {/* Available Update Notification Rocket */}
+        {/* Available Update Notification Download Icon */}
         {hasUpdate && onOpenUpdateModal && (
           <button
             onClick={onOpenUpdateModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 animate-pulse transition-all hover:scale-105"
-            title="Nova atualização disponível! Clique para ver e atualizar"
+            className="p-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-400 hover:text-emerald-300 transition-all hover:scale-105 shadow-sm shadow-emerald-500/20"
+            title="Nova atualização disponível! Clique para baixar e atualizar"
           >
-            <Rocket className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Atualização!</span>
+            <Download className="w-4 h-4" />
           </button>
         )}
 
@@ -295,7 +273,7 @@ export const TopNavBar: React.FC<Props> = ({
               {localPlayerName}
             </div>
             <div className="text-[10px] text-slate-400 leading-tight truncate max-w-[80px]">
-              {localPlayerStatusEmoji} {localPlayerStatusText}
+              {localPlayerStatusText}
             </div>
           </div>
         </button>

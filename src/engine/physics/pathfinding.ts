@@ -1,5 +1,8 @@
 import { MapData } from '../../types/map'
 import { checkCollision } from './collision'
+import { useGameStore } from '../../store/useGameStore'
+import { useMapStore } from '../../store/useMapStore'
+import { getZoneDoorTarget } from '../../utils/doorKnockHelper'
 
 export interface Point {
   x: number
@@ -155,16 +158,52 @@ export function findPath(
   targetY: number,
   map: MapData
 ): Point[] {
+  let goalX = targetX
+  let goalY = targetY
+
+  // If destination is inside a locked room and player is not authorized/inside,
+  // redirect target to the entrance doorway outside the room
+  const targetZone = map.zones?.find(
+    (z) =>
+      targetX >= z.x &&
+      targetX < z.x + z.width &&
+      targetY >= z.y &&
+      targetY < z.y + z.height
+  )
+
+  if (targetZone && targetZone.isLocked) {
+    const local = useGameStore?.getState?.()?.localPlayer
+    const isPlayerInside =
+      local?.currentZoneId === targetZone.id ||
+      (startX >= targetZone.x &&
+        startX < targetZone.x + targetZone.width &&
+        startY >= targetZone.y &&
+        startY < targetZone.y + targetZone.height)
+    const isAuthorized =
+      isPlayerInside ||
+      !!useMapStore?.getState?.()?.isPeerAuthorizedForZone(
+        targetZone.id,
+        local?.id || '',
+        local?.name || ''
+      )
+
+    if (!isAuthorized) {
+      const door = getZoneDoorTarget(targetZone, map.width, map.height)
+      goalX = door.x
+      goalY = door.y
+    }
+  }
+
   // 1. Direct Line-of-Sight Check (Fast Path)
   // If no obstacle exists between start and target, return straight line target immediately!
-  if (hasLineOfSight(startX, startY, targetX, targetY, map)) {
-    return [{ x: targetX, y: targetY }]
+  if (hasLineOfSight(startX, startY, goalX, goalY, map)) {
+    return [{ x: goalX, y: goalY }]
   }
 
   // 2. Adjust target if target is inside an obstacle
   const walkableTarget = findNearestWalkableTile(
-    Math.round(targetX),
-    Math.round(targetY),
+    Math.round(goalX),
+    Math.round(goalY),
     startX,
     startY,
     map

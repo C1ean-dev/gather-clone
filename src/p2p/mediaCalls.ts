@@ -1111,8 +1111,8 @@ export class MediaCallHandler {
     mediaCalls: Map<string, MediaConnection>,
     newTrack: MediaStreamTrack | null,
     isScreenShare: boolean = false,
-    maxBitrate: number = 2_500_000,
-    maxFramerate: number = 30
+    maxBitrate: number = 5_500_000,
+    maxFramerate: number = 60
   ) {
     if (newTrack) {
       newTrack.enabled = true
@@ -1154,8 +1154,8 @@ export class MediaCallHandler {
                   try {
                     const params = videoSender.getParameters()
                     if (params && params.encodings && params.encodings.length > 0) {
-                      params.encodings[0].maxBitrate = isScreenShare ? Math.min(maxBitrate, 2_500_000) : 1_200_000
-                      params.encodings[0].maxFramerate = isScreenShare ? Math.min(maxFramerate, 30) : 30
+                      params.encodings[0].maxBitrate = isScreenShare ? Math.min(maxBitrate, 6_000_000) : 1_200_000
+                      params.encodings[0].maxFramerate = isScreenShare ? Math.min(maxFramerate, 60) : 30
                       params.encodings[0].scaleResolutionDownBy = 1.0
                       ;(params.encodings[0] as any).networkPriority = 'high'
                       ;(params.encodings[0] as any).priority = 'high'
@@ -1186,6 +1186,31 @@ export class MediaCallHandler {
       } catch (err) {
         console.warn('Error replacing video track:', err)
       }
+    })
+  }
+
+  /**
+   * Dynamically adjust active video encoding bitrate on all active calls
+   * without renegotiating or disrupting video playback.
+   */
+  static updateScreenShareBitrate(
+    mediaCalls: Map<string, MediaConnection>,
+    maxBitrate: number
+  ) {
+    mediaCalls.forEach((call) => {
+      try {
+        const pc = (call as any).peerConnection as RTCPeerConnection
+        if (!pc || typeof pc.getSenders !== 'function') return
+        const senders = pc.getSenders()
+        const videoSender = senders.find((s) => s.track && s.track.kind === 'video')
+        if (videoSender && typeof videoSender.getParameters === 'function') {
+          const params = videoSender.getParameters()
+          if (params && params.encodings && params.encodings.length > 0) {
+            params.encodings[0].maxBitrate = maxBitrate
+            videoSender.setParameters(params).catch(() => {})
+          }
+        }
+      } catch (e) {}
     })
   }
 

@@ -1,43 +1,31 @@
 import React from 'react'
 import {
-  Sparkles,
   SlidersHorizontal,
   Mic,
   MicOff,
   Video,
   VideoOff,
   ScreenShare,
-  Smile,
-  Hand,
   MessageSquare,
   LogOut,
-  Lock,
-  Unlock,
   Shield,
   Headphones,
+  Sliders,
+  StopCircle,
 } from 'lucide-react'
 import { useMediaStore } from '../../store/useMediaStore'
 import { useGameStore } from '../../store/useGameStore'
 import { useMapStore } from '../../store/useMapStore'
-import { PeerManager } from '../../p2p/PeerManager'
 import { MediaManager } from '../../media/MediaManager'
 import { useChatStore } from '../../store/useChatStore'
 import { RoomSettingsModal } from '../RoomSettingsModal'
 
 interface Props {
-  handRaised: boolean
-  setHandRaised: (raised: boolean) => void
-  showEmojiPicker: boolean
-  setShowEmojiPicker: (show: boolean) => void
   onToggleScreenShare: () => void
   onLeaveCall: () => void
 }
 
 export const CallControlsBar: React.FC<Props> = ({
-  handRaised,
-  setHandRaised,
-  showEmojiPicker,
-  setShowEmojiPicker,
   onToggleScreenShare,
   onLeaveCall,
 }) => {
@@ -70,22 +58,35 @@ export const CallControlsBar: React.FC<Props> = ({
 
   const localPlayer = useGameStore((s) => s.localPlayer)
   const zones = useMapStore((s) => s.mapData.zones)
-  const toggleZoneLock = useMapStore((s) => s.toggleZoneLock)
   const currentZone = zones?.find((z) => z.id === localPlayer.currentZoneId)
-  const isRoomLocked = !!currentZone?.isLocked
 
   const [isRoomSettingsOpen, setIsRoomSettingsOpen] = React.useState(false)
+  const [isActiveStreamMenuOpen, setIsActiveStreamMenuOpen] = React.useState(false)
+  const streamMenuRef = React.useRef<HTMLDivElement>(null)
 
-  const handleToggleRoomLock = () => {
-    if (!localPlayer.currentZoneId) return
-    const nextLocked = toggleZoneLock(localPlayer.currentZoneId)
-    PeerManager.getInstance().sendRoomLockToggle(localPlayer.currentZoneId, nextLocked)
-  }
+  // Fecha o mini-menu ao clicar fora ou pressionar ESC
+  React.useEffect(() => {
+    if (!isActiveStreamMenuOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (streamMenuRef.current && !streamMenuRef.current.contains(e.target as Node)) {
+        setIsActiveStreamMenuOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsActiveStreamMenuOpen(false)
+    }
+    window.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isActiveStreamMenuOpen])
 
   return (
     <>
       <div className="flex items-center justify-between px-6 py-2.5 bg-[#12151d]/95 backdrop-blur-xl rounded-2xl border border-[#2a3142] max-w-3xl mx-auto w-full shadow-2xl shrink-0 mt-2">
-        {/* Left Side: Audio Settings & Room Lock */}
+        {/* Left Side: Audio Settings & Room Permissions Shield */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => useMediaStore.getState().setSettingsModalOpen(true)}
@@ -96,32 +97,13 @@ export const CallControlsBar: React.FC<Props> = ({
           </button>
 
           {localPlayer.currentZoneId && (
-            <>
-              <button
-                onClick={handleToggleRoomLock}
-                className={`p-2 rounded-xl border transition-all flex items-center gap-1.5 text-xs font-semibold ${
-                  isRoomLocked
-                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 shadow-lg shadow-amber-500/20'
-                    : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-                }`}
-                title={
-                  isRoomLocked
-                    ? 'Sala Trancada (Destrancar para permitir entrada livre)'
-                    : 'Trancar Sala (Exigir que outras pessoas batam na porta)'
-                }
-              >
-                {isRoomLocked ? <Lock className="w-4 h-4 text-amber-400" /> : <Unlock className="w-4 h-4" />}
-                <span className="hidden sm:inline">{isRoomLocked ? 'Trancada' : 'Aberta'}</span>
-              </button>
-
-              <button
-                onClick={() => setIsRoomSettingsOpen(true)}
-                className="p-2 rounded-xl bg-slate-800/60 border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-                title="Gerenciar Usuários com Permissão de Entrada"
-              >
-                <Shield className="w-4 h-4" />
-              </button>
-            </>
+            <button
+              onClick={() => setIsRoomSettingsOpen(true)}
+              className="p-2 rounded-xl bg-slate-800/60 border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+              title="Gerenciar Usuários com Permissão de Entrada"
+            >
+              <Shield className="w-4 h-4" />
+            </button>
           )}
         </div>
 
@@ -183,39 +165,61 @@ export const CallControlsBar: React.FC<Props> = ({
         </button>
 
         {/* Screen Share */}
-        <button
-          onClick={onToggleScreenShare}
-          className={`p-3 rounded-xl flex items-center justify-center transition-all ${
-            isScreenSharing
-              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40'
-              : 'bg-[#1b202c] text-slate-300 border border-[#2a3142] hover:bg-slate-700'
-          }`}
-          title="Compartilhar Tela / Janela"
-        >
-          <ScreenShare className="w-4 h-4" />
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => {
+              if (isScreenSharing) {
+                setIsActiveStreamMenuOpen((prev) => !prev)
+              } else {
+                onToggleScreenShare()
+              }
+            }}
+            className={`p-3 rounded-xl flex items-center justify-center transition-all ${
+              isScreenSharing
+                ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/40 animate-pulse'
+                : 'bg-[#1b202c] text-slate-300 border border-[#2a3142] hover:bg-slate-700'
+            }`}
+            title={isScreenSharing ? 'Opções da Transmissão (Ao Vivo)' : 'Compartilhar Tela / Janela'}
+          >
+            <ScreenShare className="w-4 h-4" />
+          </button>
 
-        {/* Emoji Reactions */}
-        <button
-          onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-          className="p-3 rounded-xl bg-[#1b202c] text-slate-300 border border-[#2a3142] hover:bg-slate-700 transition-colors"
-          title="Enviar Reação Emoji"
-        >
-          <Smile className="w-4 h-4" />
-        </button>
-
-        {/* Hand Raise */}
-        <button
-          onClick={() => setHandRaised(!handRaised)}
-          className={`p-3 rounded-xl border transition-all ${
-            handRaised
-              ? 'bg-amber-500/20 border-amber-500 text-amber-400'
-              : 'bg-[#1b202c] border-[#2a3142] text-slate-300 hover:bg-slate-700'
-          }`}
-          title="Levantar a Mão"
-        >
-          <Hand className="w-4 h-4" />
-        </button>
+          {/* Menu compacto em lista de opções da transmissão */}
+          {isScreenSharing && isActiveStreamMenuOpen && (
+            <div
+              ref={streamMenuRef}
+              className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 w-48 bg-[#12151d]/95 backdrop-blur-xl border border-[#2a3142] rounded-2xl shadow-2xl p-1.5 z-50 select-none animate-in fade-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-2.5 py-1 text-[10px] font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5 border-b border-[#2a3142]/60 mb-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                Ao Vivo
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsActiveStreamMenuOpen(false)
+                  onToggleScreenShare()
+                }}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800/80 transition-colors text-left"
+              >
+                <Sliders className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span>Trocar configurações</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsActiveStreamMenuOpen(false)
+                  MediaManager.getInstance().stopScreenShare()
+                }}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-200 hover:bg-rose-950/40 transition-colors text-left"
+              >
+                <StopCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                <span>Encerrar transmissão</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Right Side: Chat & Leave */}

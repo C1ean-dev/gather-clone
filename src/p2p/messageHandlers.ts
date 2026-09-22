@@ -6,6 +6,7 @@ import { useChatStore } from '../store/useChatStore'
 import { useCustomAssetsStore } from '../store/useCustomAssetsStore'
 import { useMediaStore } from '../store/useMediaStore'
 import { PublicRoomsService } from '../services/publicRoomsService'
+import { resolveUniquePlayerName } from '../utils/playerName'
 
 export function processNetworkMessage(
   msg: NetworkMessage,
@@ -31,40 +32,110 @@ export function processNetworkMessage(
     case 'HEARTBEAT_ACK': {
       if (msg.payload?.clientTimestamp) {
         const rtt = Math.max(1, Math.round(Date.now() - msg.payload.clientTimestamp))
-        useGameStore.getState().updatePlayerPing(peerId, rtt)
+        const sender = msg.senderId || peerId
+        useGameStore.getState().updatePlayerPing(sender, rtt)
       }
       break
     }
 
     case 'PLAYER_JOIN': {
-      const isPeerHost = peerId.endsWith('-host')
+      // In star-mesh relay topology, peerId is the transport connection (Host on clients).
+      // The true sender and unique peer identity of the joining player is msg.senderId
+      // (falling back to msg.payload.player?.id, and finally peerId).
+      const remotePeerId = msg.senderId || msg.payload.player?.id || peerId
+      const isPeerHost = remotePeerId.endsWith('-host')
       const incomingGameId: string | undefined =
         msg.payload.player?.gameId ?? msg.payload.player?.id
-      const localId = useGameStore.getState().localPlayer.id
+      const localPlayer = useGameStore.getState().localPlayer
+      const localId = localPlayer.id
+      const localGameId = localPlayer.gameId
+
       // 1. Never register our own echo as a remote player — it would render
       // as a frozen copy of ourselves stuck at the join position (ghost).
-      if (incomingGameId && incomingGameId === localId) {
+      if (
+        remotePeerId === localId ||
+        (localGameId && remotePeerId === localGameId) ||
+        (incomingGameId && (incomingGameId === localId || (localGameId && incomingGameId === localGameId))) ||
+        (myPeerId && (remotePeerId === myPeerId || incomingGameId === myPeerId))
+      ) {
         break
       }
+
       // 2. Same human reconnected with a new connection id (ICE churn, flap):
       // drop the stale entry so the old frozen clone disappears instead of
       // lingering next to the live one.
       if (incomingGameId) {
         const st = useGameStore.getState()
         for (const [key, p] of Object.entries(st.remotePlayers)) {
-          if (key !== peerId && (p.gameId ?? p.id) === incomingGameId) {
+          if (key !== remotePeerId && (p.gameId ?? p.id) === incomingGameId) {
             st.removeRemotePlayer(key)
           }
         }
       }
+
+      // 3. Duplicate name resolution:
+      // If we are Host, any incoming remote player is a newcomer, so ensure their name is unique.
+      // If we are Client, incoming players are already established in the room, so we keep their name
+      // and instead adjust our own local name if there's a collision with them.
+      const incomingName = msg.payload.player?.name || 'Player'
+      const state = useGameStore.getState()
+      const existingNames = [
+        state.localPlayer.name,
+        ...Object.values(state.remotePlayers)
+          .filter((p) => p.id !== remotePeerId && (incomingGameId ? (p.gameId ?? p.id) !== incomingGameId : true))
+          .map((p) => p.name),
+      ]
+      const resolvedName = isHost
+        ? resolveUniquePlayerName(incomingName, existingNames)
+        : incomingName
+
       const player: Player = {
         ...msg.payload.player,
-        id: peerId,
+        name: resolvedName,
+        id: remotePeerId,
         gameId: incomingGameId,
         isHost: isPeerHost,
         role: isPeerHost ? 'host' : msg.payload.player?.role === 'admin' ? 'admin' : msg.payload.player?.role === 'guest' ? 'guest' : 'member',
       }
       useGameStore.getState().setRemotePlayer(player)
+
+      if (isHost && resolvedName !== incomingName) {
+        broadcast({
+          type: 'PLAYER_UPDATE',
+          senderId: remotePeerId,
+          payload: {
+            player: {
+              ...player,
+              name: resolvedName,
+            },
+          },
+          timestamp: Date.now(),
+        })
+      }
+
+      // If we are a non-host client and our own name conflicts with an existing player in the room:
+      if (!isHost && incomingName.trim().toLowerCase() === state.localPlayer.name.trim().toLowerCase()) {
+        const roomNames = [
+          incomingName,
+          ...Object.values(useGameStore.getState().remotePlayers).map((p) => p.name),
+        ]
+        const uniqueLocalName = resolveUniquePlayerName(state.localPlayer.name, roomNames)
+        if (uniqueLocalName !== state.localPlayer.name) {
+          useGameStore.getState().setLocalPlayer({ name: uniqueLocalName })
+          broadcast({
+            type: 'PLAYER_UPDATE',
+            senderId: localId,
+            payload: {
+              player: {
+                ...state.localPlayer,
+                name: uniqueLocalName,
+              },
+            },
+            timestamp: Date.now(),
+          })
+        }
+      }
+
       if (isHost && useGameStore.getState().isRoomPublic) {
         const totalPlayers = Object.keys(useGameStore.getState().remotePlayers).length + 1
         PublicRoomsService.getInstance().updateHosting({ playerCount: totalPlayers })
@@ -74,30 +145,69 @@ export function processNetworkMessage(
     }
 
     case 'PLAYER_MOVE': {
+      const sender = msg.senderId || peerId
+      const localPlayer = useGameStore.getState().localPlayer
+      const localId = localPlayer.id
+      const localGameId = localPlayer.gameId
       // Defensive: movement allegedly from ourselves must never create or
       // move a remote entry (would mirror/freeze a clone of the local avatar).
-      if (peerId === useGameStore.getState().localPlayer.id) break
+      if (
+        sender === localId ||
+        (localGameId && sender === localGameId) ||
+        (myPeerId && sender === myPeerId)
+      ) {
+        break
+      }
       const payload: PlayerMovePayload = msg.payload
-      useGameStore
-        .getState()
-        .updateRemotePlayerPosition(peerId, payload.x, payload.y, payload.direction, payload.isMoving)
+      const state = useGameStore.getState()
+      let targetKey = state.remotePlayers[sender] ? sender : undefined
+      if (!targetKey) {
+        targetKey = Object.keys(state.remotePlayers).find(
+          (k) => state.remotePlayers[k].id === sender || state.remotePlayers[k].gameId === sender
+        )
+      }
+      if (targetKey) {
+        state.updateRemotePlayerPosition(targetKey, payload.x, payload.y, payload.direction, payload.isMoving)
+      }
       break
     }
 
     case 'PLAYER_UPDATE': {
-      const localId = useGameStore.getState().localPlayer.id
-      if (peerId === localId || msg.senderId === localId || (myPeerId && (peerId === myPeerId || msg.senderId === myPeerId))) break
+      const localPlayer = useGameStore.getState().localPlayer
+      const localId = localPlayer.id
+      const localGameId = localPlayer.gameId
+      const targetPayloadPlayer = msg.payload?.player
+
+      // If this is a name reconciliation directed at ourselves from the host:
+      if (
+        (targetPayloadPlayer?.id === localId || (localGameId && targetPayloadPlayer?.gameId === localGameId)) &&
+        targetPayloadPlayer?.name &&
+        targetPayloadPlayer.name !== localPlayer.name
+      ) {
+        useGameStore.getState().setLocalPlayer({ name: targetPayloadPlayer.name })
+        break
+      }
+
+      if (
+        peerId === localId ||
+        msg.senderId === localId ||
+        (localGameId && (peerId === localGameId || msg.senderId === localGameId)) ||
+        (myPeerId && (peerId === myPeerId || msg.senderId === myPeerId))
+      ) {
+        break
+      }
       const updated = msg.payload.player
       const remotePlayers = useGameStore.getState().remotePlayers
-      let existingKey = remotePlayers[peerId] ? peerId : undefined
+      const targetSender = msg.senderId || updated?.id
+      // Target the sender specifically; never default to peerId if peerId is the relay host!
+      let existingKey = targetSender && remotePlayers[targetSender] ? targetSender : undefined
       if (!existingKey) {
         existingKey = Object.keys(remotePlayers).find(
           (k) =>
-            k === msg.senderId ||
-            remotePlayers[k].id === msg.senderId ||
-            remotePlayers[k].gameId === msg.senderId ||
+            (targetSender && (k === targetSender || remotePlayers[k].id === targetSender || remotePlayers[k].gameId === targetSender)) ||
             (updated?.id && (remotePlayers[k].id === updated.id || remotePlayers[k].gameId === updated.id)) ||
-            (updated?.name && remotePlayers[k].name === updated.name)
+            (updated?.gameId && (remotePlayers[k].id === updated.gameId || remotePlayers[k].gameId === updated.gameId)) ||
+            (!msg.senderId && k === peerId)
         )
       }
       const existing = existingKey ? remotePlayers[existingKey] : undefined
@@ -120,7 +230,7 @@ export function processNetworkMessage(
     }
 
     case 'PLAYER_LEAVE': {
-      const targetId = msg.payload?.peerId || peerId
+      const targetId = msg.payload?.peerId || msg.senderId || peerId
       removePeer(targetId)
       break
     }
@@ -128,6 +238,52 @@ export function processNetworkMessage(
     case 'MAP_SYNC': {
       if (msg.payload.mapData) {
         useMapStore.getState().setMapData(msg.payload.mapData)
+
+        // Verify local player authorization for all locked zones
+        const local = useGameStore.getState().localPlayer
+        for (const zone of msg.payload.mapData.zones || []) {
+          if (zone.isLocked) {
+            const isAuth = useMapStore.getState().isPeerAuthorizedForZone(zone.id, local.id, local.name)
+            if (!isAuth) {
+              if (useGameStore.getState().myKnockStatus[zone.id] === 'approved') {
+                useGameStore.getState().setMyKnockStatus(zone.id, 'idle')
+              }
+              if (local.currentZoneId === zone.id) {
+                const mapWidth = msg.payload.mapData.width || 32
+                const mapHeight = msg.payload.mapData.height || 24
+                const doorW = Math.min(zone.width * 0.38, 2.0)
+                const doorStartX = zone.x + (zone.width - doorW) / 2
+                const doorCenterX = Math.round(doorStartX + doorW / 2)
+                const doorX = Math.max(1, Math.min(mapWidth - 1, doorCenterX))
+                const doorY = Math.min(mapHeight - 1.2, Number((zone.y + zone.height + 0.8).toFixed(1)))
+
+                useMediaStore.getState().setGridCallOpen(false)
+                useGameStore.getState().setLocalPlayer({
+                  x: doorX,
+                  y: doorY,
+                  currentZoneId: null,
+                })
+                broadcast({
+                  type: 'PLAYER_UPDATE',
+                  senderId: local.id,
+                  payload: {
+                    player: {
+                      ...useGameStore.getState().localPlayer,
+                      x: doorX,
+                      y: doorY,
+                      currentZoneId: null,
+                    },
+                  },
+                  timestamp: Date.now(),
+                })
+              }
+            }
+          }
+        }
+
+        if (isHost) {
+          broadcast(msg, peerId)
+        }
       }
       break
     }
@@ -182,7 +338,19 @@ export function processNetworkMessage(
     }
 
     case 'CHAT_MESSAGE': {
-      useChatStore.getState().addMessage(msg.payload.message)
+      const chatMsg = msg.payload.message
+      const local = useGameStore.getState().localPlayer
+      // If this is a DM, only process if addressed to me or sent by me
+      if (chatMsg?.recipientId) {
+        if (chatMsg.recipientId !== local.id && chatMsg.senderId !== local.id) {
+          break
+        }
+      } else if (chatMsg?.channelId?.startsWith('dm-')) {
+        if (!chatMsg.channelId.includes(local.id)) {
+          break
+        }
+      }
+      useChatStore.getState().addMessage(chatMsg)
       break
     }
 
@@ -199,6 +367,53 @@ export function processNetworkMessage(
         ...(Array.isArray(members) ? { members } : {}),
         ...(Array.isArray(admins) ? { admins } : {}),
       })
+
+      const local = useGameStore.getState().localPlayer
+      const isAuth = useMapStore.getState().isPeerAuthorizedForZone(zoneId, local.id, local.name)
+
+      // If room is locked and local player is not authorized:
+      if (isLocked && !isAuth) {
+        // Reset any stale knock status so they cannot enter
+        useGameStore.getState().setMyKnockStatus(zoneId, 'idle')
+
+        // If local player was physically inside the room when permission was revoked, eject to outside the doorway
+        if (local.currentZoneId === zoneId) {
+          const zoneObj = useMapStore.getState().mapData.zones.find((z) => z.id === zoneId)
+          if (zoneObj) {
+            const mapWidth = useMapStore.getState().mapData.width || 32
+            const mapHeight = useMapStore.getState().mapData.height || 24
+            const doorW = Math.min(zoneObj.width * 0.38, 2.0)
+            const doorStartX = zoneObj.x + (zoneObj.width - doorW) / 2
+            const doorCenterX = Math.round(doorStartX + doorW / 2)
+            const doorX = Math.max(1, Math.min(mapWidth - 1, doorCenterX))
+            const doorY = Math.min(mapHeight - 1.2, Number((zoneObj.y + zoneObj.height + 0.8).toFixed(1)))
+
+            useMediaStore.getState().setGridCallOpen(false)
+            useGameStore.getState().setLocalPlayer({
+              x: doorX,
+              y: doorY,
+              currentZoneId: null,
+            })
+            broadcast({
+              type: 'PLAYER_UPDATE',
+              senderId: local.id,
+              payload: {
+                player: {
+                  ...useGameStore.getState().localPlayer,
+                  x: doorX,
+                  y: doorY,
+                  currentZoneId: null,
+                },
+              },
+              timestamp: Date.now(),
+            })
+          }
+        }
+      }
+
+      if (isHost) {
+        broadcast(msg, peerId)
+      }
       break
     }
 

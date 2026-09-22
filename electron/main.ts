@@ -300,7 +300,10 @@ if (isMultiInstance) {
   }
 }
 
-// Enable full GPU acceleration & Windows Graphics Capture (WGC) for zero-copy, non-black screen sharing
+// Prevent AMD GPU DirectComposition video overlay driver conflict on Windows
+app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
+
+// Enable full GPU acceleration
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('enable-accelerated-video-decode')
@@ -311,14 +314,28 @@ app.commandLine.appendSwitch('enable-accelerated-video-decode')
 // The desktop client is the trusted call surface, so allow autoplay of the
 // already-negotiated remote media without coupling playback to the grid UI.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
-app.commandLine.appendSwitch('enable-features', 'WebRtcAllowWgcScreenCapturer,WebRtcAllowWgcWindowCapturer,PlatformHEVCDecoderSupport,CanvasOopRasterization')
+
+// Explicitly disable WebRtcAllowWgcScreenCapturer & WebRtcAllowWgcWindowCapturer:
+// On Windows with AMD Radeon graphics (and multi-instance / hybrid setups), Chromium's WGC
+// implementation produces "[ERROR:wgc_capture_session.cc(228)] ProcessFrame failed, using existing frame: -2147467259"
+// resulting in pitch black screen shares.
+// Disabling WGC allows WebRTC to use DXGI Desktop Duplication (ScreenCapturerWinDirectx) for screens
+// and GDI/D3D for windows, which run reliably with zero black screens.
+app.commandLine.appendSwitch('disable-features', 'WebRtcAllowWgcScreenCapturer,WebRtcAllowWgcWindowCapturer')
+app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport,CanvasOopRasterization')
 
 function createWindow() {
+  const instNum = parseInt(instanceId, 10) || 1
+  const xOffset = isMultiInstance && instNum > 1 ? 40 + (instNum - 1) * 70 : undefined
+  const yOffset = isMultiInstance && instNum > 1 ? 40 + (instNum - 1) * 60 : undefined
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    ...(xOffset !== undefined ? { x: xOffset } : {}),
+    ...(yOffset !== undefined ? { y: yOffset } : {}),
     title: isMultiInstance ? `Gather V2 Clone (Instância ${instanceId})` : 'Gather V2 Clone',
     backgroundColor: '#0c0e14',
     webPreferences: {
@@ -354,7 +371,7 @@ function createWindow() {
     pendingScreenCapture = null
 
     desktopCapturer
-      .getSources({ types: ['screen', 'window'] })
+      .getSources({ types: ['screen', 'window'], fetchWindowIcons: false })
       .then((sources) => {
         if (!sources || sources.length === 0) {
           callback({})

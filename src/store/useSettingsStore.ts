@@ -35,9 +35,9 @@ const loadSavedSettings = (): Partial<GraphicsSettings> => {
 const saved = loadSavedSettings()
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
-  targetFps: saved.targetFps ?? 0, // Default: native monitor V-Sync
-  showFpsCounter: saved.showFpsCounter ?? false,
-  enableCulling: saved.enableCulling ?? true,
+  targetFps: 0, // Padrão fixo: V-Sync (Taxa nativa do monitor)
+  showFpsCounter: false,
+  enableCulling: true, // Padrão fixo: Culling de câmera ativado
   moveSpeed: 8.0, // Fixed at 8.0 tiles/s
   currentFps: 60,
   showNameTags: saved.showNameTags ?? true,

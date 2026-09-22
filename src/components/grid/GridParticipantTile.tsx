@@ -274,7 +274,6 @@ export const GridParticipantTile: React.FC<Props> = ({
               </div>
               <div className="text-sm font-semibold text-slate-300 flex items-center gap-1.5">
                 <span>{user.name}</span>
-                {user.statusEmoji && <span>{user.statusEmoji}</span>}
               </div>
             </div>
           )}

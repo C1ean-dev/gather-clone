@@ -217,11 +217,10 @@ describe('Video Delivery & Screen Share Guarantee Tests', () => {
     await Promise.resolve()
     await new Promise((r) => setTimeout(r, 0))
 
-    // Anti-delay caps: screenshare clamped to 2.5Mbps/30fps (never the
-    // requested 4.5Mbps/60fps — mesh uplink protection) and congestion
-    // sheds pixels, not latency.
-    expect(encodings[0].maxBitrate).toBe(2_500_000)
-    expect(encodings[0].maxFramerate).toBe(30)
+    // Recommended bitrate: screenshare supports high-framerate/bitrate (up to 6.0 Mbps and 60 FPS)
+    // with maintain-framerate degradation preference to keep streams sharp and smooth.
+    expect(encodings[0].maxBitrate).toBe(4_500_000)
+    expect(encodings[0].maxFramerate).toBe(60)
     expect(mockSender.setParameters).toHaveBeenCalled()
     const appliedParams = mockSender.setParameters.mock.calls[0][0]
     expect(appliedParams.degradationPreference).toBe('maintain-framerate')

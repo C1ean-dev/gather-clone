@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { X, Sliders, Zap, Mic, Sparkles, CheckCircle2, Download } from 'lucide-react'
+import { X, Sliders, Mic, Sparkles, CheckCircle2, Download } from 'lucide-react'
 import { useMediaStore } from '../store/useMediaStore'
 import { MediaManager } from '../media/MediaManager'
 import { exportDiagLogs } from '../utils/diagnosticLogger'
 import { AudioDeviceInfo } from '../types/audio'
-import { GraphicsSettingsTab } from './settings/GraphicsSettingsTab'
 import { AudioDevicesTab } from './settings/AudioDevicesTab'
 import { AdvancedAudioTab } from './settings/AdvancedAudioTab'
 
@@ -18,7 +17,7 @@ export const AudioSettingsModal: React.FC = () => {
   const [inputDevices, setInputDevices] = useState<AudioDeviceInfo[]>([])
   const [outputDevices, setOutputDevices] = useState<AudioDeviceInfo[]>([])
   const [videoDevices, setVideoDevices] = useState<AudioDeviceInfo[]>([])
-  const [activeTab, setActiveTab] = useState<'graphics' | 'devices' | 'advanced'>('graphics')
+  const [activeTab, setActiveTab] = useState<'devices' | 'advanced'>('devices')
   const [isPlayingTestSound, setIsPlayingTestSound] = useState(false)
   const [logsExported, setLogsExported] = useState(false)
 
@@ -105,7 +104,7 @@ export const AudioSettingsModal: React.FC = () => {
             <div>
               <h2 className="text-base font-bold text-slate-100">Configurações do Espaço</h2>
               <p className="text-xs text-slate-400">
-                Taxa de FPS, Desempenho Gráfico, Voz & Microfone
+                Dispositivos de Áudio, Câmera, Voz & Sistema
               </p>
             </div>
           </div>
@@ -119,17 +118,6 @@ export const AudioSettingsModal: React.FC = () => {
 
         {/* Tab Selector */}
         <div className="flex gap-2 px-6 pt-3 border-b border-[#2a3142] bg-[#12151d]/40">
-          <button
-            onClick={() => setActiveTab('graphics')}
-            className={`flex items-center gap-2 pb-3 px-3 text-xs font-bold border-b-2 transition-all ${
-              activeTab === 'graphics'
-                ? 'border-indigo-500 text-indigo-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Zap className="w-4 h-4" />
-            ⚡ Desempenho & FPS
-          </button>
           <button
             onClick={() => setActiveTab('devices')}
             className={`flex items-center gap-2 pb-3 px-3 text-xs font-bold border-b-2 transition-all ${
@@ -156,7 +144,6 @@ export const AudioSettingsModal: React.FC = () => {
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
-          {activeTab === 'graphics' && <GraphicsSettingsTab />}
           {activeTab === 'devices' && (
             <AudioDevicesTab
               inputDevices={inputDevices}

@@ -28,5 +28,6 @@ export interface ChatMessage {
   avatarConfig?: any
   reactions?: Record<string, string[]> // emoji -> array of userIds
   attachment?: ChatAttachment
+  recipientId?: string // for direct messages
 }
 

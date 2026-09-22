@@ -18,8 +18,8 @@ export interface ScreenShareConfig {
   audioSourceId?: string
   /** Source-only capture is mandatory; this legacy flag is ignored. */
   includeAudio?: boolean
-  resolution?: '480p' | '720p' | '1080p'
-  fps?: 30 | 60
+  resolution?: 'auto' | '480p' | '720p' | '1080p'
+  fps?: 'auto' | 30 | 60
   /**
    * Kept for backwards compatibility. The microphone remains in the call via
    * its own input; this flag cannot enable system audio or other applications.
@@ -838,9 +838,85 @@ export class MediaManager {
   }
 
   /**
-   * Start Screen Sharing with Customizable Source, Audio, Resolution (480p, 720p, 1080p) and FPS (30, 60)
-   * Audio is source-only. The selected browser tab/window may provide an
-   * audio track in a normal browser; Electron intentionally does not use its
+   * Determine optimal screen share resolution & FPS based on room occupancy, ping and network quality.
+   */
+  public static resolveOptimalScreenQuality(
+    requestedRes: 'auto' | '480p' | '720p' | '1080p' = 'auto',
+    requestedFps: 'auto' | 30 | 60 = 'auto'
+  ): { resolution: '480p' | '720p' | '1080p'; fps: 30 | 60; targetBitrate: number } {
+    const state = useGameStore.getState()
+    const localZone = state.localPlayer.currentZoneId
+    const peersInZone = Object.values(state.remotePlayers).filter(
+      (p) => p.currentZoneId === localZone
+    ).length
+    const activeScreensInZone = Object.values(state.remotePlayers).filter(
+      (p) => p.currentZoneId === localZone && p.isScreenSharing
+    ).length
+    const ping = state.localPlayer.ping || 20
+
+    const navConn = typeof navigator !== 'undefined' && (navigator as any).connection
+    const effectiveType = navConn?.effectiveType
+    const isConstrained = effectiveType === '3g' || effectiveType === '2g' || ping > 180
+
+    let chosenRes: '480p' | '720p' | '1080p' = '1080p'
+    let chosenFps: 30 | 60 = 60
+
+    if (requestedRes === 'auto') {
+      if (isConstrained || peersInZone >= 8) {
+        chosenRes = '480p'
+      } else if (activeScreensInZone >= 2) {
+        // When 3+ people in the room share screens concurrently, 720p keeps all 3 streams fluid and stable
+        chosenRes = '720p'
+      } else if (peersInZone >= 4 || activeScreensInZone >= 1 || ping > 100) {
+        chosenRes = '720p'
+      } else {
+        chosenRes = '1080p'
+      }
+    } else {
+      chosenRes = requestedRes
+    }
+
+    if (requestedFps === 'auto') {
+      if (isConstrained || peersInZone >= 6 || activeScreensInZone >= 2) {
+        chosenFps = 30
+      } else {
+        chosenFps = chosenRes === '480p' ? 30 : 60
+      }
+    } else {
+      chosenFps = requestedFps
+    }
+
+    // Recommended industry bitrates (H.264 WebRTC):
+    let targetBitrate = 3_500_000
+    if (chosenRes === '1080p') {
+      targetBitrate = chosenFps === 60 ? 5_500_000 : 3_500_000
+    } else if (chosenRes === '720p') {
+      targetBitrate = chosenFps === 60 ? 3_000_000 : 2_000_000
+    } else if (chosenRes === '480p') {
+      targetBitrate = chosenFps === 60 ? 1_500_000 : 1_000_000
+    }
+
+    // Multi-stream & crowded room bandwidth management to prevent packet drop and disconnects
+    if (activeScreensInZone >= 2) {
+      // 3 or more concurrent screen shares in the same zone:
+      // Cap at 2.0 Mbps per stream so total combined uplink/downlink remains healthy
+      targetBitrate = Math.min(targetBitrate, 2_000_000)
+    } else if (activeScreensInZone >= 1) {
+      // 2 concurrent screen shares in the same zone:
+      targetBitrate = Math.min(targetBitrate, 3_000_000)
+    } else if (peersInZone >= 6) {
+      targetBitrate = Math.min(targetBitrate, 2_500_000)
+    }
+
+    return { resolution: chosenRes, fps: chosenFps, targetBitrate }
+  }
+
+  /**
+   * Start Screen Sharing with Customizable Source, Audio, Resolution (auto, 480p, 720p, 1080p) and FPS (auto, 30, 60).
+   *
+   * The live stream captures ONLY the selected application/window sound,
+   * while your microphone remains live in the call via its own dedicated
+   * input. The user cannot turn off this isolation or fall back to
    * system-wide loopback because that mixes unrelated apps into the live.
    */
   public async startScreenShare(config: ScreenShareConfig = {}): Promise<MediaStream | null> {
@@ -850,8 +926,8 @@ export class MediaManager {
         sourceName,
         audioSourceId,
         captureMethod = 'auto',
-        resolution = '1080p',
-        fps = 30,
+        resolution = 'auto',
+        fps = 'auto',
       } = config
       // This policy is intentionally not configurable. The application sound
       // is source-scoped, while the microphone remains its own call input.
@@ -861,15 +937,18 @@ export class MediaManager {
         useMediaStore.getState().setScreenShareTargetTitle(sourceName)
       }
 
+      const { resolution: effectiveResolution, fps: effectiveFps, targetBitrate } =
+        MediaManager.resolveOptimalScreenQuality(resolution, fps)
+
       let width = 1920
       let height = 1080
-      if (resolution === '480p') {
+      if (effectiveResolution === '480p') {
         width = 854
         height = 480
-      } else if (resolution === '720p') {
+      } else if (effectiveResolution === '720p') {
         width = 1280
         height = 720
-      } else if (resolution === '1080p') {
+      } else if (effectiveResolution === '1080p') {
         width = 1920
         height = 1080
       }
@@ -900,9 +979,9 @@ export class MediaManager {
         : false
       const displayMediaOptions = {
         video: {
-          width: { ideal: width, max: width },
-          height: { ideal: height, max: height },
-          frameRate: { ideal: fps, max: fps },
+          width: { ideal: width },
+          height: { ideal: height },
+          frameRate: { ideal: effectiveFps, max: 60 },
         },
         audio: displayAudioConstraint,
         // Chromium capture hints. They are deliberately omitted from the
@@ -1039,16 +1118,7 @@ export class MediaManager {
           screenVideoTrack.contentHint = 'motion'
         }
 
-        let targetBitrate = 3_000_000
-        if (resolution === '720p') {
-          targetBitrate = fps === 60 ? 2_500_000 : 1_800_000
-        } else if (resolution === '1080p') {
-          targetBitrate = fps === 60 ? 3_500_000 : 2_500_000
-        } else if (resolution === '480p') {
-          targetBitrate = fps === 60 ? 1_500_000 : 1_000_000
-        }
-
-        PeerManager.getInstance().replaceVideoTrack(screenVideoTrack, true, targetBitrate, fps)
+        PeerManager.getInstance().replaceVideoTrack(screenVideoTrack, true, targetBitrate, effectiveFps)
         diagLog('screenshare', 'video-track-sent', {
           bitrate: targetBitrate,
           track: summarizeStream({

@@ -52,8 +52,19 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose, init
       setDescription(zone.description || '')
       setIsLocked(!!zone.isLocked)
       setAllowKnock(zone.allowKnock !== false)
-      setAdmins(zone.admins || [localPlayer.name])
-      setMembers(zone.members || [])
+      const rawAdmins = zone.admins && zone.admins.length > 0 ? zone.admins : [localPlayer.name]
+      const cleanedAdmins = Array.from(
+        new Set(
+          rawAdmins
+            .map((a) => (a === localPlayer.id || a === localPlayer.gameId ? localPlayer.name : a))
+            .filter(Boolean)
+        )
+      )
+      if (!cleanedAdmins.includes(localPlayer.name)) {
+        cleanedAdmins.unshift(localPlayer.name)
+      }
+      setAdmins(cleanedAdmins)
+      setMembers(Array.from(new Set(zone.members || [])).filter((m) => !cleanedAdmins.includes(m)))
     }
   }, [zone, isOpen, initialTab])
 
@@ -81,6 +92,13 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose, init
   }
 
   const handleRemoveAdmin = (adminName: string) => {
+    if (
+      adminName === localPlayer.name ||
+      adminName === localPlayer.id ||
+      (localPlayer.gameId && adminName === localPlayer.gameId)
+    ) {
+      return // Não permite remover a si mesmo como admin da sala
+    }
     setAdmins(admins.filter((a) => a !== adminName))
   }
 
@@ -98,29 +116,37 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose, init
   }
 
   const handleSave = () => {
-    // Locking from this settings panel must use the same occupant snapshot as
-    // the call controls. Otherwise a room locked here would omit everyone
-    // already inside and immediately block them on their next transition.
     const liveZone = useMapStore.getState().mapData.zones.find((z) => z.id === zone.id)
-    if (liveZone && isLocked !== !!liveZone.isLocked) {
-      toggleZoneLock(zone.id)
-    }
-    const lockedZone = useMapStore.getState().mapData.zones.find((z) => z.id === zone.id)
 
     const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)))
-    const effectiveAdmins = unique([...(lockedZone?.admins || []), ...admins])
-    const effectiveMembers = unique([...(lockedZone?.members || []), ...members]).filter(
+
+    // Curated admins from modal: must include localPlayer.name and purge any raw peer IDs
+    const effectiveAdmins = unique(
+      admins.filter((a) => a !== localPlayer.id && a !== localPlayer.gameId)
+    )
+    if (!effectiveAdmins.includes(localPlayer.name)) {
+      effectiveAdmins.unshift(localPlayer.name)
+    }
+
+    // Curated members from modal: excludes anyone who is in effectiveAdmins
+    const effectiveMembers = unique(members).filter(
       (member) => !effectiveAdmins.includes(member)
     )
 
-    // Keep authorizedPeers synchronized with members & admins
-    const currentAuthorized = lockedZone?.authorizedPeers || zone.authorizedPeers || []
-    const updatedAuthorized = currentAuthorized.filter((p) => {
-      if (zone.members?.includes(p) || zone.admins?.includes(p)) {
-        return effectiveMembers.includes(p) || effectiveAdmins.includes(p)
+    // Synchronize authorizedPeers: ONLY keep identifiers that belong to allowed admins or members
+    const allKnownPlayers = [localPlayer, ...Object.values(remotePlayers)]
+    const allowedNames = new Set([...effectiveAdmins, ...effectiveMembers])
+
+    const allowedIdentifiers = new Set<string>(allowedNames)
+    for (const p of allKnownPlayers) {
+      if (allowedNames.has(p.name)) {
+        if (p.id) allowedIdentifiers.add(p.id)
+        if (p.gameId) allowedIdentifiers.add(p.gameId)
       }
-      return true
-    })
+    }
+
+    const currentAuthorized = liveZone?.authorizedPeers || zone.authorizedPeers || []
+    const updatedAuthorized = currentAuthorized.filter((p) => allowedIdentifiers.has(p))
 
     const updatedZone: Partial<PrivateZone> = {
       name: name.trim() || 'Sala Privada',
@@ -137,11 +163,24 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose, init
     updateZone(zone.id, updatedZone)
     autoSaveCurrentSpace()
 
-    // Broadcast update to all peers in the space
+    // Broadcast update to all peers in the space via MAP_SYNC and ROOM_LOCK_TOGGLE
     PeerManager.getInstance().broadcast({
       type: 'MAP_SYNC',
-      senderId: 'host',
+      senderId: localPlayer.id,
       payload: { mapData: useMapStore.getState().mapData },
+      timestamp: Date.now(),
+    })
+
+    PeerManager.getInstance().broadcast({
+      type: 'ROOM_LOCK_TOGGLE',
+      senderId: localPlayer.id,
+      payload: {
+        zoneId: zone.id,
+        isLocked,
+        authorizedPeers: updatedAuthorized,
+        members: effectiveMembers,
+        admins: effectiveAdmins,
+      },
       timestamp: Date.now(),
     })
 
@@ -395,32 +434,49 @@ export const RoomSettingsModal: React.FC<Props> = ({ zone, isOpen, onClose, init
 
                 {/* Admins List */}
                 <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                  {admins.map((adm) => (
-                    <div
-                      key={adm}
-                      className="flex items-center justify-between p-2 rounded-xl bg-[#141a26] border border-[#242f44]"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-[10px] font-bold border border-amber-500/40">
-                          👑
-                        </div>
-                        <span className="text-xs font-semibold text-slate-200">{adm}</span>
-                        {adm === localPlayer.name && (
-                          <span className="text-[9px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.2 rounded-full border border-indigo-500/30">
-                            Você
+                  {admins.map((adm) => {
+                    const isSelf =
+                      adm === localPlayer.name ||
+                      adm === localPlayer.id ||
+                      (localPlayer.gameId && adm === localPlayer.gameId)
+                    return (
+                      <div
+                        key={adm}
+                        className="flex items-center justify-between p-2 rounded-xl bg-[#141a26] border border-[#242f44]"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center text-[10px] font-bold border border-amber-500/40">
+                            👑
+                          </div>
+                          <span className="text-xs font-semibold text-slate-200">
+                            {isSelf ? localPlayer.name : adm}
                           </span>
+                          {isSelf && (
+                            <span className="text-[9px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.2 rounded-full border border-indigo-500/30">
+                              Você
+                            </span>
+                          )}
+                        </div>
+                        {isSelf ? (
+                          <div
+                            className="p-1 text-slate-600 cursor-not-allowed flex items-center"
+                            title="Você não pode remover a si mesmo como administrador da sala"
+                          >
+                            <Lock className="w-3.5 h-3.5 opacity-50" />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAdmin(adm)}
+                            className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
+                            title="Remover Administrador"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveAdmin(adm)}
-                        className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
-                        title="Remover Administrador"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
 

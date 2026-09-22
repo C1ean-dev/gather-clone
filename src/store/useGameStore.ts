@@ -313,7 +313,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     avatar: saved.avatar ? { ...DEFAULT_AVATAR, ...saved.avatar } : { ...DEFAULT_AVATAR },
     status: saved.status || 'available',
     statusText: saved.statusText || 'Disponível',
-    statusEmoji: saved.statusEmoji || '💻',
+    statusEmoji: saved.statusEmoji || '',
     currentZoneId: null,
     lastUpdated: Date.now(),
     isMuted: false,
