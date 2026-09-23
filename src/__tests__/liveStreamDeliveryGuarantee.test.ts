@@ -96,19 +96,93 @@ if (typeof globalThis.document === 'undefined') {
   }
 }
 
-if (typeof globalThis.window === 'undefined') {
+class MockAudioContextClass {
+  sampleRate = 48000
+  state = 'running'
+  currentTime = 0
+  processor = {
+    onaudioprocess: null as any,
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+  }
+
+  createScriptProcessor() {
+    return this.processor
+  }
+
+  createMediaStreamDestination() {
+    return {
+      stream: new MockStream([new MockTrack('destination-audio-track', 'audio')]),
+    }
+  }
+
+  createMediaStreamSource() {
+    return { connect: vi.fn() }
+  }
+
+  createGain() {
+    return {
+      gain: {
+        setValueAtTime: vi.fn(),
+        cancelScheduledValues: vi.fn(),
+        setTargetAtTime: vi.fn(),
+      },
+      connect: vi.fn(),
+    }
+  }
+
+  resume = vi.fn(async () => undefined)
+  close = vi.fn(async () => undefined)
+}
+
+if (typeof (globalThis as any).AudioContext === 'undefined') {
+  ;(globalThis as any).AudioContext = MockAudioContextClass
+}
+
+if (typeof (globalThis as any).navigator === 'undefined') {
+  ;(globalThis as any).navigator = {
+    mediaDevices: {
+      getUserMedia: vi.fn(),
+      getDisplayMedia: vi.fn(),
+      enumerateDevices: vi.fn(),
+    },
+  }
+} else if (!(globalThis as any).navigator.mediaDevices) {
+  ;(globalThis as any).navigator.mediaDevices = {
+    getUserMedia: vi.fn(),
+    getDisplayMedia: vi.fn(),
+    enumerateDevices: vi.fn(),
+  }
+}
+
+if (typeof (globalThis as any).window === 'undefined') {
   ;(globalThis as any).window = {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
+    AudioContext: MockAudioContextClass,
+    navigator: (globalThis as any).navigator,
   }
-} else if (!globalThis.window.addEventListener) {
-  ;(globalThis.window as any).addEventListener = vi.fn()
-  ;(globalThis.window as any).removeEventListener = vi.fn()
+} else {
+  if (!globalThis.window.addEventListener) {
+    ;(globalThis.window as any).addEventListener = vi.fn()
+    ;(globalThis.window as any).removeEventListener = vi.fn()
+  }
+  if (!(globalThis.window as any).AudioContext) {
+    ;(globalThis.window as any).AudioContext = MockAudioContextClass
+  }
+  if (!(globalThis.window as any).navigator) {
+    ;(globalThis.window as any).navigator = (globalThis as any).navigator
+  }
 }
 
 describe('Live Stream Delivery Guarantee (Video & Audio)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+
+    ;(globalThis as any).AudioContext = MockAudioContextClass
+    if (typeof window !== 'undefined') {
+      ;(window as any).AudioContext = MockAudioContextClass
+    }
 
     useMediaStore.setState({
       localStream: null,
@@ -149,54 +223,15 @@ describe('Live Stream Delivery Guarantee (Video & Audio)', () => {
 
     // Mock getDisplayMedia returning video stream
     const mockGetDisplayMedia = vi.fn(async () => displayStream)
-    if (!navigator.mediaDevices) {
-      Object.defineProperty(navigator, 'mediaDevices', {
+    const nav = (globalThis as any).navigator || (typeof window !== 'undefined' ? (window as any).navigator : null)
+    if (!nav?.mediaDevices) {
+      Object.defineProperty(nav || globalThis, 'mediaDevices', {
         value: { getDisplayMedia: mockGetDisplayMedia, getUserMedia: vi.fn() },
         configurable: true,
         writable: true,
       })
     } else {
-      vi.spyOn(navigator.mediaDevices, 'getDisplayMedia').mockImplementation(mockGetDisplayMedia)
-    }
-
-    // Mock Web Audio Context
-    class MockAudioContextClass {
-      sampleRate = 48000
-      state = 'running'
-      currentTime = 0
-      processor = {
-        onaudioprocess: null as any,
-        connect: vi.fn(),
-        disconnect: vi.fn(),
-      }
-
-      createScriptProcessor() {
-        return this.processor
-      }
-
-      createMediaStreamDestination() {
-        return {
-          stream: new MockStream([new MockTrack('destination-audio-track', 'audio')]),
-        }
-      }
-
-      createMediaStreamSource() {
-        return { connect: vi.fn() }
-      }
-
-      createGain() {
-        return {
-          gain: {
-            setValueAtTime: vi.fn(),
-            cancelScheduledValues: vi.fn(),
-            setTargetAtTime: vi.fn(),
-          },
-          connect: vi.fn(),
-        }
-      }
-
-      resume = vi.fn(async () => undefined)
-      close = vi.fn(async () => undefined)
+      vi.spyOn(nav.mediaDevices, 'getDisplayMedia').mockImplementation(mockGetDisplayMedia)
     }
 
     ;(window as any).AudioContext = MockAudioContextClass
@@ -372,6 +407,7 @@ describe('Live Stream Delivery Guarantee (Video & Audio)', () => {
       onProcessAudioStatus: vi.fn(() => () => undefined),
     }
 
+    ;(window as any).AudioContext = MockAudioContextClass
     ;(window as any).electronAPI = mockApi
 
     const capture = new (await import('../media/ProcessAudioCapture')).ProcessAudioCapture()
