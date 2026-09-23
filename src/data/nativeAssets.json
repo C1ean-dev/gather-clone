@@ -5447,7 +5447,7 @@
     },
     {
       "id": "custom_1789056184157_ewpqg",
-      "name": "quadrado",
+      "name": "quadrado (Custom)",
       "type": "floor",
       "category": "Geral",
       "width": 1,
@@ -5477,13 +5477,27 @@
           }
         ]
       ],
-      "directionalFrames": null,
+      "directionalFrames": {
+        "down": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAFVJREFUWEdj/HGi4z/DAALGQeOAFyd2kBQOEhYeKOrJ1Q8PAXINgLmCXP2jDhgNgdEQGA2B0RAYPJURSTURFRWPhsBoLhgNgdEQGA2B0RAYDYHR2hAA2Kj5AVL/Ms0AAAAASUVORK5CYII="
+        ],
+        "up": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAFVJREFUWEdj/HGi4z/DAALGQeOAFyd2kBQOEhYeKOrJ1Q8PAXINgLmCXP2jDhgNgdEQGA2B0RAYPJURSTURFRWPhsBoLhgNgdEQGA2B0RAYDYHR2hAA2Kj5AVL/Ms0AAAAASUVORK5CYII="
+        ],
+        "left": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAFVJREFUWEdj/HGi4z/DAALGQeOAFyd2kBQOEhYeKOrJ1Q8PAXINgLmCXP2jDhgNgdEQGA2B0RAYPJURSTURFRWPhsBoLhgNgdEQGA2B0RAYDYHR2hAA2Kj5AVL/Ms0AAAAASUVORK5CYII="
+        ],
+        "right": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAFVJREFUWEdj/HGi4z/DAALGQeOAFyd2kBQOEhYeKOrJ1Q8PAXINgLmCXP2jDhgNgdEQGA2B0RAYPJURSTURFRWPhsBoLhgNgdEQGA2B0RAYDYHR2hAA2Kj5AVL/Ms0AAAAASUVORK5CYII="
+        ]
+      },
       "directionalFrameLayers": null,
       "directionalDimensions": null,
       "directionalCollisionGrids": null,
       "frameRateMs": 160,
       "iconColor": "#20c997",
-      "createdAt": 1789056184157
+      "createdAt": 1790194369590,
+      "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAFVJREFUWEdj/HGi4z/DAALGQeOAFyd2kBQOEhYeKOrJ1Q8PAXINgLmCXP2jDhgNgdEQGA2B0RAYPJURSTURFRWPhsBoLhgNgdEQGA2B0RAYDYHR2hAA2Kj5AVL/Ms0AAAAASUVORK5CYII="
     },
     {
       "id": "custom_1789063096903_60k3j",

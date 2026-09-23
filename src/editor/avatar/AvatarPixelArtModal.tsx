@@ -4,8 +4,7 @@ import {
   Eraser,
   PaintBucket,
   Pipette,
-  Hand,
-  Maximize2,
+  Move,
   Undo2,
   Redo2,
   ZoomIn,
@@ -20,13 +19,12 @@ import {
   Pause,
   Plus,
   Copy,
-  Layers,
 } from 'lucide-react'
 import { AvatarConfig, AvatarComponentSlot, Direction } from '../../types/game'
 import { ColorWheelPicker } from '../../components/common/ColorWheelPicker'
 import { smartRescalePixelArt, smartRescaleDataUrl } from '../../utils/imageResize'
 
-export type DrawTool = 'pencil' | 'eraser' | 'bucket' | 'picker' | 'hand'
+export type DrawTool = 'pencil' | 'eraser' | 'bucket' | 'picker' | 'move'
 
 export type PixelArtCategory = AvatarComponentSlot | 'furniture' | 'floor' | 'wall'
 
@@ -195,13 +193,13 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
   })
   const isResizingRef = useRef<boolean>(false)
 
-  // Onion Skinning (Papel Vegetal)
-  const [showOnionSkin, setShowOnionSkin] = useState<boolean>(false)
-  const [onionOpacity, setOnionOpacity] = useState<number>(0.35)
-  const onionCanvasRef = useRef<HTMLCanvasElement | null>(null)
+
 
   // Tools & Styling
   const [tool, setTool] = useState<DrawTool>('pencil')
+  const toolRef = useRef<DrawTool>(tool)
+  toolRef.current = tool
+
   const [color, setColor] = useState<string>('#4c6ef5')
   const [showColorWheel, setShowColorWheel] = useState<boolean>(false)
   const [recentColors, setRecentColors] = useState<string[]>([
@@ -240,6 +238,22 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     startY: 0,
   })
 
+  // Image Content Transform Mode (Move Tool: Pan & Scale Artwork)
+  const [scaleDisplay, setScaleDisplay] = useState<string | null>(null)
+  const [transformScaleState, setTransformScaleState] = useState<number>(1.0)
+  const transformSourceCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const transformOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const transformScaleRef = useRef<number>(1.0)
+  const transformCommitTimerRef = useRef<any>(null)
+  const isMovingContentRef = useRef<boolean>(false)
+  const [isMovingContent, setIsMovingContent] = useState<boolean>(false)
+  const moveStartRef = useRef<{ clientX: number; clientY: number; startX: number; startY: number }>({
+    clientX: 0,
+    clientY: 0,
+    startX: 0,
+    startY: 0,
+  })
+
   const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false)
   const isSpacePressedRef = useRef(false)
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -268,20 +282,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     return 1
   }
 
-  const handleFitToScreen = useCallback(() => {
-    const stage = stageRef.current
-    if (!stage) return
-    const stageRect = stage.getBoundingClientRect()
-    const availW = Math.max(100, stageRect.width - 60)
-    const availH = Math.max(100, stageRect.height - 180)
 
-    const maxFitW = Math.floor(availW / canvasPixelWidth)
-    const maxFitH = Math.floor(availH / canvasPixelHeight)
-    const fitZoom = Math.max(1, Math.min(32, Math.min(maxFitW, maxFitH)))
-
-    setZoom(fitZoom)
-    setPanOffset({ x: 0, y: 0 })
-  }, [canvasPixelWidth, canvasPixelHeight])
 
   // Drawing state
   const [isDrawing, setIsDrawing] = useState<boolean>(false)
@@ -342,35 +343,133 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     setCanRedo(historyStepRef.current < historyRef.current.length - 1)
   }, [activeDirection, activeFrameIndex, canvasPixelWidth, canvasPixelHeight])
 
-  // Onion Skinning Canvas Rendering
-  useEffect(() => {
-    const oCanvas = onionCanvasRef.current
-    if (!oCanvas) return
-    const oCtx = oCanvas.getContext('2d')
-    if (!oCtx) return
+  // Capture a pristine unclipped snapshot of current drawing canvas as the baseline for Move/Scale
+  const captureTransformSource = useCallback(() => {
+    const canvas = drawCanvasRef.current
+    if (!canvas) return
+    const temp = document.createElement('canvas')
+    temp.width = canvas.width
+    temp.height = canvas.height
+    const ctx = temp.getContext('2d')
+    if (!ctx) return
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(canvas, 0, 0)
+    transformSourceCanvasRef.current = temp
+    transformOffsetRef.current = { x: 0, y: 0 }
+    transformScaleRef.current = 1.0
+    setTransformScaleState(1.0)
+    setScaleDisplay(null)
+  }, [])
 
-    oCtx.imageSmoothingEnabled = false
-    oCtx.clearRect(0, 0, canvasPixelWidth, canvasPixelHeight)
+  // Redraw image from pristine source with exact scale and offset (centered within canvas)
+  const redrawTransformedImage = useCallback(
+    (
+      source: HTMLCanvasElement,
+      offsetX: number,
+      offsetY: number,
+      scale: number
+    ) => {
+      const canvas = drawCanvasRef.current
+      if (!canvas) return
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
 
-    if (!showOnionSkin) return
+      const w = canvas.width
+      const h = canvas.height
 
-    const currentFrames = directionalFrames[activeDirection] || []
-    if (currentFrames.length <= 1) return
+      const S = scale
+      const destW = w * S
+      const destH = h * S
+      // Scale anchored symmetrically to the center of the canvas:
+      const destX = Math.round((w - destW) / 2 + offsetX)
+      const destY = Math.round((h - destH) / 2 + offsetY)
 
-    // Previous frame to display as onion skin reference
-    const refIndex = activeFrameIndex > 0 ? activeFrameIndex - 1 : currentFrames.length - 1
-    const refUrl = currentFrames[refIndex]
-    if (refUrl) {
-      const img = new Image()
-      img.src = refUrl
-      img.onload = () => {
-        oCtx.clearRect(0, 0, canvasPixelWidth, canvasPixelHeight)
-        const drawW = Math.min(img.naturalWidth || canvasPixelWidth, canvasPixelWidth)
-        const drawH = Math.min(img.naturalHeight || canvasPixelHeight, canvasPixelHeight)
-        oCtx.drawImage(img, 0, 0, drawW, drawH, 0, 0, drawW, drawH)
-      }
+      ctx.imageSmoothingEnabled = false
+      ctx.clearRect(0, 0, w, h)
+      ctx.drawImage(source, 0, 0, w, h, destX, destY, destW, destH)
+
+      setPreviewDataUrl(canvas.toDataURL('image/png'))
+    },
+    []
+  )
+
+  // Commit transform result to history and directionalFrames
+  const commitTransform = useCallback(() => {
+    if (transformCommitTimerRef.current) {
+      clearTimeout(transformCommitTimerRef.current)
+      transformCommitTimerRef.current = null
     }
-  }, [showOnionSkin, activeDirection, activeFrameIndex, directionalFrames, canvasPixelWidth, canvasPixelHeight])
+    pushHistoryState()
+  }, [pushHistoryState])
+
+  // Reset transform to 100% scale and center offset
+  const resetTransform = useCallback(() => {
+    if (!transformSourceCanvasRef.current) return
+    transformOffsetRef.current = { x: 0, y: 0 }
+    transformScaleRef.current = 1.0
+    setTransformScaleState(1.0)
+    setScaleDisplay(null)
+    redrawTransformedImage(transformSourceCanvasRef.current, 0, 0, 1.0)
+    commitTransform()
+  }, [redrawTransformedImage, commitTransform])
+
+  // Nudge transform by (dx, dy) pixels (via arrows or keys)
+  const nudgeTransform = useCallback(
+    (dx: number, dy: number) => {
+      if (!transformSourceCanvasRef.current) {
+        captureTransformSource()
+      }
+      const source = transformSourceCanvasRef.current
+      if (!source) return
+
+      const newX = transformOffsetRef.current.x + dx
+      const newY = transformOffsetRef.current.y + dy
+      transformOffsetRef.current = { x: newX, y: newY }
+
+      redrawTransformedImage(source, newX, newY, transformScaleRef.current)
+
+      if (transformCommitTimerRef.current) {
+        clearTimeout(transformCommitTimerRef.current)
+      }
+      transformCommitTimerRef.current = setTimeout(() => {
+        commitTransform()
+      }, 500)
+    },
+    [captureTransformSource, redrawTransformedImage, commitTransform]
+  )
+
+  // Step scale transform by multiplier (+10% or -10%)
+  const stepScaleTransform = useCallback(
+    (multiplier: number) => {
+      if (!transformSourceCanvasRef.current) {
+        captureTransformSource()
+      }
+      const source = transformSourceCanvasRef.current
+      if (!source) return
+
+      const newScale = Math.max(0.1, Math.min(10.0, Math.round(transformScaleRef.current * multiplier * 100) / 100))
+      transformScaleRef.current = newScale
+      setTransformScaleState(newScale)
+
+      redrawTransformedImage(
+        source,
+        transformOffsetRef.current.x,
+        transformOffsetRef.current.y,
+        newScale
+      )
+
+      setScaleDisplay(`${Math.round(newScale * 100)}%`)
+
+      if (transformCommitTimerRef.current) {
+        clearTimeout(transformCommitTimerRef.current)
+      }
+      transformCommitTimerRef.current = setTimeout(() => {
+        setScaleDisplay(null)
+        commitTransform()
+      }, 600)
+    },
+    [captureTransformSource, redrawTransformedImage, commitTransform]
+  )
 
   // Animation Loop for Right Panel Preview
   useEffect(() => {
@@ -385,7 +484,21 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     return () => clearInterval(timer)
   }, [isPlaying, animSpeedMs, activeDirection, directionalFrames])
 
-  // Spacebar tracking for Photoshop/Figma-style Space+Drag pan
+  // Sync toolRef and capture/flush transform when switching tools
+  useEffect(() => {
+    toolRef.current = tool
+    if (tool === 'move') {
+      captureTransformSource()
+    } else {
+      transformSourceCanvasRef.current = null
+      transformOffsetRef.current = { x: 0, y: 0 }
+      transformScaleRef.current = 1.0
+      setTransformScaleState(1.0)
+      setScaleDisplay(null)
+    }
+  }, [tool, captureTransformSource])
+
+  // Spacebar tracking for Photoshop/Figma-style Space+Drag pan & Move Tool Nudge / Scale
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -395,11 +508,46 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       ) {
         return
       }
+
+      // Keyboard pixel nudge & image scale when Move Tool is active
+      if (toolRef.current === 'move') {
+        if (e.key === '+' || e.key === '=') {
+          e.preventDefault()
+          stepScaleTransform(1.1)
+          return
+        }
+        if (e.key === '-' || e.key === '_') {
+          e.preventDefault()
+          stepScaleTransform(0.9)
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          nudgeTransform(0, -1)
+          return
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          nudgeTransform(0, 1)
+          return
+        }
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault()
+          nudgeTransform(-1, 0)
+          return
+        }
+        if (e.key === 'ArrowRight') {
+          e.preventDefault()
+          nudgeTransform(1, 0)
+          return
+        }
+      }
+
       if (e.code === 'Space' && !e.repeat) {
         setIsSpacePressed(true)
         isSpacePressedRef.current = true
-      } else if (e.code === 'KeyH' || e.code === 'KeyM') {
-        setTool('hand')
+      } else if (e.code === 'KeyV' || e.code === 'KeyM') {
+        setTool('move')
       } else if (e.code === 'KeyB' || e.code === 'KeyP') {
         setTool('pencil')
       } else if (e.code === 'KeyE') {
@@ -424,9 +572,9 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
     }
-  }, [])
+  }, [stepScaleTransform, nudgeTransform])
 
-  // Mouse Wheel (Ctrl/Meta + Wheel = Zoom at Cursor, Normal Wheel = Pan/Scroll)
+  // Mouse Wheel (Ctrl/Meta + Wheel = Zoom at Cursor, Normal Wheel = Pan/Scroll, Move Tool = Scale Artwork Image)
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
@@ -434,6 +582,41 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault()
       e.stopPropagation()
+
+      // Case 0: When Move Tool is active ('mover espaço'), mouse scroll scales the artwork IMAGE itself!
+      // Always scales from the unclipped pristine source canvas anchored to the center; does NOT zoom or pan viewport.
+      if (toolRef.current === 'move') {
+        if (!transformSourceCanvasRef.current) {
+          captureTransformSource()
+        }
+        const source = transformSourceCanvasRef.current
+        if (!source) return
+
+        // Step by 5% per standard wheel notch (or 12% if Shift is held)
+        const step = e.shiftKey ? 0.12 : 0.05
+        const multiplier = e.deltaY < 0 ? (1 + step) : (1 / (1 + step))
+        const newScale = Math.max(0.1, Math.min(10.0, Math.round(transformScaleRef.current * multiplier * 100) / 100))
+        transformScaleRef.current = newScale
+        setTransformScaleState(newScale)
+
+        redrawTransformedImage(
+          source,
+          transformOffsetRef.current.x,
+          transformOffsetRef.current.y,
+          newScale
+        )
+
+        setScaleDisplay(`${Math.round(newScale * 100)}%`)
+
+        if (transformCommitTimerRef.current) {
+          clearTimeout(transformCommitTimerRef.current)
+        }
+        transformCommitTimerRef.current = setTimeout(() => {
+          setScaleDisplay(null)
+          commitTransform()
+        }, 600)
+        return
+      }
 
       // Case 1: Zooming with Ctrl/Meta (or touchpad pinch-to-zoom)
       if (e.ctrlKey || e.metaKey) {
@@ -489,7 +672,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     return () => {
       stage.removeEventListener('wheel', handleWheel)
     }
-  }, [])
+  }, [captureTransformSource, redrawTransformedImage, commitTransform])
 
   // Global mouse tracking while panning (Right Click, Middle Click, or Space + Left Click)
   useEffect(() => {
@@ -532,6 +715,50 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       window.removeEventListener('contextmenu', onGlobalContextMenu)
     }
   }, [isPanning])
+
+  // Global mouse tracking while dragging content with Move Tool
+  useEffect(() => {
+    if (!isMovingContent) return
+
+    const onGlobalMouseMove = (e: MouseEvent) => {
+      if (!isMovingContentRef.current || !transformSourceCanvasRef.current) return
+      const canvas = drawCanvasRef.current
+      if (!canvas) return
+
+      const rect = canvas.getBoundingClientRect()
+      const scaleX = canvas.width / rect.width
+      const scaleY = canvas.height / rect.height
+      const deltaX = Math.round((e.clientX - moveStartRef.current.clientX) * scaleX)
+      const deltaY = Math.round((e.clientY - moveStartRef.current.clientY) * scaleY)
+
+      const newOffsetX = moveStartRef.current.startX + deltaX
+      const newOffsetY = moveStartRef.current.startY + deltaY
+
+      transformOffsetRef.current = { x: newOffsetX, y: newOffsetY }
+
+      redrawTransformedImage(
+        transformSourceCanvasRef.current,
+        newOffsetX,
+        newOffsetY,
+        transformScaleRef.current
+      )
+    }
+
+    const onGlobalMouseUp = () => {
+      if (isMovingContentRef.current) {
+        isMovingContentRef.current = false
+        setIsMovingContent(false)
+        commitTransform()
+      }
+    }
+
+    window.addEventListener('mousemove', onGlobalMouseMove)
+    window.addEventListener('mouseup', onGlobalMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onGlobalMouseMove)
+      window.removeEventListener('mouseup', onGlobalMouseUp)
+    }
+  }, [isMovingContent, redrawTransformedImage, commitTransform])
 
   // Load artwork for activeDirection and activeFrameIndex onto drawing canvas
   useEffect(() => {
@@ -612,6 +839,11 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       masterFramesRef.current[activeDirection] = []
     }
     masterFramesRef.current[activeDirection][activeFrameIndex] = currentData
+    transformSourceCanvasRef.current = null
+    transformOffsetRef.current = { x: 0, y: 0 }
+    transformScaleRef.current = 1.0
+    setTransformScaleState(1.0)
+    setScaleDisplay(null)
   }
 
   // Resize Dimensions handler with smart high-fidelity downsampling / upsampling
@@ -642,15 +874,8 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
 
     const directions: Direction[] = ['down', 'up', 'left', 'right']
 
-    // Seed master frames if empty
-    directions.forEach((dir) => {
-      if (!masterFramesRef.current[dir] || masterFramesRef.current[dir].length === 0) {
-        masterFramesRef.current[dir] = [...(currentFramesSnapshot[dir] || [])]
-      }
-    })
-
-    // Rescale all frames across all directions
-    const rescaledFrames: Record<Direction, string[]> = {
+    // Keep artwork at 1:1 pixel scale centered within the new canvas dimensions (no stretching or distortion)
+    const resizedCanvasFrames: Record<Direction, string[]> = {
       down: [],
       up: [],
       left: [],
@@ -660,23 +885,45 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     await Promise.all(
       directions.map(async (dir) => {
         const list = currentFramesSnapshot[dir] || []
-        const masterList = masterFramesRef.current[dir] || []
-        const rescaledList = await Promise.all(
-          list.map(async (frameUrl, idx) => {
-            const sourceUrl = masterList[idx] || frameUrl
-            if (!sourceUrl) return ''
-            return smartRescaleDataUrl(sourceUrl, targetW, targetH, {
-              align: 'center',
-              trimPadding: true,
-              cleanAlpha: true,
+        const resizedList = await Promise.all(
+          list.map(async (frameUrl) => {
+            if (!frameUrl) return ''
+            const off = document.createElement('canvas')
+            off.width = targetW
+            off.height = targetH
+            const oCtx = off.getContext('2d')
+            if (!oCtx) return ''
+            oCtx.imageSmoothingEnabled = false
+
+            const img = new Image()
+            img.src = frameUrl
+            await new Promise<void>((resolve) => {
+              img.onload = () => {
+                const srcW = img.naturalWidth || targetW
+                const srcH = img.naturalHeight || targetH
+                // Place 1:1 centered in the new canvas dimensions without stretching or resampling
+                const dx = Math.round((targetW - srcW) / 2)
+                const dy = Math.round((targetH - srcH) / 2)
+                oCtx.drawImage(img, dx, dy)
+                resolve()
+              }
+              img.onerror = () => resolve()
             })
+            return off.toDataURL('image/png')
           })
         )
-        rescaledFrames[dir] = rescaledList
+        resizedCanvasFrames[dir] = resizedList
       })
     )
 
-    // Update active drawing canvas directly with rescaled image
+    masterFramesRef.current = {
+      down: [...resizedCanvasFrames.down],
+      up: [...resizedCanvasFrames.up],
+      left: [...resizedCanvasFrames.left],
+      right: [...resizedCanvasFrames.right],
+    }
+
+    // Update active drawing canvas directly with newly placed image
     if (canvas) {
       canvas.width = targetW
       canvas.height = targetH
@@ -684,7 +931,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       if (ctx) {
         ctx.imageSmoothingEnabled = false
         ctx.clearRect(0, 0, targetW, targetH)
-        const newActiveDataUrl = rescaledFrames[activeDirection]?.[activeFrameIndex] || ''
+        const newActiveDataUrl = resizedCanvasFrames[activeDirection]?.[activeFrameIndex] || ''
         if (newActiveDataUrl) {
           const img = new Image()
           img.src = newActiveDataUrl
@@ -710,7 +957,13 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     setDefaultZoom(bestZ)
     setPanOffset({ x: 0, y: 0 })
 
-    setDirectionalFrames(rescaledFrames)
+    transformSourceCanvasRef.current = null
+    transformOffsetRef.current = { x: 0, y: 0 }
+    transformScaleRef.current = 1.0
+    setTransformScaleState(1.0)
+    setScaleDisplay(null)
+
+    setDirectionalFrames(resizedCanvasFrames)
     setPixelWidth(targetW)
     setPixelHeight(targetH)
     isResizingRef.current = false
@@ -1016,9 +1269,9 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
 
   // Mouse Handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    // Hand tool active, Right click (2), Middle click (1), or Left click with Spacebar
+    // Panning ONLY on Right Click (2), Middle Click (1), or Space + Left Click
+    // Regular Left Click (0) on canvas NEVER drags where we are editing!
     if (
-      tool === 'hand' ||
       e.button === 2 ||
       e.button === 1 ||
       (e.button === 0 && isSpacePressedRef.current)
@@ -1029,6 +1282,21 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     }
 
     if (e.button === 0) {
+      if (tool === 'move') {
+        if (!transformSourceCanvasRef.current) {
+          captureTransformSource()
+        }
+        moveStartRef.current = {
+          clientX: e.clientX,
+          clientY: e.clientY,
+          startX: transformOffsetRef.current.x,
+          startY: transformOffsetRef.current.y,
+        }
+        setIsMovingContent(true)
+        isMovingContentRef.current = true
+        return
+      }
+
       const pt = getCanvasPixelCoords(e)
       if (!pt) return
 
@@ -1048,7 +1316,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
   }
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (isPanning) return
+    if (isPanning || isMovingContent) return
 
     const pt = getCanvasPixelCoords(e)
     setHoverPixel(pt)
@@ -1094,6 +1362,9 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       list[activeFrameIndex] = dataUrl
       return { ...prev, [activeDirection]: list }
     })
+    if (toolRef.current === 'move') {
+      captureTransformSource()
+    }
   }
 
   const handleRedo = () => {
@@ -1117,6 +1388,9 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       list[activeFrameIndex] = dataUrl
       return { ...prev, [activeDirection]: list }
     })
+    if (toolRef.current === 'move') {
+      captureTransformSource()
+    }
   }
 
   // Clear Canvas
@@ -1128,6 +1402,9 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
 
     ctx.clearRect(0, 0, canvasPixelWidth, canvasPixelHeight)
     pushHistoryState()
+    if (toolRef.current === 'move') {
+      captureTransformSource()
+    }
   }
 
   // Final Save Handler
@@ -1154,6 +1431,15 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       pixelHeight: finalPixelH,
       isObstacle,
       category: furnitureCategory,
+    }
+
+    if (category === 'floor') {
+      finalFrames.up = [...finalFrames.down]
+      finalFrames.left = [...finalFrames.down]
+      finalFrames.right = [...finalFrames.down]
+      onSave(finalFrames, customName.trim() || `Preset ${CATEGORY_LABELS[category]}`, saveOptions)
+      onClose()
+      return
     }
 
     // Auto-mirror: If left was drawn but right is completely empty, mirror left into right
@@ -1452,13 +1738,13 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                 <Pipette className="w-4 h-4" />
               </button>
               <button
-                onClick={() => setTool('hand')}
-                title="Mão / Mover Tela (H ou Espaço) - Arraste com o botão esquerdo para navegar por todo o desenho"
+                onClick={() => setTool('move')}
+                title="Mover e Redimensionar Imagem (V) - Arraste com o botão esquerdo para mover, scroll do mouse para expandir ou diminuir a imagem"
                 className={`p-2.5 rounded-xl transition-all cursor-pointer ${
-                  tool === 'hand' ? 'bg-[#3b82f6] text-white shadow' : 'text-slate-400 hover:text-white'
+                  tool === 'move' ? 'bg-[#3b82f6] text-white shadow' : 'text-slate-400 hover:text-white'
                 }`}
               >
-                <Hand className="w-4 h-4" />
+                <Move className="w-4 h-4" />
               </button>
             </div>
 
@@ -1520,8 +1806,9 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
             ref={stageRef}
             onContextMenu={(e) => e.preventDefault()}
             onMouseDown={(e) => {
-              // Clicking anywhere on empty stage background ALWAYS pans!
-              if (e.button === 0 || e.button === 1 || e.button === 2) {
+              // Dragging ONLY works with Right click (2), Middle click (1), or Space + Left click.
+              // Regular Left click (0) must NEVER drag!
+              if (e.button === 2 || e.button === 1 || (e.button === 0 && isSpacePressedRef.current)) {
                 e.preventDefault()
                 startPanning(e.clientX, e.clientY)
               }
@@ -1529,11 +1816,21 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
             className={`flex-1 overflow-hidden relative select-none bg-[#141517] ${
               isPanning
                 ? 'cursor-grabbing'
-                : tool === 'hand' || isSpacePressed
+                : isSpacePressed
                 ? 'cursor-grab'
                 : 'cursor-default'
             }`}
           >
+            {/* Real-time Image Scale Badge Indicator */}
+            {scaleDisplay && (
+              <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 bg-blue-600/90 text-white font-bold text-xs px-3.5 py-1.5 rounded-full shadow-2xl backdrop-blur-md pointer-events-none flex items-center gap-1.5 border border-blue-400/50 animate-pulse">
+                <span>🔍 Redimensionando Imagem:</span>
+                <span className="font-mono bg-blue-800/80 px-2 py-0.5 rounded-md text-yellow-300">
+                  {scaleDisplay}
+                </span>
+              </div>
+            )}
+
             {/* Stage Controls Float Bar (Top Left) */}
             <div className="absolute top-4 left-6 z-10 flex items-center gap-2 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-lg">
               <button
@@ -1570,22 +1867,13 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
 
               <div className="w-px h-4 bg-[#383a40] mx-1" />
 
-              <button
-                onClick={handleFitToScreen}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#2b2d31] hover:bg-[#383a40] text-slate-200 hover:text-white text-[11px] font-semibold transition-all cursor-pointer border border-[#3f4147]"
-                title="Ajustar à Tela (Exibir todo o desenho na tela)"
-              >
-                <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
-                <span>Ver Tudo</span>
-              </button>
-
               {(panOffset.x !== 0 || panOffset.y !== 0 || zoom !== defaultZoom) && (
                 <button
                   onClick={() => {
                     setPanOffset({ x: 0, y: 0 })
                     setZoom(defaultZoom)
                   }}
-                  className="px-2 py-1 rounded-lg bg-[#2b2d31] hover:bg-[#383a40] text-slate-300 text-[11px] font-semibold transition-all cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-[#2b2d31] hover:bg-[#383a40] text-slate-300 text-[11px] font-semibold transition-all cursor-pointer"
                   title="Centralizar e redefinir zoom original"
                 >
                   Centralizar
@@ -1600,23 +1888,6 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                 title="Alternar Grade de Pixels"
               >
                 <Grid className="w-4 h-4" />
-              </button>
-
-              <div className="w-px h-4 bg-[#383a40] mx-1" />
-
-              {/* Onion Skin Button in Top Toolbar */}
-              <button
-                onClick={() => setShowOnionSkin(!showOnionSkin)}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  showOnionSkin
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-xs'
-                    : 'text-slate-400 hover:text-white hover:bg-[#2b2d31]'
-                }`}
-                title="Papel Vegetal (Onion Skin): Projeta o quadro anterior de forma semitransparente para guiar sua animação"
-              >
-                <Layers className="w-4 h-4" />
-                <span>Papel Vegetal</span>
-                {showOnionSkin && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />}
               </button>
             </div>
 
@@ -1643,22 +1914,6 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                 backgroundColor: '#232428',
               }}
             >
-              {/* Onion Skin (Papel Vegetal) Canvas Underlay */}
-              <canvas
-                ref={onionCanvasRef}
-                width={canvasPixelWidth}
-                height={canvasPixelHeight}
-                className="absolute top-0 left-0 pointer-events-none"
-                style={{
-                  width: canvasPixelWidth * pixelScale,
-                  height: canvasPixelHeight * pixelScale,
-                  imageRendering: 'pixelated',
-                  opacity: showOnionSkin ? onionOpacity : 0,
-                  visibility: showOnionSkin ? 'visible' : 'hidden',
-                  transition: 'opacity 0.15s ease',
-                }}
-              />
-
               {/* Interactive Drawing Canvas */}
               <canvas
                 ref={drawCanvasRef}
@@ -1672,8 +1927,12 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                 className={`absolute top-0 left-0 ${
                   isPanning
                     ? 'cursor-grabbing'
-                    : isSpacePressed || tool === 'hand'
+                    : isSpacePressed
                     ? 'cursor-grab'
+                    : tool === 'move'
+                    ? isMovingContent
+                      ? 'cursor-grabbing'
+                      : 'cursor-move'
                     : 'cursor-crosshair'
                 }`}
                 style={{
@@ -1698,7 +1957,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
               )}
 
               {/* Pixel Hover Cursor */}
-              {hoverPixel && !isPanning && (
+              {hoverPixel && !isPanning && tool !== 'move' && (
                 <div
                   className="absolute pointer-events-none border border-white/80 shadow-xs"
                   style={{
@@ -1719,7 +1978,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                 <div className="flex items-center gap-1.5 mr-1 shrink-0">
                   <span className="text-[11px] font-extrabold text-blue-400 uppercase tracking-wider flex items-center gap-1">
                     <span>🎞️</span>
-                    <span>Quadros ({DIRECTIONS.find((d) => d.id === activeDirection)?.label}):</span>
+                    <span>{category === 'floor' ? 'Quadros:' : `Quadros (${DIRECTIONS.find((d) => d.id === activeDirection)?.label}):`}</span>
                   </span>
                 </div>
 
@@ -1793,52 +2052,54 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                 </div>
               </div>
 
-              {/* Row 2: Direction Switcher & Mirror */}
-              <div className="flex items-center gap-2 bg-[#18191c]/95 border border-[#383a40] backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-xl pointer-events-auto">
-                <span className="text-[11px] font-bold text-slate-300 ml-1 mr-0.5">Direção:</span>
-                {DIRECTIONS.map((dirItem) => {
-                  const isCurrent = activeDirection === dirItem.id
-                  const framesCount = (directionalFrames[dirItem.id] || []).length
-                  const hasFrames = framesCount > 0 && directionalFrames[dirItem.id].some((f) => !!f)
-                  return (
-                    <button
-                      key={dirItem.id}
-                      onClick={() => switchDirection(dirItem.id)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
-                        isCurrent
-                          ? 'bg-[#3b82f6] text-white border-[#60a5fa] shadow-md shadow-blue-500/25 scale-105'
-                          : 'bg-[#2b2d31] text-slate-300 hover:text-white border-[#383a40] hover:border-slate-500'
-                      }`}
-                    >
-                      <span>{dirItem.icon}</span>
-                      <span>{dirItem.label}</span>
-                      {hasFrames && (
-                        <span className="text-[10px] font-mono bg-black/40 px-1 rounded text-slate-300">
-                          {framesCount}
-                        </span>
-                      )}
-                    </button>
-                  )
-                })}
+              {/* Row 2: Direction Switcher & Mirror (Hidden when editing floors) */}
+              {category !== 'floor' && (
+                <div className="flex items-center gap-2 bg-[#18191c]/95 border border-[#383a40] backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-xl pointer-events-auto">
+                  <span className="text-[11px] font-bold text-slate-300 ml-1 mr-0.5">Direção:</span>
+                  {DIRECTIONS.map((dirItem) => {
+                    const isCurrent = activeDirection === dirItem.id
+                    const framesCount = (directionalFrames[dirItem.id] || []).length
+                    const hasFrames = framesCount > 0 && directionalFrames[dirItem.id].some((f) => !!f)
+                    return (
+                      <button
+                        key={dirItem.id}
+                        onClick={() => switchDirection(dirItem.id)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                          isCurrent
+                            ? 'bg-[#3b82f6] text-white border-[#60a5fa] shadow-md shadow-blue-500/25 scale-105'
+                            : 'bg-[#2b2d31] text-slate-300 hover:text-white border-[#383a40] hover:border-slate-500'
+                        }`}
+                      >
+                        <span>{dirItem.icon}</span>
+                        <span>{dirItem.label}</span>
+                        {hasFrames && (
+                          <span className="text-[10px] font-mono bg-black/40 px-1 rounded text-slate-300">
+                            {framesCount}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
 
-                {(activeDirection === 'left' || activeDirection === 'right') && (
-                  <>
-                    <div className="w-px h-5 bg-[#383a40] mx-1" />
-                    <button
-                      onClick={handleMirrorOppositeSide}
-                      title={
-                        activeDirection === 'left'
-                          ? 'Espelhar todos os quadros da Esquerda para a Direita'
-                          : 'Espelhar todos os quadros da Direita para a Esquerda'
-                      }
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#2b2d31] hover:bg-[#383a40] border border-[#383a40] text-indigo-300 hover:text-white text-[11px] font-semibold transition-all cursor-pointer"
-                    >
-                      <FlipHorizontal className="w-3.5 h-3.5" />
-                      <span>Espelhar {activeDirection === 'left' ? 'p/ Direita ➡️' : 'p/ Esquerda ⬅️'}</span>
-                    </button>
-                  </>
-                )}
-              </div>
+                  {(activeDirection === 'left' || activeDirection === 'right') && (
+                    <>
+                      <div className="w-px h-5 bg-[#383a40] mx-1" />
+                      <button
+                        onClick={handleMirrorOppositeSide}
+                        title={
+                          activeDirection === 'left'
+                            ? 'Espelhar todos os quadros da Esquerda para a Direita'
+                            : 'Espelhar todos os quadros da Direita para a Esquerda'
+                        }
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#2b2d31] hover:bg-[#383a40] border border-[#383a40] text-indigo-300 hover:text-white text-[11px] font-semibold transition-all cursor-pointer"
+                      >
+                        <FlipHorizontal className="w-3.5 h-3.5" />
+                        <span>Espelhar {activeDirection === 'left' ? 'p/ Direita ➡️' : 'p/ Esquerda ⬅️'}</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Row 3: Status & Controls Bar */}
               <div className="flex items-center gap-4 bg-[#18191c]/90 border border-[#383a40] backdrop-blur-md px-4 py-1.5 rounded-2xl text-xs text-slate-400 shadow-lg pointer-events-auto">
@@ -1846,34 +2107,84 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                   Pixel: <strong className="text-white">{hoverPixel ? `${hoverPixel.x}, ${hoverPixel.y}` : '-'}</strong>
                 </span>
 
-                {showOnionSkin && (
-                  <>
-                    <div className="w-px h-3 bg-[#383a40]" />
-                    <div className="flex items-center gap-2">
-                      <span className="text-amber-300">Papel Vegetal:</span>
-                      <input
-                        type="range"
-                        min={0.1}
-                        max={0.8}
-                        step={0.05}
-                        value={onionOpacity}
-                        onChange={(e) => setOnionOpacity(parseFloat(e.target.value))}
-                        className="w-14 accent-amber-400 cursor-pointer"
-                      />
-                      <span className="font-mono text-amber-300">{Math.round(onionOpacity * 100)}%</span>
-                    </div>
-                  </>
-                )}
-
                 <div className="w-px h-3 bg-[#383a40]" />
                 <div className="text-[11px] text-slate-400 flex items-center gap-2 select-none">
-                  <span>🖱️ <strong className="text-slate-300">Esq:</strong> Pintar</span>
-                  <span>•</span>
-                  <span>🖐️ <strong className="text-slate-300">Dir / Meio / Espaço:</strong> Mover</span>
-                  <span>•</span>
-                  <span>🔄 <strong className="text-slate-300">Scroll:</strong> Rolar</span>
-                  <span>•</span>
-                  <span>🔍 <strong className="text-slate-300">Ctrl+Scroll:</strong> Zoom no Cursor</span>
+                  {tool === 'move' ? (
+                    <>
+                      <span>🖐️ <strong className="text-blue-300">Mover Imagem:</strong> Arraste ou use setas</span>
+                      <div className="flex items-center gap-1 ml-1 bg-[#2b2d31] p-0.5 rounded-lg border border-[#383a40]">
+                        <button
+                          onClick={() => nudgeTransform(-1, 0)}
+                          title="Mover 1px para a Esquerda (Seta Esquerda)"
+                          className="px-1.5 py-0.5 rounded hover:bg-[#383a40] text-slate-300 hover:text-white text-xs font-mono font-bold cursor-pointer"
+                        >
+                          ←
+                        </button>
+                        <button
+                          onClick={() => nudgeTransform(0, -1)}
+                          title="Mover 1px para Cima (Seta Cima)"
+                          className="px-1.5 py-0.5 rounded hover:bg-[#383a40] text-slate-300 hover:text-white text-xs font-mono font-bold cursor-pointer"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          onClick={() => nudgeTransform(0, 1)}
+                          title="Mover 1px para Baixo (Seta Baixo)"
+                          className="px-1.5 py-0.5 rounded hover:bg-[#383a40] text-slate-300 hover:text-white text-xs font-mono font-bold cursor-pointer"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          onClick={() => nudgeTransform(1, 0)}
+                          title="Mover 1px para a Direita (Seta Direita)"
+                          className="px-1.5 py-0.5 rounded hover:bg-[#383a40] text-slate-300 hover:text-white text-xs font-mono font-bold cursor-pointer"
+                        >
+                          →
+                        </button>
+                      </div>
+                      <span>•</span>
+                      <span>🔍 <strong className="text-blue-300">Scroll:</strong> Redimensionar</span>
+                      <div className="flex items-center gap-1 ml-1 bg-[#2b2d31] p-0.5 rounded-lg border border-[#383a40]">
+                        <button
+                          onClick={() => stepScaleTransform(0.9)}
+                          title="Diminuir Imagem (-10%) (Scroll para baixo ou Tecla -)"
+                          className="px-2 py-0.5 rounded hover:bg-[#383a40] text-slate-300 hover:text-white text-xs font-mono font-bold cursor-pointer"
+                        >
+                          -
+                        </button>
+                        <span className="text-[11px] font-mono font-semibold text-slate-300 px-1 min-w-[36px] text-center">
+                          {Math.round(transformScaleState * 100)}%
+                        </span>
+                        <button
+                          onClick={() => stepScaleTransform(1.1)}
+                          title="Aumentar Imagem (+10%) (Scroll para cima ou Tecla +)"
+                          className="px-2 py-0.5 rounded hover:bg-[#383a40] text-slate-300 hover:text-white text-xs font-mono font-bold cursor-pointer"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <span>•</span>
+                      <button
+                        onClick={resetTransform}
+                        title="Restaurar tamanho (100%) e posição original do desenho"
+                        className="px-2 py-0.5 rounded-lg bg-[#2b2d31] hover:bg-[#383a40] text-yellow-300 hover:text-yellow-200 text-xs font-semibold border border-[#383a40] transition-colors cursor-pointer"
+                      >
+                        ↺ Resetar
+                      </button>
+                      <span>•</span>
+                      <span>🖐️ <strong className="text-slate-300">Dir / Espaço:</strong> Mover tela</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>🖱️ <strong className="text-slate-300">Esq:</strong> Pintar</span>
+                      <span>•</span>
+                      <span>🖐️ <strong className="text-slate-300">Botão Direito / Espaço:</strong> Mover</span>
+                      <span>•</span>
+                      <span>🔄 <strong className="text-slate-300">Scroll:</strong> Rolar</span>
+                      <span>•</span>
+                      <span>🔍 <strong className="text-slate-300">Ctrl+Scroll:</strong> Zoom no Cursor</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -1960,51 +2271,53 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                 </div>
               )}
 
-              {/* 4 Directions Mini Previews */}
-              <div className="flex flex-col gap-1.5 mt-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Quadros das 4 Direções
-                </span>
-                <div className="grid grid-cols-4 gap-1.5 bg-[#1e1f22] p-2 rounded-xl border border-[#383a40]/60">
-                  {DIRECTIONS.map((dirItem) => {
-                    const frames = directionalFrames[dirItem.id] || []
-                    const frameCount = frames.length
-                    const thumbUrl =
-                      dirItem.id === activeDirection
-                        ? previewDataUrl || frames[activeFrameIndex] || frames[0]
-                        : frames[0]
-                    return (
-                      <div
-                        key={dirItem.id}
-                        onClick={() => switchDirection(dirItem.id)}
-                        className={`flex flex-col items-center gap-1 p-1 rounded-lg cursor-pointer border transition-all ${
-                          activeDirection === dirItem.id
-                            ? 'border-[#3b82f6] bg-[#3b82f6]/10 scale-105'
-                            : 'border-transparent hover:bg-[#2b2d31]'
-                        }`}
-                      >
-                        <div className="w-8 h-8 rounded bg-[#18191c] border border-slate-700/60 flex items-center justify-center overflow-hidden relative">
-                          {thumbUrl ? (
-                            <img
-                              src={thumbUrl}
-                              alt={dirItem.label}
-                              className="w-7 h-7 [image-rendering:pixelated]"
-                            />
-                          ) : (
-                            <span className="text-[11px] opacity-40">{dirItem.icon}</span>
-                          )}
-                          {frameCount > 1 && (
-                            <span className="absolute bottom-0 right-0 bg-blue-600/90 text-[8px] font-bold text-white px-1 rounded-tl">
-                              {frameCount}
-                            </span>
-                          )}
+              {/* 4 Directions Mini Previews (Hidden when editing floors) */}
+              {category !== 'floor' && (
+                <div className="flex flex-col gap-1.5 mt-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Quadros das 4 Direções
+                  </span>
+                  <div className="grid grid-cols-4 gap-1.5 bg-[#1e1f22] p-2 rounded-xl border border-[#383a40]/60">
+                    {DIRECTIONS.map((dirItem) => {
+                      const frames = directionalFrames[dirItem.id] || []
+                      const frameCount = frames.length
+                      const thumbUrl =
+                        dirItem.id === activeDirection
+                          ? previewDataUrl || frames[activeFrameIndex] || frames[0]
+                          : frames[0]
+                      return (
+                        <div
+                          key={dirItem.id}
+                          onClick={() => switchDirection(dirItem.id)}
+                          className={`flex flex-col items-center gap-1 p-1 rounded-lg cursor-pointer border transition-all ${
+                            activeDirection === dirItem.id
+                              ? 'border-[#3b82f6] bg-[#3b82f6]/10 scale-105'
+                              : 'border-transparent hover:bg-[#2b2d31]'
+                          }`}
+                        >
+                          <div className="w-8 h-8 rounded bg-[#18191c] border border-slate-700/60 flex items-center justify-center overflow-hidden relative">
+                            {thumbUrl ? (
+                              <img
+                                src={thumbUrl}
+                                alt={dirItem.label}
+                                className="w-7 h-7 [image-rendering:pixelated]"
+                              />
+                            ) : (
+                              <span className="text-[11px] opacity-40">{dirItem.icon}</span>
+                            )}
+                            {frameCount > 1 && (
+                              <span className="absolute bottom-0 right-0 bg-blue-600/90 text-[8px] font-bold text-white px-1 rounded-tl">
+                                {frameCount}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[9px] font-semibold text-slate-400">{dirItem.label}</span>
                         </div>
-                        <span className="text-[9px] font-semibold text-slate-400">{dirItem.label}</span>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Curated Color Swatches & Color Wheel */}

@@ -5,7 +5,7 @@
     "name": "Espaço de Player",
     "description": "Espaço de colaboração e produtividade",
     "createdAt": 1790098063146,
-    "updatedAt": 1790193186235,
+    "updatedAt": 1790194508435,
     "mapData": {
       "id": "room-a7sj91",
       "name": "Espaço de Player",
@@ -5656,7 +5656,7 @@
           "width": 8,
           "height": 6,
           "hasWalls": true,
-          "wallType": "drywall_white",
+          "wallType": "custom_1788441519877_28fpp",
           "description": "Zona de chamada privada demarcada com mouse"
         },
         {
