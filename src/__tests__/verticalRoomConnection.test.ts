@@ -4,6 +4,7 @@ import { findPath } from '../engine/physics/pathfinding'
 import { MapData, PrivateZone } from '../types/map'
 import { DoorRenderer } from '../engine/rendering/doorRenderer'
 import { getZoneWallTheme } from '../engine/rendering/wallRenderer'
+import { generateWallsAndDoorsForZones } from '../editor/zoneWallGenerator'
 import { useMapStore } from '../store/useMapStore'
 import { useGameStore } from '../store/useGameStore'
 
@@ -193,5 +194,52 @@ describe('Vertical Room Connection (topNeighbor / bottomNeighbor)', () => {
     expect(() => {
       DoorRenderer.drawConnectingCorridorArch(mockCtx, 14 * 32, 16 * 32, 10 * 32, 64, theme, true)
     }).not.toThrow()
+  })
+
+  it('allows passage through vertical and side connected doors even when map.walls has generated or residual wall tiles', () => {
+    const { map, topZone, bottomZone } = buildStackedZones()
+    // Generate perimeter walls in map.walls
+    map.walls = generateWallsAndDoorsForZones([topZone, bottomZone], 30, 30, 'drywall_white')
+    useMapStore.setState({ mapData: map })
+
+    // Through vertical doorway at (15, 10) and (15, 11) should NOT collide
+    expect(checkCollision(15, 10, map)).toBe(false)
+    expect(checkCollision(15, 11, map)).toBe(false)
+
+    // Solid wall outside doorway must STILL collide
+    expect(checkCollision(11.5, 11, map)).toBe(true)
+    expect(checkCollision(18.5, 11, map)).toBe(true)
+
+    // Painted wall in open world outside any zone must STILL collide
+    map.walls[1][1] = 'drywall_white' as any
+    expect(checkCollision(1, 1, map)).toBe(true)
+  })
+
+  it('allows passage in native space space-dxbpti1 between connected rooms', () => {
+    const fs = require('fs')
+    const spaces = JSON.parse(fs.readFileSync('src/data/nativeSpaces.json', 'utf8'))
+    const space = spaces.find((x: any) => x.id === 'space-dxbpti1')
+    expect(space).toBeDefined()
+    const map = space.mapData
+    useMapStore.setState({ mapData: map })
+
+    // 1. Vertical Doorway between purple room (zone-rz8kj, y=9..15) and yellow room (zone-4runi, y=15..23)
+    // Center of doorway is around x=46.5, crossing from y=14 to y=15.5
+    expect(checkCollision(46.5, 14.0, map)).toBe(false)
+    expect(checkCollision(46.5, 14.5, map)).toBe(false)
+    expect(checkCollision(46.5, 15.0, map)).toBe(false)
+    expect(checkCollision(46.5, 15.5, map)).toBe(false)
+
+    // Solid back wall outside the doorway in yellow room (e.g. x=44, y=15.5) must block
+    expect(checkCollision(44.0, 15.5, map)).toBe(true)
+
+    // 2. Side Doorway between red room (zone-rmai4, x=36..43) and yellow room (zone-4runi, x=43..51)
+    // Shared boundary is x=43, door is around y=18.5
+    expect(checkCollision(42.5, 18.5, map)).toBe(false)
+    expect(checkCollision(43.0, 18.5, map)).toBe(false)
+    expect(checkCollision(43.5, 18.5, map)).toBe(false)
+
+    // Solid side wall outside the side doorway (e.g. x=43, y=21.0) must block
+    expect(checkCollision(43.0, 21.0, map)).toBe(true)
   })
 })

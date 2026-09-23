@@ -12,11 +12,11 @@ import { saveAssetFileToDisk } from '../../utils/diskAssetPersistence'
 interface Props {
   isOpen: boolean
   onClose: () => void
-  category: AvatarComponentSlot
+  category: AvatarComponentSlot | 'furniture' | 'floor' | 'wall'
   onImportSuccess?: (count: number) => void
 }
 
-const CATEGORY_NAMES: Record<AvatarComponentSlot, string> = {
+const CATEGORY_NAMES: Record<string, string> = {
   hair: 'Cabelo',
   top: 'Parte de Cima',
   jacket: 'Jaqueta',
@@ -29,6 +29,9 @@ const CATEGORY_NAMES: Record<AvatarComponentSlot, string> = {
   skin: 'Maquiagem',
   other: 'Personagem',
   pet: 'Pet / Mascote',
+  furniture: 'Mobília',
+  floor: 'Piso',
+  wall: 'Parede',
 }
 
 export const AtlasImportModal: React.FC<Props> = ({
@@ -117,8 +120,17 @@ export const AtlasImportModal: React.FC<Props> = ({
     if (parsedPresets.length === 0) return
     const created = importPresetsIntoStore(category, parsedPresets)
 
-    // Save XML and PNG directly to public/assets/pet/ (for pets) or public/assets/avatar/ so they are tracked in Git
-    const subfolder = category === 'pet' ? 'pet' : 'avatar'
+    // Save XML and PNG directly to appropriate subfolder so they are tracked in Git
+    const subfolder =
+      category === 'pet'
+        ? 'pet'
+        : category === 'furniture'
+        ? 'furniture'
+        : category === 'floor'
+        ? 'floor'
+        : category === 'wall'
+        ? 'wall'
+        : 'avatar'
     const baseName = `${category}_imported_${Date.now()}`
     if (xmlContent) {
       saveAssetFileToDisk(

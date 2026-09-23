@@ -349,7 +349,9 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
          customAsset.collisionGrid)
       : undefined
 
-    if (customAsset && activeCollisionGrid && activeCollisionGrid.length > 0) {
+    const hasActiveGridCollisions = activeCollisionGrid?.some((row) => row?.some((cell) => cell === true))
+
+    if (customAsset && hasActiveGridCollisions && activeCollisionGrid && activeCollisionGrid.length > 0) {
       const maxR = Math.min(Math.ceil(tileH), activeCollisionGrid.length)
       for (let r = 0; r < maxR; r++) {
         const maxC = Math.min(Math.ceil(tileW), activeCollisionGrid[r]?.length || 0)
@@ -369,14 +371,47 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
         }
       }
     } else if (def && def.isObstacle) {
-      const furnMinX = furn.x + 0.05
-      const furnMaxX = furn.x + tileW - 0.05
-      const furnMinY = furn.y + 0.05
-      const furnMaxY = furn.y + tileH - 0.05
+      const marginX = Math.min(0.05, tileW * 0.2)
+      const marginY = Math.min(0.05, tileH * 0.2)
+      const furnMinX = furn.x + marginX
+      const furnMaxX = furn.x + tileW - marginX
+      const furnMinY = furn.y + marginY
+      const furnMaxY = furn.y + tileH - marginY
 
       if (furnMaxX > furnMinX && furnMaxY > furnMinY) {
         if (pMaxX > furnMinX && pMinX < furnMaxX && pMaxY > furnMinY && pMinY < furnMaxY) {
           return true
+        }
+      }
+    }
+  }
+
+  // 3. Check Painted Wall Tiles Collision
+  if (map.walls) {
+    const minTileX = Math.max(0, Math.floor(pMinX))
+    const maxTileX = Math.min(map.width - 1, Math.floor(pMaxX))
+    const minTileY = Math.max(0, Math.floor(pMinY))
+    const maxTileY = Math.min(map.height - 1, Math.floor(pMaxY))
+
+    for (let ty = minTileY; ty <= maxTileY; ty++) {
+      for (let tx = minTileX; tx <= maxTileX; tx++) {
+        if (map.walls[ty]?.[tx]) {
+          // If this tile falls within an architectural room zone, skip it here.
+          // Section 1 (Precise Room Architecture Collision) already calculates
+          // thin-wall partitions, doorways (top, bottom, side), and permissions.
+          const inArchitecturalZone = map.zones?.some((z) => {
+            if (z.hasWalls === false) return false
+            return tx >= z.x - 0.05 && tx < z.x + z.width + 0.05 && ty >= z.y - 0.05 && ty < z.y + z.height + 0.05
+          })
+          if (inArchitecturalZone) continue
+
+          const wMinX = tx
+          const wMaxX = tx + 1
+          const wMinY = ty
+          const wMaxY = ty + 1
+          if (pMaxX > wMinX && pMinX < wMaxX && pMaxY > wMinY && pMinY < wMaxY) {
+            return true
+          }
         }
       }
     }

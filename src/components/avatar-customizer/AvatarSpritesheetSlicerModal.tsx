@@ -62,12 +62,12 @@ interface Props {
   onClose: () => void
   imageSrc: string
   imageFileName?: string
-  category: AvatarComponentSlot
+  category: AvatarComponentSlot | 'furniture' | 'floor' | 'wall'
   onSaveComplete?: (createdAssets: CustomAsset[], xmlContent: string) => void
   editingAsset?: CustomAsset | null
 }
 
-const CATEGORY_LABELS: Record<AvatarComponentSlot, string> = {
+const CATEGORY_LABELS: Record<string, string> = {
   hair: 'Cabelo',
   top: 'Parte de Cima',
   jacket: 'Jaqueta',
@@ -80,6 +80,9 @@ const CATEGORY_LABELS: Record<AvatarComponentSlot, string> = {
   skin: 'Maquiagem',
   other: 'Personagem',
   pet: 'Pet / Mascote',
+  furniture: 'Mobília',
+  floor: 'Piso',
+  wall: 'Parede',
 }
 
 const DIRECTIONS: { id: Direction; label: string; icon: string }[] = [
@@ -251,7 +254,15 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
 
   const handleSaveFromStudio = async (
     newDirectionalFrames: Record<Direction, string | string[]>,
-    newName: string
+    newName: string,
+    options?: {
+      width?: number
+      height?: number
+      pixelWidth?: number
+      pixelHeight?: number
+      isObstacle?: boolean
+      category?: string
+    }
   ) => {
     const toArray = (v?: string | string[]): string[] => {
       if (!v) return []
@@ -263,6 +274,9 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
     const leftFrames = toArray(newDirectionalFrames.left)
     const rightFrames = toArray(newDirectionalFrames.right)
 
+    const finalW = options?.pixelWidth || selection.w
+    const finalH = options?.pixelHeight || selection.h
+
     setPresets((prev) =>
       prev.map((p, idx) => {
         if (idx !== activePresetIndex) return p
@@ -273,35 +287,39 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
             down: downFrames.map((url, i) => ({
               x: p.directions.down[i]?.x || 0,
               y: p.directions.down[i]?.y || 0,
-              w: p.directions.down[i]?.w || 32,
-              h: p.directions.down[i]?.h || 32,
+              w: finalW,
+              h: finalH,
               dataUrl: url,
             })),
             up: upFrames.map((url, i) => ({
               x: p.directions.up[i]?.x || 0,
               y: p.directions.up[i]?.y || 0,
-              w: p.directions.up[i]?.w || 32,
-              h: p.directions.up[i]?.h || 32,
+              w: finalW,
+              h: finalH,
               dataUrl: url,
             })),
             left: leftFrames.map((url, i) => ({
               x: p.directions.left[i]?.x || 0,
               y: p.directions.left[i]?.y || 0,
-              w: p.directions.left[i]?.w || 32,
-              h: p.directions.left[i]?.h || 32,
+              w: finalW,
+              h: finalH,
               dataUrl: url,
             })),
             right: rightFrames.map((url, i) => ({
               x: p.directions.right[i]?.x || 0,
               y: p.directions.right[i]?.y || 0,
-              w: p.directions.right[i]?.w || 32,
-              h: p.directions.right[i]?.h || 32,
+              w: finalW,
+              h: finalH,
               dataUrl: url,
             })),
           },
         }
       })
     )
+
+    if (finalW > 0 && finalH > 0) {
+      setSelection((prev) => ({ ...prev, w: finalW, h: finalH }))
+    }
 
     if (editingAsset) {
       const store = useCustomAssetsStore.getState()
@@ -315,6 +333,12 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       store.updateCustomAsset(editingAsset.id, {
         name: newName || editingAsset.name,
         thumbnail,
+        width: options?.width || Math.max(1, Math.ceil(finalW / 32)),
+        height: options?.height || Math.max(1, Math.ceil(finalH / 32)),
+        pixelWidth: finalW,
+        pixelHeight: finalH,
+        isObstacle: options?.isObstacle !== undefined ? options.isObstacle : editingAsset.isObstacle,
+        category: options?.category || editingAsset.category,
         directionalFrames: newDirectionalFrames,
         frames: [firstDown, firstUp, firstLeft, firstRight],
       })
@@ -1055,6 +1079,8 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
           thumbnail,
           width: Math.max(1, Math.ceil(selection.w / 32)),
           height: Math.max(1, Math.ceil(selection.h / 32)),
+          pixelWidth: selection.w,
+          pixelHeight: selection.h,
           frames: [
             Array.isArray(directionalFrames.down) ? directionalFrames.down[0] : (directionalFrames.down || ''),
             Array.isArray(directionalFrames.up) ? directionalFrames.up[0] : (directionalFrames.up || ''),
@@ -1075,16 +1101,23 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
         }
         createdAssets.push(updated)
       } else {
+        const isMapAsset = category === 'furniture' || category === 'floor' || category === 'wall'
+        const assetType = isMapAsset ? category : 'avatar'
+        const avatarSlot = isMapAsset ? undefined : (category as AvatarComponentSlot)
+        const isObstacle = category === 'furniture' || category === 'wall'
+
         const asset: CustomAsset = {
-          id: `avatar_${category}_sliced_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          name: p.name.trim() || `Preset ${CATEGORY_LABELS[category]}`,
-          type: 'avatar',
+          id: `${assetType}_${category}_sliced_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name: p.name.trim() || `Preset ${CATEGORY_LABELS[category] || 'Custom'}`,
+          type: assetType,
           category: 'Geral',
-          avatarSlot: category,
+          avatarSlot,
           thumbnail,
           width: Math.max(1, Math.ceil(selection.w / 32)),
           height: Math.max(1, Math.ceil(selection.h / 32)),
-          isObstacle: false,
+          pixelWidth: selection.w,
+          pixelHeight: selection.h,
+          isObstacle,
           frames: [
             Array.isArray(directionalFrames.down) ? directionalFrames.down[0] : (directionalFrames.down || ''),
             Array.isArray(directionalFrames.up) ? directionalFrames.up[0] : (directionalFrames.up || ''),
@@ -1105,8 +1138,17 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
       }
     }
 
-    // Save XML and PNG directly to public/assets/pet/ (for pets) or public/assets/avatar/ so they are tracked in Git
-    const subfolder = category === 'pet' ? 'pet' : 'avatar'
+    // Save XML and PNG directly to appropriate subfolder so they are tracked in Git
+    const subfolder =
+      category === 'pet'
+        ? 'pet'
+        : category === 'furniture'
+        ? 'furniture'
+        : category === 'floor'
+        ? 'floor'
+        : category === 'wall'
+        ? 'wall'
+        : 'avatar'
     const cleanBase = imageFileName.replace(/\.[^/.]+$/, '') || `${category}_atlas`
     saveAssetFileToDisk(
       `public/assets/${subfolder}/${cleanBase}.xml`,
@@ -2026,6 +2068,10 @@ export const AvatarSpritesheetSlicerModal: React.FC<Props> = ({
           presetName={presets[activePresetIndex]?.name || editingAsset?.name || 'Personagem'}
           initialDirectionalFrames={getCurrentDirectionalFrames()}
           avatar={useGameStore.getState().localPlayer.avatar || DEFAULT_AVATAR}
+          initialWidth={Math.max(1, Math.ceil(selection.w / 32))}
+          initialHeight={Math.max(1, Math.ceil(selection.h / 32))}
+          initialPixelWidth={selection.w}
+          initialPixelHeight={selection.h}
           onSave={handleSaveFromStudio}
         />
       )}

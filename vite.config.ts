@@ -29,7 +29,7 @@ try {
     console.log('[vite] staged RNNoise WASM bytes:', wasmBytes.length, 'bytes')
   }
 } catch (e) {
-  console.warn('[vite] could not stage rnnoise wasm bytes:', e?.message ?? e)
+  console.warn('[vite] could not stage rnnoise wasm bytes:', e instanceof Error ? e.message : e)
 }
 
 // https://vitejs.dev/config/

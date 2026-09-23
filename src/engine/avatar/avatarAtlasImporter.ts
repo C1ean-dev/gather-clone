@@ -55,7 +55,7 @@ export function parseSubTextureIdentifier(subName: string, category: string): { 
 export async function parseSparrowAtlasAndSlice(
   xmlContent: string,
   imageElement: HTMLImageElement | HTMLCanvasElement,
-  category: AvatarComponentSlot
+  category: AvatarComponentSlot | 'furniture' | 'floor' | 'wall'
 ): Promise<ParsedAtlasPreset[]> {
   const atlasData = AvatarAtlasManager.parseAtlasXml(xmlContent)
   if (!atlasData.subTextures || atlasData.subTextures.size === 0) {
@@ -189,28 +189,33 @@ function createMirroredDataUrl(dataUrl: string): string {
  * Converts parsed presets into CustomAssets and adds them to the store
  */
 export function importPresetsIntoStore(
-  category: AvatarComponentSlot,
+  category: AvatarComponentSlot | 'furniture' | 'floor' | 'wall',
   presets: ParsedAtlasPreset[]
 ): CustomAsset[] {
   const createdAssets: CustomAsset[] = []
   const store = useCustomAssetsStore.getState()
 
   for (const p of presets) {
+    const isMapAsset = category === 'furniture' || category === 'floor' || category === 'wall'
+    const assetType = isMapAsset ? category : 'avatar'
+    const avatarSlot = isMapAsset ? undefined : (category as AvatarComponentSlot)
+    const isObstacle = category === 'furniture' || category === 'wall'
+
     const asset: CustomAsset = {
-      id: `avatar_${category}_${p.presetKey}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id: `${assetType}_${category}_${p.presetKey}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       name: p.name,
-      type: 'avatar',
+      type: assetType,
       category: 'Geral',
-      avatarSlot: category,
+      avatarSlot,
       thumbnail: p.thumbnail,
       width: 1,
       height: 1,
-      isObstacle: false,
+      isObstacle,
       frames: [
-        p.directionalFrames.down || '',
-        p.directionalFrames.up || '',
-        p.directionalFrames.left || '',
-        p.directionalFrames.right || '',
+        p.directionalFrames?.down || '',
+        p.directionalFrames?.up || '',
+        p.directionalFrames?.left || '',
+        p.directionalFrames?.right || '',
       ],
       directionalFrames: p.directionalFrames,
       frameRateMs: 160,

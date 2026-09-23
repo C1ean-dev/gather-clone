@@ -168,9 +168,12 @@ export async function exportCategoryAtlas(
   const spritesToPack: { name: string; image?: HTMLImageElement; width: number; height: number }[] = []
 
   // 1. Gather custom assets in this category
-  const categoryAssets = customAssets.filter(
-    (a) => a.type === 'avatar' && a.avatarSlot === category
-  )
+  const categoryAssets = customAssets.filter((a) => {
+    if (category === 'furniture' || category === 'floor' || category === 'wall') {
+      return a.type === category
+    }
+    return a.type === 'avatar' && a.avatarSlot === category
+  })
 
   const loadImage = (dataUrl: string): Promise<HTMLImageElement> => {
     return new Promise((resolve, reject) => {
@@ -186,12 +189,14 @@ export async function exportCategoryAtlas(
 
   for (const asset of categoryAssets) {
     const cleanName = (asset.name || 'custom').toLowerCase().replace(/[^a-z0-9]/g, '_')
-    const dirMap: { dir: string; dataUrl?: string }[] = [
-      { dir: 'down', dataUrl: asset.directionalFrames?.down || asset.frames?.[0] },
-      { dir: 'up', dataUrl: asset.directionalFrames?.up || asset.frames?.[1] },
-      { dir: 'left', dataUrl: asset.directionalFrames?.left || asset.frames?.[2] },
-      { dir: 'right', dataUrl: asset.directionalFrames?.right || asset.frames?.[3] },
-    ]
+    const dirMap: { dir: string; dataUrl?: string }[] = asset.directionalFrames
+      ? [
+          { dir: 'down', dataUrl: Array.isArray(asset.directionalFrames.down) ? asset.directionalFrames.down[0] : asset.directionalFrames.down },
+          { dir: 'up', dataUrl: Array.isArray(asset.directionalFrames.up) ? asset.directionalFrames.up[0] : asset.directionalFrames.up },
+          { dir: 'left', dataUrl: Array.isArray(asset.directionalFrames.left) ? asset.directionalFrames.left[0] : asset.directionalFrames.left },
+          { dir: 'right', dataUrl: Array.isArray(asset.directionalFrames.right) ? asset.directionalFrames.right[0] : asset.directionalFrames.right },
+        ]
+      : (asset.frames || []).map((f: string, idx: number) => ({ dir: `frame_${idx}`, dataUrl: f }))
 
     for (const item of dirMap) {
       if (item.dataUrl) {
@@ -200,8 +205,8 @@ export async function exportCategoryAtlas(
           spritesToPack.push({
             name: `${category}_${cleanName}_${item.dir}_0`,
             image: img,
-            width: 32,
-            height: 32,
+            width: img.naturalWidth || (asset.width || 1) * 32,
+            height: img.naturalHeight || (asset.height || 1) * 32,
           })
         } catch (e) {
           console.warn('Failed to load image for export:', asset.name, item.dir, e)

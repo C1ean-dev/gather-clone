@@ -1,3 +1,5 @@
+import { getTrimmedBounds, cropImage } from './imageTransparency'
+
 /**
  * Utility for resizing canvas graphics with aspect-ratio preservation,
  * alignment options (floor/bottom alignment for furniture vs center),
@@ -409,4 +411,163 @@ export async function bakeLayersToDataUrl(
 
   return offscreen.toDataURL('image/png')
 }
+
+export interface SmartRescaleOptions {
+  trimPadding?: boolean
+  align?: 'bottom' | 'center'
+  cleanAlpha?: boolean
+}
+
+/**
+ * Intelligently rescales pixel art or high-resolution source sprites to a target dimension (e.g. 128x128 -> 8x16, 8x8, 16x24, 32x32),
+ * preserving visual fidelity with minimal or zero quality loss:
+ * 1. Trims empty transparent padding so the actual artwork fills the new bounding box proportionally.
+ * 2. Preserves aspect ratio so objects never stretch or squash.
+ * 3. Uses multi-step downsampling with high-quality bicubic interpolation when downscaling (blending outlines and tones cleanly).
+ * 4. Uses crisp nearest-neighbor sampling when upscaling (keeping pixel art razor-sharp).
+ * 5. Cleans up semi-transparent fuzzy alpha fringes into solid pixel art edges.
+ */
+export function smartRescalePixelArt(
+  source: HTMLCanvasElement | HTMLImageElement,
+  targetWidth: number,
+  targetHeight: number,
+  options: SmartRescaleOptions = {}
+): HTMLCanvasElement {
+  if (typeof document === 'undefined') {
+    return source as HTMLCanvasElement
+  }
+
+  const { trimPadding = true, align = 'center', cleanAlpha = true } = options
+  const targetW = Math.max(1, Math.round(targetWidth))
+  const targetH = Math.max(1, Math.round(targetHeight))
+
+  const destCanvas = document.createElement('canvas')
+  destCanvas.width = targetW
+  destCanvas.height = targetH
+  const destCtx = destCanvas.getContext('2d', { willReadFrequently: true })
+  if (!destCtx) return destCanvas
+
+  destCtx.clearRect(0, 0, targetW, targetH)
+
+  const srcW = (source as HTMLImageElement).naturalWidth || source.width
+  const srcH = (source as HTMLImageElement).naturalHeight || source.height
+
+  if (!source || srcW <= 0 || srcH <= 0) {
+    return destCanvas
+  }
+
+  // Create temporary source canvas to analyze pixels
+  const srcCanvas = document.createElement('canvas')
+  srcCanvas.width = srcW
+  srcCanvas.height = srcH
+  const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true })
+  if (!srcCtx) return destCanvas
+  srcCtx.drawImage(source, 0, 0)
+
+  let contentCanvas: HTMLCanvasElement = srcCanvas
+  let contentW = srcW
+  let contentH = srcH
+
+  if (trimPadding) {
+    const bounds = getTrimmedBounds(srcCanvas)
+    if (!bounds) {
+      // Entirely empty/transparent image
+      return destCanvas
+    }
+    // Only crop if there is significant transparent padding (> 2px) to optimize framing
+    if (bounds.w < srcW - 2 || bounds.h < srcH - 2) {
+      contentCanvas = cropImage(srcCanvas, bounds.x, bounds.y, bounds.w, bounds.h)
+      contentW = bounds.w
+      contentH = bounds.h
+    }
+  }
+
+  const { drawW, drawH, offX, offY } = calculateFitDimensions(
+    contentW,
+    contentH,
+    targetW,
+    targetH,
+    'fit',
+    align
+  )
+
+  const isDownscaling = contentW > drawW || contentH > drawH
+
+  if (isDownscaling) {
+    // Multi-step high-quality downsampling:
+    // Repeatedly halve resolution down to within 2x of target to prevent sampling aliasing
+    let curCanvas = contentCanvas
+    let curW = contentW
+    let curH = contentH
+
+    while (curW > drawW * 2 || curH > drawH * 2) {
+      const nextW = Math.max(drawW, Math.floor(curW / 2))
+      const nextH = Math.max(drawH, Math.floor(curH / 2))
+      const stepCanvas = document.createElement('canvas')
+      stepCanvas.width = nextW
+      stepCanvas.height = nextH
+      const stepCtx = stepCanvas.getContext('2d', { willReadFrequently: true })
+      if (!stepCtx) break
+
+      stepCtx.imageSmoothingEnabled = true
+      stepCtx.imageSmoothingQuality = 'high'
+      stepCtx.drawImage(curCanvas, 0, 0, nextW, nextH)
+
+      curCanvas = stepCanvas
+      curW = nextW
+      curH = nextH
+    }
+
+    // Final render into destCanvas at the fitted dimensions and alignment
+    destCtx.imageSmoothingEnabled = true
+    destCtx.imageSmoothingQuality = 'high'
+    destCtx.drawImage(curCanvas, 0, 0, curW, curH, offX, offY, drawW, drawH)
+
+    if (cleanAlpha) {
+      // Clean fuzzy alpha fringe into crisp pixel-art opacity
+      const imgData = destCtx.getImageData(0, 0, targetW, targetH)
+      const data = imgData.data
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3]
+        if (a === 0) continue
+        if (a < 30) {
+          data[i + 3] = 0 // Remove noisy transparent halos
+        } else if (a > 180) {
+          data[i + 3] = 255 // Crisp solid pixel art
+        }
+      }
+      destCtx.putImageData(imgData, 0, 0)
+    }
+  } else {
+    // Upscaling: Keep crisp pixel art integer scaling with nearest-neighbor!
+    destCtx.imageSmoothingEnabled = false
+    destCtx.drawImage(contentCanvas, 0, 0, contentW, contentH, offX, offY, drawW, drawH)
+  }
+
+  return destCanvas
+}
+
+/**
+ * Asynchronously rescales a base64/dataURL image to target dimensions using smartRescalePixelArt.
+ */
+export async function smartRescaleDataUrl(
+  dataUrl: string,
+  targetWidth: number,
+  targetHeight: number,
+  options?: SmartRescaleOptions
+): Promise<string> {
+  if (!dataUrl) return ''
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.src = dataUrl
+    img.onload = () => {
+      const res = smartRescalePixelArt(img, targetWidth, targetHeight, options)
+      resolve(res.toDataURL('image/png'))
+    }
+    img.onerror = () => {
+      resolve(dataUrl)
+    }
+  })
+}
+
 

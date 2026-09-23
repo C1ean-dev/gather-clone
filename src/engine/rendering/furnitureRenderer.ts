@@ -145,6 +145,11 @@ export class FurnitureRenderer {
 
         if (imgW === targetW && imgH === targetH) {
           ctx.drawImage(img, px, py, targetW, targetH)
+        } else if (imgW <= targetW && imgH <= targetH) {
+          // If the sprite fits inside the bounding box, render 1:1 without fractional scaling artifacts
+          const offX = px + Math.round((targetW - imgW) / 2)
+          const offY = py + (targetH - imgH) // Bottom-aligned to floor
+          ctx.drawImage(img, offX, offY, imgW, imgH)
         } else {
           // Calculate proportional scale to fit within bounding box without distortion
           const scale = Math.min(targetW / imgW, targetH / imgH)

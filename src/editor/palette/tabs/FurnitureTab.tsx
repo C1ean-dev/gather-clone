@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Plus, Trash2, Pencil } from 'lucide-react'
+import { Plus, Trash2, Pencil, Scissors, FolderInput, Download, Sparkles } from 'lucide-react'
 import { PixelArtThumbnail } from '../../PixelArtThumbnail'
 import { ConfirmModal } from '../../../components/ConfirmModal'
 
@@ -28,6 +28,11 @@ interface Props {
   deleteCustomAsset: (id: string) => void
   openEditModal?: (id: string, mode?: 'crop' | 'compose') => void
   onDeleteFurniture?: (id: string) => void
+  onOpenStudioCreate?: () => void
+  onOpenStudioEdit?: (id: string) => void
+  onOpenSlicer?: (id?: string) => void
+  onOpenAtlasImport?: () => void
+  onExportAtlas?: () => void
 }
 
 export const FurnitureTab: React.FC<Props> = ({
@@ -44,6 +49,11 @@ export const FurnitureTab: React.FC<Props> = ({
   deleteCustomAsset,
   openEditModal,
   onDeleteFurniture,
+  onOpenStudioCreate,
+  onOpenStudioEdit,
+  onOpenSlicer,
+  onOpenAtlasImport,
+  onExportAtlas,
 }) => {
   const [isAddingCategory, setIsAddingCategory] = useState(false)
   const [newCategoryText, setNewCategoryText] = useState('')
@@ -61,6 +71,45 @@ export const FurnitureTab: React.FC<Props> = ({
 
   return (
     <div className="space-y-3">
+      {/* Creator Suite Actions Bar */}
+      <div className="grid grid-cols-4 gap-1 p-1 bg-slate-900/80 border border-slate-800 rounded-xl">
+        <button
+          type="button"
+          onClick={onOpenStudioCreate}
+          className="flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white text-[10px] font-bold border border-indigo-500/30 transition-all shadow-xs"
+          title="Desenhar mobília no Estúdio Pixel Art"
+        >
+          <Pencil className="w-3 h-3 text-indigo-400" />
+          <span>Estúdio</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpenSlicer?.()}
+          className="flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg bg-amber-600/30 hover:bg-amber-600 text-amber-200 hover:text-white text-[10px] font-bold border border-amber-500/30 transition-all shadow-xs"
+          title="Fatiar spritesheet ou imagem"
+        >
+          <Scissors className="w-3 h-3 text-amber-400" />
+          <span>Fatiar</span>
+        </button>
+        <button
+          type="button"
+          onClick={onOpenAtlasImport}
+          className="flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white text-[10px] font-bold border border-emerald-500/30 transition-all shadow-xs"
+          title="Importar pacote / Atlas ZIP de mobílias"
+        >
+          <FolderInput className="w-3 h-3 text-emerald-400" />
+          <span>Importar</span>
+        </button>
+        <button
+          type="button"
+          onClick={onExportAtlas}
+          className="flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold border border-slate-700 transition-all shadow-xs"
+          title="Exportar catálogo de mobílias como Atlas ZIP"
+        >
+          <Download className="w-3 h-3 text-slate-400" />
+          <span>Exportar</span>
+        </button>
+      </div>
       {/* Dynamic Category Pills */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 max-w-full">
         {categories.map((cat) => {
@@ -149,31 +198,47 @@ export const FurnitureTab: React.FC<Props> = ({
                   </span>
 
                   <div className="flex items-center gap-0.5 pointer-events-auto">
-                    {openEditModal && (
+                    {item.isCustom && onOpenStudioEdit && (
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          openEditModal(item.id, 'compose')
+                          onOpenStudioEdit(item.id)
                         }}
-                        className="p-1 rounded-md bg-blue-500/30 hover:bg-blue-500/60 text-blue-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                        title={`Editar mobília "${item.name}"`}
+                        className="p-1 rounded-md bg-indigo-500/30 hover:bg-indigo-500/60 text-indigo-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        title={`Editar pixels no Estúdio: "${item.name}"`}
                       >
                         <Pencil className="w-2.5 h-2.5" />
                       </button>
                     )}
 
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setAssetToDelete({ id: item.id, name: item.name })
-                      }}
-                      className="p-1 rounded-md bg-rose-500/30 hover:bg-rose-500/60 text-rose-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                      title={`Excluir mobília "${item.name}"`}
-                    >
-                      <Trash2 className="w-2.5 h-2.5" />
-                    </button>
+                    {item.isCustom && onOpenSlicer && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onOpenSlicer(item.id)
+                        }}
+                        className="p-1 rounded-md bg-amber-500/30 hover:bg-amber-500/60 text-amber-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        title={`Fatiar / reajustar sprites: "${item.name}"`}
+                      >
+                        <Scissors className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+
+                    {item.isCustom && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setAssetToDelete({ id: item.id, name: item.name })
+                        }}
+                        className="p-1 rounded-md bg-rose-500/30 hover:bg-rose-500/60 text-rose-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        title={`Excluir mobília "${item.name}"`}
+                      >
+                        <Trash2 className="w-2.5 h-2.5" />
+                      </button>
+                    )}
 
                     {item.isObstacle ? (
                       <span

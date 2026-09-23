@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { MousePointerClick, Check, Pencil, Trash2, Trash, Settings, Shield, Crown, Lock, Unlock } from 'lucide-react'
+import { MousePointerClick, Check, Pencil, Trash2, Trash, Settings, Shield, Crown, Lock, Unlock, Scissors, FolderInput, Download } from 'lucide-react'
 import { PixelArtThumbnail } from '../../PixelArtThumbnail'
 import { WallType, PrivateZone, MapData } from '../../../types/map'
 import { useMapStore } from '../../../store/useMapStore'
@@ -17,6 +17,11 @@ interface Props {
   handleDeleteZone: (id: string) => void
   openEditModal: (id: string) => void
   deleteCustomAsset: (id: string) => void
+  onOpenStudioCreate?: () => void
+  onOpenStudioEdit?: (id: string) => void
+  onOpenSlicer?: (id?: string) => void
+  onOpenAtlasImport?: () => void
+  onExportAtlas?: () => void
 }
 
 export const ZonesTab: React.FC<Props> = ({
@@ -29,6 +34,11 @@ export const ZonesTab: React.FC<Props> = ({
   handleDeleteZone,
   openEditModal,
   deleteCustomAsset,
+  onOpenStudioCreate,
+  onOpenStudioEdit,
+  onOpenSlicer,
+  onOpenAtlasImport,
+  onExportAtlas,
 }) => {
   const [selectedZoneForConfig, setSelectedZoneForConfig] = useState<PrivateZone | null>(null)
   const [assetToDelete, setAssetToDelete] = useState<{ id: string; name: string } | null>(null)
@@ -101,8 +111,51 @@ export const ZonesTab: React.FC<Props> = ({
           </div>
 
           {zoneDraft.hasWalls !== false && (
-            <div className="space-y-1.5">
-              <div className="text-[10px] font-semibold text-slate-400">Textura das Paredes da Sala:</div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] font-semibold text-slate-400">Textura das Paredes da Sala:</div>
+              </div>
+
+              {/* Creator Suite Actions Bar for Walls */}
+              <div className="grid grid-cols-4 gap-1 p-1 bg-slate-900/80 border border-slate-800 rounded-xl">
+                <button
+                  type="button"
+                  onClick={onOpenStudioCreate}
+                  className="flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white text-[10px] font-bold border border-indigo-500/30 transition-all shadow-xs"
+                  title="Desenhar parede no Estúdio Pixel Art"
+                >
+                  <Pencil className="w-3 h-3 text-indigo-400" />
+                  <span>Estúdio</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenSlicer?.()}
+                  className="flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg bg-amber-600/30 hover:bg-amber-600 text-amber-200 hover:text-white text-[10px] font-bold border border-amber-500/30 transition-all shadow-xs"
+                  title="Fatiar spritesheet ou imagem para parede"
+                >
+                  <Scissors className="w-3 h-3 text-amber-400" />
+                  <span>Fatiar</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenAtlasImport}
+                  className="flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white text-[10px] font-bold border border-emerald-500/30 transition-all shadow-xs"
+                  title="Importar pacote / Atlas ZIP de paredes"
+                >
+                  <FolderInput className="w-3 h-3 text-emerald-400" />
+                  <span>Importar</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onExportAtlas}
+                  className="flex items-center justify-center gap-1 py-1.5 px-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold border border-slate-700 transition-all shadow-xs"
+                  title="Exportar paredes como Atlas ZIP"
+                >
+                  <Download className="w-3 h-3 text-slate-400" />
+                  <span>Exportar</span>
+                </button>
+              </div>
+
               <div className="grid grid-cols-3 gap-2 max-h-60 overflow-y-auto p-0.5 bg-slate-950/40 rounded-xl border border-slate-800/80">
                 {walls.map((wall) => {
                   const isSelected = (zoneDraft.wallType || 'drywall_white') === wall.id
@@ -122,17 +175,32 @@ export const ZonesTab: React.FC<Props> = ({
                       <div className="w-full flex items-center justify-end z-10 pointer-events-none">
                         {isCustom && (
                           <div className="flex items-center gap-0.5 pointer-events-auto">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openEditModal(wall.id)
-                              }}
-                              className="p-1 rounded-md bg-blue-500/30 hover:bg-blue-500/60 text-blue-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                              title="Editar esta parede"
-                            >
-                              <Pencil className="w-2.5 h-2.5" />
-                            </button>
+                            {onOpenStudioEdit && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onOpenStudioEdit(wall.id as string)
+                                }}
+                                className="p-1 rounded-md bg-indigo-500/30 hover:bg-indigo-500/60 text-indigo-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                                title={`Editar pixels no Estúdio: "${wall.name}"`}
+                              >
+                                <Pencil className="w-2.5 h-2.5" />
+                              </button>
+                            )}
+                            {onOpenSlicer && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onOpenSlicer(wall.id as string)
+                                }}
+                                className="p-1 rounded-md bg-amber-500/30 hover:bg-amber-500/60 text-amber-300 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                                title={`Fatiar imagem desta parede: "${wall.name}"`}
+                              >
+                                <Scissors className="w-2.5 h-2.5" />
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={(e) => {

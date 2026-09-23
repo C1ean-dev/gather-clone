@@ -294,5 +294,116 @@ describe('subTileAndLayerFit - Layer Auto-Fit & Sub-Tile Placement Math', () => 
       const collidesInClearedMargin = checkCollision(6.5, 5.0, map)
       expect(collidesInClearedMargin).toBe(false)
     })
+
+    it('custom furniture with isObstacle=true and empty collisionGrid falls back to full bounding box collision', () => {
+      const customAsset: CustomAsset = {
+        id: 'plant_obstacle',
+        name: 'Planta Obstaculo',
+        type: 'furniture',
+        category: 'Geral',
+        width: 1,
+        height: 1,
+        isObstacle: true,
+        collisionGrid: [[false]], // Unpainted grid must still collide because isObstacle is true
+        frames: ['data:mock'],
+        frameRateMs: 160,
+        createdAt: Date.now(),
+      }
+
+      useCustomAssetsStore.setState({
+        customAssets: [customAsset],
+      })
+
+      const map: MapData = {
+        id: 'test_map',
+        name: 'Test Map',
+        width: 20,
+        height: 20,
+        tileSize: 32,
+        spawnPoint: { x: 2, y: 2 },
+        floors: [],
+        furniture: [
+          {
+            id: 'f_plant',
+            defId: 'plant_obstacle',
+            x: 7,
+            y: 7,
+          },
+        ],
+        walls: [],
+        zones: [],
+      }
+
+      // Player trying to step on the obstacle at (7, 7) must collide
+      expect(checkCollision(7, 7, map)).toBe(true)
+      // Player away from obstacle at (10, 10) must not collide
+      expect(checkCollision(10, 10, map)).toBe(false)
+    })
+
+    it('sub-tile furniture (e.g. 16x16 px) with isObstacle=true collides without margin inversion', () => {
+      const customAsset: CustomAsset = {
+        id: 'tiny_rock',
+        name: 'Pedra Pequena',
+        type: 'furniture',
+        category: 'Geral',
+        width: 1,
+        height: 1,
+        pixelWidth: 16,
+        pixelHeight: 16,
+        isObstacle: true,
+        frames: ['data:mock'],
+        frameRateMs: 160,
+        createdAt: Date.now(),
+      }
+
+      useCustomAssetsStore.setState({
+        customAssets: [customAsset],
+      })
+
+      const map: MapData = {
+        id: 'test_map',
+        name: 'Test Map',
+        width: 20,
+        height: 20,
+        tileSize: 32,
+        spawnPoint: { x: 2, y: 2 },
+        floors: [],
+        furniture: [
+          {
+            id: 'f_rock',
+            defId: 'tiny_rock',
+            x: 4,
+            y: 4,
+          },
+        ],
+        walls: [],
+        zones: [],
+      }
+
+      // 16x16 px is 0.5 tiles wide/tall at (4, 4)
+      expect(checkCollision(4.0, 4.0, map)).toBe(true)
+    })
+
+    it('painted tile walls in map.walls block player collision', () => {
+      const map: MapData = {
+        id: 'test_map',
+        name: 'Test Map',
+        width: 20,
+        height: 20,
+        tileSize: 32,
+        spawnPoint: { x: 2, y: 2 },
+        floors: [],
+        furniture: [],
+        walls: Array(20).fill(null).map(() => Array(20).fill(null)),
+        zones: [],
+      }
+
+      // Paint wall at tile (8, 8)
+      map.walls[8][8] = 'drywall_white' as any
+
+      expect(checkCollision(8, 8, map)).toBe(true)
+      expect(checkCollision(8.5, 8.5, map)).toBe(true)
+      expect(checkCollision(12, 12, map)).toBe(false)
+    })
   })
 })

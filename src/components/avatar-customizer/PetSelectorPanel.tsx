@@ -52,42 +52,6 @@ const BUILTIN_PETS: BuiltinPetOption[] = [
     emoji: '🚫',
     badge: 'Desativado',
   },
-  {
-    id: 'cat',
-    name: 'Gatinho',
-    subtitle: 'Curioso & Ágil',
-    emoji: '🐈',
-    badge: 'Pixel Art',
-    defaultColor: '#475569',
-  },
-  {
-    id: 'slime',
-    name: 'Slime',
-    subtitle: 'Gelatina Saltitante',
-    emoji: '🟢',
-    badge: 'Kawaii',
-    defaultColor: '#10b981',
-  },
-  {
-    id: 'chick',
-    name: 'Pintinho',
-    subtitle: 'Piu-piu Saltitante',
-    emoji: '🐥',
-    badge: 'Fofo',
-    defaultColor: '#facc15',
-  },
-]
-
-const PET_COLORS = [
-  { hex: '#10b981', label: 'Verde Esmeralda' },
-  { hex: '#38bdf8', label: 'Azul Celeste' },
-  { hex: '#d97706', label: 'Dourado / Caramelo' },
-  { hex: '#f43f5e', label: 'Rosa Pink' },
-  { hex: '#a855f7', label: 'Roxo Místico' },
-  { hex: '#475569', label: 'Cinza Ardósia' },
-  { hex: '#ea580c', label: 'Laranja Fogo' },
-  { hex: '#ffffff', label: 'Branco Puro' },
-  { hex: '#1e1b4b', label: 'Preto Noturno' },
 ]
 
 /**
@@ -132,6 +96,16 @@ export const PetSelectorPanel: React.FC<Props> = ({
   const petCustomAssets = customAssets.filter(
     (a) => a.type === 'avatar' && a.avatarSlot === 'pet'
   )
+
+  // Reset any legacy procedural pet type (cat, dog, slime, chick) to none
+  useEffect(() => {
+    if (avatar.pet && ['cat', 'dog', 'slime', 'chick'].includes(avatar.pet.type)) {
+      onChangeAvatar({
+        ...avatar,
+        pet: { type: 'none' },
+      })
+    }
+  }, [avatar.pet, onChangeAvatar])
 
   // Auto-sync custom pets to public/assets/pet/ on disk
   useEffect(() => {
@@ -255,15 +229,6 @@ export const PetSelectorPanel: React.FC<Props> = ({
     })
   }
 
-  const handleColorChange = (newColor: string) => {
-    onChangeAvatar({
-      ...avatar,
-      pet: {
-        ...currentPet,
-        color: newColor,
-      },
-    })
-  }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden min-h-0">
@@ -461,14 +426,13 @@ export const PetSelectorPanel: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Bottom Customization: Compact Name & Color Palette */}
+      {/* Bottom Customization: Pet Name */}
       {currentPet.type !== 'none' && (
         <div className="pt-3 border-t border-[#383a40] flex items-center justify-between gap-3 shrink-0">
-          {/* Pet Name input */}
-          <div className="flex items-center gap-2 flex-1 max-w-xs">
+          <div className="flex items-center gap-2 flex-1 max-w-sm">
             <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5 shrink-0">
               <Heart className="w-3.5 h-3.5 text-rose-400" />
-              Nome:
+              Nome do Mascote:
             </span>
             <input
               type="text"
@@ -489,42 +453,6 @@ export const PetSelectorPanel: React.FC<Props> = ({
               Padrão
             </button>
           </div>
-
-          {/* Color Palette (for procedural pets or custom tint) */}
-          {currentPet.type !== 'custom' && (
-            <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto">
-              <span className="text-[11px] font-bold text-slate-300 mr-1">
-                Cor:
-              </span>
-              <div className="flex items-center gap-1.5">
-                {PET_COLORS.map((c) => {
-                  const isColorSelected =
-                    currentPet.color?.toLowerCase() === c.hex.toLowerCase()
-                  return (
-                    <button
-                      key={c.hex}
-                      type="button"
-                      onClick={() => handleColorChange(c.hex)}
-                      title={c.label}
-                      style={{ backgroundColor: c.hex }}
-                      className={`w-6 h-6 rounded-full transition-transform hover:scale-110 cursor-pointer shrink-0 ${
-                        isColorSelected
-                          ? 'border-2 border-white scale-110 shadow-lg'
-                          : 'border border-transparent'
-                      }`}
-                    />
-                  )
-                })}
-                <input
-                  type="color"
-                  value={currentPet.color || '#10b981'}
-                  onChange={(e) => handleColorChange(e.target.value)}
-                  className="w-6 h-6 rounded-full bg-transparent border border-[#383a40] cursor-pointer p-0 shrink-0"
-                  title="Cor Personalizada"
-                />
-              </div>
-            </div>
-          )}
         </div>
       )}
 

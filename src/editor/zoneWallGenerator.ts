@@ -169,45 +169,61 @@ export function generateWallsAndDoorsForZones(
       const zBMaxY = zB.y + zB.height - 1
 
       // A) Vertical Shared Dividing Wall (Side by side rooms)
-      let sharedX: number | null = null
-      if (zAMaxX === zBMinX || zAMaxX + 1 === zBMinX) {
-        sharedX = zBMinX
-      } else if (zBMaxX === zAMinX || zBMaxX + 1 === zAMinX) {
-        sharedX = zAMinX
+      const sharedXCols: number[] = []
+      if (zAMaxX === zBMinX) {
+        sharedXCols.push(zBMinX)
+      } else if (zAMaxX + 1 === zBMinX) {
+        sharedXCols.push(zAMaxX, zBMinX)
+      } else if (zBMaxX === zAMinX) {
+        sharedXCols.push(zAMinX)
+      } else if (zBMaxX + 1 === zAMinX) {
+        sharedXCols.push(zBMaxX, zAMinX)
       }
 
-      if (sharedX !== null && sharedX > 0 && sharedX < width - 1) {
+      if (sharedXCols.length > 0) {
         const overlapMinY = Math.max(zAMinY, zBMinY)
         const overlapMaxY = Math.min(zAMaxY, zBMaxY)
 
         if (overlapMaxY - overlapMinY >= 2) {
           // Open doorway in the exact center of shared vertical wall
           const doorY = Math.floor((overlapMinY + overlapMaxY) / 2)
-          walls[doorY][sharedX] = null
-          if (overlapMaxY - overlapMinY >= 5 && doorY + 1 < overlapMaxY) {
-            walls[doorY + 1][sharedX] = null // 2-tile wide double doorway
+          for (const sX of sharedXCols) {
+            if (sX > 0 && sX < width - 1) {
+              walls[doorY][sX] = null
+              if (overlapMaxY - overlapMinY >= 5 && doorY + 1 < overlapMaxY) {
+                walls[doorY + 1][sX] = null // 2-tile wide double doorway
+              }
+            }
           }
         }
       }
 
       // B) Horizontal Shared Dividing Wall (Stacked rooms)
-      let sharedY: number | null = null
-      if (zAMaxY === zBMinY || zAMaxY + 1 === zBMinY) {
-        sharedY = zBMinY
-      } else if (zBMaxY === zAMinY || zBMaxY + 1 === zAMinY) {
-        sharedY = zAMinY
+      const sharedYRows: number[] = []
+      if (zAMaxY === zBMinY) {
+        sharedYRows.push(zBMinY)
+      } else if (zAMaxY + 1 === zBMinY) {
+        sharedYRows.push(zAMaxY, zBMinY)
+      } else if (zBMaxY === zAMinY) {
+        sharedYRows.push(zAMinY)
+      } else if (zBMaxY + 1 === zAMinY) {
+        sharedYRows.push(zBMaxY, zAMinY)
       }
 
-      if (sharedY !== null && sharedY > 0 && sharedY < height - 1) {
+      if (sharedYRows.length > 0) {
         const overlapMinX = Math.max(zAMinX, zBMinX)
         const overlapMaxX = Math.min(zAMaxX, zBMaxX)
 
         if (overlapMaxX - overlapMinX >= 2) {
           // Open doorway in the exact center of shared horizontal wall
           const doorX = Math.floor((overlapMinX + overlapMaxX) / 2)
-          walls[sharedY][doorX] = null
-          if (overlapMaxX - overlapMinX >= 5 && doorX + 1 < overlapMaxX) {
-            walls[sharedY][doorX + 1] = null // 2-tile wide double doorway
+          for (const sY of sharedYRows) {
+            if (sY > 0 && sY < height - 1) {
+              walls[sY][doorX] = null
+              if (overlapMaxX - overlapMinX >= 5 && doorX + 1 < overlapMaxX) {
+                walls[sY][doorX + 1] = null // 2-tile wide double doorway
+              }
+            }
           }
         }
       }
