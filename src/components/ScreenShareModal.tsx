@@ -8,7 +8,6 @@ import {
   Volume2,
   Sliders,
   RefreshCw,
-  ShieldCheck,
   StopCircle,
 } from 'lucide-react'
 import { MediaManager, ScreenShareConfig } from '../media/MediaManager'
@@ -155,7 +154,7 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
               <p className="text-xs text-slate-400">
                 {isScreenSharing
                   ? 'Ajuste a resolução, FPS, volume ou selecione outra tela/janela em tempo real'
-                  : 'Transmita somente o áudio do aplicativo escolhido, sem vazar o som das demais janelas'}
+                  : 'Escolha uma tela inteira ou janela para transmitir para o espaço'}
               </p>
             </div>
           </div>
@@ -371,18 +370,6 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
             </div>
           )}
 
-          {isElectron && isSharingWholeScreen && (
-            <div className="space-y-1.5 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3.5">
-              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-200">
-                <Volume2 className="h-4 w-4 text-emerald-400" />
-                Áudio Dinâmico por Monitor Ativo
-              </div>
-              <p className="text-[11px] leading-relaxed text-slate-300">
-                Todos os aplicativos nesta tela serão ouvidos na live. Se você mover uma janela (ex: Spotify, YouTube ou jogo) para outro monitor, o som dela é silenciado imediatamente; ao retornar à tela, volta a reproduzir.
-              </p>
-            </div>
-          )}
-
           {/* Settings Section: Resolution, FPS and Sound */}
           <div className="bg-[#12151d]/60 rounded-2xl p-4 border border-[#2a3142] space-y-4">
             <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
@@ -461,31 +448,15 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
               )}
             </div>
 
-            {/* Mandatory source-only audio policy */}
-            <div className="pt-2 border-t border-[#2a3142]/60 space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center border bg-emerald-500/20 border-emerald-500/40 text-emerald-400">
-                    <Volume2 className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-slate-200">Áudio isolado da fonte — sempre ativo</div>
-                    <div className="text-[10px] text-slate-400">
-                      {isElectron
-                        ? isSharingWholeScreen
-                          ? 'Captura dinâmica do monitor selecionado; aplicativos em outros monitores ficam bloqueados.'
-                          : `Captura apenas ${selectedAudioSource?.name || 'a janela escolhida'}; o áudio global do Windows fica bloqueado.`
-                        : 'O seletor do navegador envia apenas o áudio da guia ou janela escolhida.'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-[#1b202c] p-3.5 rounded-xl border border-[#2a3142] space-y-3">
-                {/* Volume Slider */}
-                <div className="space-y-1">
+            {/* Volume Control */}
+            <div className="pt-2 border-t border-[#2a3142]/60">
+              <div className="bg-[#1b202c] p-3.5 rounded-xl border border-[#2a3142]">
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] text-slate-300">
-                    <span>Volume da Transmissão</span>
+                    <div className="flex items-center gap-1.5 font-semibold">
+                      <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Volume da Transmissão</span>
+                    </div>
                     <span className="font-bold text-indigo-400">{screenShareAudioVolume}%</span>
                   </div>
                   <input
@@ -502,22 +473,6 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                     className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                   />
                 </div>
-
-                <div className="p-2.5 rounded-xl bg-emerald-950/25 border border-emerald-500/30 flex items-center gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
-                      <ShieldCheck className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="text-[11px] font-semibold text-emerald-300">
-                        Áudio exclusivo da fonte selecionada
-                      </div>
-                      <div className="text-[9px] text-slate-400 leading-tight">
-                        Outros aplicativos não entram na live. Seu microfone continua ativo na chamada, em uma entrada separada.
-                      </div>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -531,7 +486,6 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
               {resolution === 'auto' ? 'Resolução Automática' : resolution} @{' '}
               {fps === 'auto' ? 'FPS Dinâmico' : `${fps} FPS`}
             </strong>
-            <span className="text-slate-300"> • Som exclusivo da fonte</span>
           </div>
 
           <div className="flex items-center gap-2.5">
