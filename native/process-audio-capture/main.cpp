@@ -491,61 +491,53 @@ int RunScreenCapture(int left, int top, int width, int height) {
       }
     }
 
-    // Determine how many frames we can mix across sessions
-    size_t minAvailableFrames = 0;
-    if (!sessions.empty()) {
-      bool first = true;
-      for (const auto& pair : sessions) {
-        size_t frames = pair.second->buffer.size() / kChannels;
-        if (first || frames < minAvailableFrames) {
-          minAvailableFrames = frames;
-          first = false;
+    // Mix available frames across all sessions without blocking on silent processes.
+    // A silent window on the monitor must NEVER stall audio from an active application.
+    std::fill(mixBufferLeft.begin(), mixBufferLeft.end(), 0);
+    std::fill(mixBufferRight.begin(), mixBufferRight.end(), 0);
+
+    for (auto& pair : sessions) {
+      auto& buf = pair.second->buffer;
+      const size_t availableFrames = buf.size() / kChannels;
+      const size_t framesToTake = (std::min)(static_cast<size_t>(kMixFrames), availableFrames);
+
+      for (size_t f = 0; f < framesToTake; ++f) {
+        mixBufferLeft[f] += buf[f * 2];
+        mixBufferRight[f] += buf[f * 2 + 1];
+      }
+
+      if (framesToTake > 0) {
+        buf.erase(buf.begin(), buf.begin() + (framesToTake * kChannels));
+      }
+
+      // Bound buffer to prevent lag/desync (max 100ms buffered per session)
+      constexpr size_t kMaxBufferSamples = kMixFrames * kChannels * 10;
+      if (buf.size() > kMaxBufferSamples) {
+        buf.erase(buf.begin(), buf.end() - kMaxBufferSamples);
+      }
+    }
+
+    for (UINT32 f = 0; f < kMixFrames; ++f) {
+      int32_t l = mixBufferLeft[f];
+      int32_t r = mixBufferRight[f];
+      if (l > 32767) l = 32767; else if (l < -32768) l = -32768;
+      if (r > 32767) r = 32767; else if (r < -32768) r = -32768;
+      outputPcm[f * 2] = static_cast<int16_t>(l);
+      outputPcm[f * 2 + 1] = static_cast<int16_t>(r);
+    }
+
+    keepCapturing = WriteAll(output, reinterpret_cast<const BYTE*>(outputPcm.data()), kMixFrames * kBytesPerFrame);
+    if (keepCapturing) {
+      bytesWritten += kMixFrames * kBytesPerFrame;
+      for (const auto sample : outputPcm) {
+        if (sample != 0) {
+          nonSilentSamples++;
         }
       }
     }
 
-    // If we have enough frames or if no sessions are active, write audio blocks
-    if (sessions.empty()) {
-      // Keep WebRTC steady with 10ms silence chunks
-      Sleep(10);
-      keepCapturing = WriteSilence(output, kMixFrames * kBytesPerFrame);
-      if (keepCapturing) bytesWritten += kMixFrames * kBytesPerFrame;
-    } else if (minAvailableFrames >= kMixFrames) {
-      // Mix kMixFrames across all sessions
-      std::fill(mixBufferLeft.begin(), mixBufferLeft.end(), 0);
-      std::fill(mixBufferRight.begin(), mixBufferRight.end(), 0);
-
-      for (auto& pair : sessions) {
-        auto& buf = pair.second->buffer;
-        for (UINT32 f = 0; f < kMixFrames; ++f) {
-          mixBufferLeft[f] += buf[f * 2];
-          mixBufferRight[f] += buf[f * 2 + 1];
-        }
-        buf.erase(buf.begin(), buf.begin() + (kMixFrames * kChannels));
-      }
-
-      for (UINT32 f = 0; f < kMixFrames; ++f) {
-        int32_t l = mixBufferLeft[f];
-        int32_t r = mixBufferRight[f];
-        if (l > 32767) l = 32767; else if (l < -32768) l = -32768;
-        if (r > 32767) r = 32767; else if (r < -32768) r = -32768;
-        outputPcm[f * 2] = static_cast<int16_t>(l);
-        outputPcm[f * 2 + 1] = static_cast<int16_t>(r);
-      }
-
-      keepCapturing = WriteAll(output, reinterpret_cast<const BYTE*>(outputPcm.data()), kMixFrames * kBytesPerFrame);
-      if (keepCapturing) {
-        bytesWritten += kMixFrames * kBytesPerFrame;
-        for (const auto sample : outputPcm) {
-          if (sample != 0) {
-            nonSilentSamples++;
-          }
-        }
-      }
-    } else {
-      // Wait briefly for more audio packets
-      Sleep(5);
-    }
+    // Paced at 10ms intervals (480 samples @ 48kHz = 10ms)
+    Sleep(10);
 
     if (std::chrono::steady_clock::now() - lastStats >= std::chrono::seconds(2)) {
       std::wcerr << L"[process-audio-capture] STATS mode=screen sessions=" << sessions.size()

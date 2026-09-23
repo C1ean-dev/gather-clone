@@ -19,23 +19,36 @@ let neighborCacheMap: MapData | null = null
 let neighborCacheZones: PrivateZone[] | null = null
 const leftNeighborCache = new Map<string, PrivateZone | undefined>()
 const rightNeighborCache = new Map<string, PrivateZone | undefined>()
+const topNeighborCache = new Map<string, PrivateZone | undefined>()
+const bottomNeighborCache = new Map<string, PrivateZone | undefined>()
 
 function getCachedNeighbors(
   map: MapData,
   zone: PrivateZone
-): { left: PrivateZone | undefined; right: PrivateZone | undefined } {
+): {
+  left: PrivateZone | undefined
+  right: PrivateZone | undefined
+  top: PrivateZone | undefined
+  bottom: PrivateZone | undefined
+} {
   const zones = map.zones || []
   if (neighborCacheMap !== map || neighborCacheZones !== zones) {
     neighborCacheMap = map
     neighborCacheZones = zones
     leftNeighborCache.clear()
     rightNeighborCache.clear()
+    topNeighborCache.clear()
+    bottomNeighborCache.clear()
     for (const z of zones) {
       if (z.hasWalls === false) continue
       const zMinX = z.x
       const zMaxX = z.x + z.width
+      const zMinY = z.y
+      const zMaxY = z.y + z.height
       let left: PrivateZone | undefined
       let right: PrivateZone | undefined
+      let top: PrivateZone | undefined
+      let bottom: PrivateZone | undefined
       for (const o of zones) {
         if (o.id === z.id || o.hasWalls === false) continue
         if (!left && Math.abs(o.x + o.width - zMinX) <= 0.15 &&
@@ -46,13 +59,28 @@ function getCachedNeighbors(
             Math.max(o.y, z.y) < Math.min(o.y + o.height, z.y + z.height)) {
           right = o
         }
-        if (left && right) break
+        if (!top && Math.abs(o.y + o.height - zMinY) <= 0.15 &&
+            Math.max(o.x, z.x) < Math.min(o.x + o.width, z.x + z.width)) {
+          top = o
+        }
+        if (!bottom && Math.abs(zMaxY - o.y) <= 0.15 &&
+            Math.max(o.x, z.x) < Math.min(o.x + o.width, z.x + z.width)) {
+          bottom = o
+        }
+        if (left && right && top && bottom) break
       }
       leftNeighborCache.set(z.id, left)
       rightNeighborCache.set(z.id, right)
+      topNeighborCache.set(z.id, top)
+      bottomNeighborCache.set(z.id, bottom)
     }
   }
-  return { left: leftNeighborCache.get(zone.id), right: rightNeighborCache.get(zone.id) }
+  return {
+    left: leftNeighborCache.get(zone.id),
+    right: rightNeighborCache.get(zone.id),
+    top: topNeighborCache.get(zone.id),
+    bottom: bottomNeighborCache.get(zone.id),
+  }
 }
 
 /**
@@ -105,11 +133,83 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
     const doorEndX = doorStartX + doorW
 
     // Helper to find adjacent neighbor zones (memoized per map — see above).
-    const { left: leftNeighbor, right: rightNeighbor } = getCachedNeighbors(map, zone)
+    const { left: leftNeighbor, right: rightNeighbor, top: topNeighbor, bottom: bottomNeighbor } = getCachedNeighbors(map, zone)
+
+    // Calculate doorway opening on shared back wall when topNeighbor exists
+    let hasTopDoorway = false
+    let topDoorwayStartX = 0
+    let topDoorwayEndX = 0
+
+    if (topNeighbor) {
+      const overlapMinX = Math.max(minX, topNeighbor.x)
+      const overlapMaxX = Math.min(maxX, topNeighbor.x + topNeighbor.width)
+      const overlapW = overlapMaxX - overlapMinX
+
+      if (overlapW >= 0.5) {
+        const topDoorW = Math.min(topNeighbor.width * 0.38, 2.0)
+        const topDoorStartX = topNeighbor.x + (topNeighbor.width - topDoorW) / 2
+        const topDoorEndX = topDoorStartX + topDoorW
+
+        if (topDoorStartX >= overlapMinX && topDoorEndX <= overlapMaxX) {
+          topDoorwayStartX = topDoorStartX
+          topDoorwayEndX = topDoorEndX
+        } else {
+          const dW = Math.min(overlapW * 0.5, 2.0)
+          topDoorwayStartX = overlapMinX + (overlapW - dW) / 2
+          topDoorwayEndX = topDoorwayStartX + dW
+        }
+        hasTopDoorway = true
+      }
+    }
+
+    // Align front door with bottomNeighbor overlap if present
+    let finalDoorStartX = doorStartX
+    let finalDoorEndX = doorEndX
+
+    if (bottomNeighbor) {
+      const overlapMinX = Math.max(minX, bottomNeighbor.x)
+      const overlapMaxX = Math.min(maxX, bottomNeighbor.x + bottomNeighbor.width)
+      const overlapW = overlapMaxX - overlapMinX
+      if (overlapW >= 0.5) {
+        if (finalDoorStartX < overlapMinX || finalDoorEndX > overlapMaxX) {
+          const dW = Math.min(overlapW * 0.5, 2.0)
+          finalDoorStartX = overlapMinX + (overlapW - dW) / 2
+          finalDoorEndX = finalDoorStartX + dW
+        }
+      }
+    }
 
     // A. Back Wall Collision (Top block)
-    if (pMaxX > minX && pMinX < maxX && pMaxY > minY && pMinY < minY + backWallH) {
-      return true
+    if (hasTopDoorway && topNeighbor) {
+      // Left Back Wall Block Collision
+      if (topDoorwayStartX > minX) {
+        if (pMaxX > minX && pMinX < topDoorwayStartX && pMaxY > minY && pMinY < minY + backWallH) {
+          return true
+        }
+      }
+
+      // Right Back Wall Block Collision
+      if (maxX > topDoorwayEndX) {
+        if (pMaxX > topDoorwayEndX && pMinX < maxX && pMaxY > minY && pMinY < minY + backWallH) {
+          return true
+        }
+      }
+
+      // Doorway Passage Collision (only if locked and unauthorized)
+      if (zone.isLocked || topNeighbor.isLocked) {
+        const local = useGameStore.getState()?.localPlayer
+        const isAuthZone = !zone.isLocked || (local && (local.currentZoneId === zone.id || useMapStore.getState()?.isPeerAuthorizedForZone(zone.id, local.id, local.name)))
+        const isAuthTop = !topNeighbor.isLocked || (local && (local.currentZoneId === topNeighbor.id || useMapStore.getState()?.isPeerAuthorizedForZone(topNeighbor.id, local.id, local.name)))
+        if (!isAuthZone || !isAuthTop) {
+          if (pMaxX > topDoorwayStartX && pMinX < topDoorwayEndX && pMaxY > minY && pMinY < minY + backWallH) {
+            return true
+          }
+        }
+      }
+    } else {
+      if (pMaxX > minX && pMinX < maxX && pMaxY > minY && pMinY < minY + backWallH) {
+        return true
+      }
     }
 
     // B. Left Thin Side Wall Collision (Respects Doorway Opening to Left Room)
@@ -211,12 +311,12 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
     }
 
     // D. Left Front Wall Block Collision
-    if (pMaxX > minX && pMinX < doorStartX && pMaxY > frontWallY && pMinY < maxY) {
+    if (pMaxX > minX && pMinX < finalDoorStartX && pMaxY > frontWallY && pMinY < maxY) {
       return true
     }
 
     // E. Right Front Wall Block Collision
-    if (pMaxX > doorEndX && pMinX < maxX && pMaxY > frontWallY && pMinY < maxY) {
+    if (pMaxX > finalDoorEndX && pMinX < maxX && pMaxY > frontWallY && pMinY < maxY) {
       return true
     }
 
@@ -224,7 +324,7 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
     if (zone.isLocked) {
       const local = useGameStore.getState()?.localPlayer
       const isAuth = local && (local.currentZoneId === zone.id || useMapStore.getState()?.isPeerAuthorizedForZone(zone.id, local.id, local.name))
-      if (!isAuth && pMaxX > doorStartX && pMinX < doorEndX && pMaxY > frontWallY && pMinY < maxY) {
+      if (!isAuth && pMaxX > finalDoorStartX && pMinX < finalDoorEndX && pMaxY > frontWallY && pMinY < maxY) {
         return true
       }
     }
@@ -296,7 +396,7 @@ export function checkCollision(x: number, y: number, map: MapData): boolean {
  * (e.g. leaning against the south or east wall) to have its top-left coordinate fall
  * inside the zone bounds, erroneously connecting them to the room call.
  */
-export function isPlayerInZone(playerX: number, playerY: number, zone: PrivateZone): boolean {
+export function isPlayerInZone(playerX: number, playerY: number, zone: PrivateZone, map?: MapData): boolean {
   if (zone.isLocked) {
     const local = useGameStore.getState()?.localPlayer
     if (local) {
@@ -355,10 +455,38 @@ export function isPlayerInZone(playerX: number, playerY: number, zone: PrivateZo
 
     // B. Back Wall Band:
     // The back wall is from minY to minY + backWallH (solid wall block).
-    // An avatar above the back wall is outside behind the room.
+    // An avatar above the back wall is outside behind the room, UNLESS passing through
+    // a vertical doorway connecting to a topNeighbor.
     const backWallH = Math.min(h * 0.32, 2.0)
     if (pcy < minY + backWallH * 0.4) {
-      return false
+      const targetMap = map || useMapStore.getState()?.mapData
+      if (targetMap) {
+        const { top: topNeighbor } = getCachedNeighbors(targetMap, zone)
+        if (topNeighbor) {
+          const overlapMinX = Math.max(minX, topNeighbor.x)
+          const overlapMaxX = Math.min(maxX, topNeighbor.x + topNeighbor.width)
+          const overlapW = overlapMaxX - overlapMinX
+          const topDoorW = Math.min(topNeighbor.width * 0.38, 2.0)
+          const topDoorStartX = topNeighbor.x + (topNeighbor.width - topDoorW) / 2
+          const topDoorEndX = topDoorStartX + topDoorW
+          let dStartX = topDoorStartX
+          let dEndX = topDoorEndX
+          if (dStartX < overlapMinX || dEndX > overlapMaxX) {
+            const dW = Math.min(overlapW * 0.5, 2.0)
+            dStartX = overlapMinX + (overlapW - dW) / 2
+            dEndX = dStartX + dW
+          }
+          if (pcx >= dStartX && pcx <= dEndX && pcy >= minY) {
+            // Inside connecting doorway to upper zone
+          } else {
+            return false
+          }
+        } else {
+          return false
+        }
+      } else {
+        return false
+      }
     }
   }
 
@@ -374,7 +502,7 @@ export function checkZonePresence(playerX: number, playerY: number, map: MapData
   let detectedZoneName: string = ''
 
   for (const zone of map.zones || []) {
-    if (isPlayerInZone(playerX, playerY, zone)) {
+    if (isPlayerInZone(playerX, playerY, zone, map)) {
       detectedZone = zone.id
       detectedZoneName = zone.name
       break

@@ -75,28 +75,25 @@ export class DoorRenderer {
 
     const trimColor = theme.trimColor || '#ffffff'
 
-    // Left Door Jamb (Batente Esquerdo)
+    // Left Door Jamb (Batente Esquerdo - cor da porta)
     ctx.fillStyle = frameColor
     ctx.fillRect(doorStartX - 3, frontWallY, 4, doorH)
-    ctx.fillStyle = trimColor
-    ctx.fillRect(doorStartX - 3, frontWallY, 1, doorH)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
     ctx.fillRect(doorStartX, frontWallY, 1, doorH)
 
-    // Right Door Jamb (Batente Direito)
+    // Right Door Jamb (Batente Direito - cor da porta)
     ctx.fillStyle = frameColor
     ctx.fillRect(doorEndX - 1, frontWallY, 4, doorH)
-    ctx.fillStyle = trimColor
-    ctx.fillRect(doorEndX + 2, frontWallY, 1, doorH)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
     ctx.fillRect(doorEndX - 1, frontWallY, 1, doorH)
 
-    // Top Door Header / Lintel Beam (Verga Superior 3D)
+    // Top Door Header / Lintel Beam (Verga Superior 3D com borda cinza em cima)
     const lintelH = 8
+    const lintelTopColor = theme.isWood ? '#92400e' : '#64748b'
     ctx.fillStyle = frameColor
     ctx.fillRect(doorStartX - 3, frontWallY, doorW + 6, lintelH)
-    // Lintel highlight & shadow
-    ctx.fillStyle = trimColor
+    // Borda cinza em cima da verga & sombra de chanfro
+    ctx.fillStyle = lintelTopColor
     ctx.fillRect(doorStartX - 3, frontWallY, doorW + 6, 1.5)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.45)'
     ctx.fillRect(doorStartX - 3, frontWallY + lintelH - 2, doorW + 6, 2)
@@ -365,4 +362,183 @@ export class DoorRenderer {
 
     ctx.restore()
   }
+
+  /**
+   * Draw Top Connecting Corridor Arch, Hallway & Entrance Door on the back wall of a room
+   * when connected to an upper adjacent room (topNeighbor).
+   */
+  static drawConnectingCorridorArch(
+    ctx: CanvasRenderingContext2D,
+    startX: number,
+    endX: number,
+    minY: number,
+    backWallH: number,
+    theme: ZoneWallTheme,
+    isLocked: boolean = false,
+    zone?: PrivateZone
+  ) {
+    const doorW = endX - startX
+    if (doorW <= 0) return
+
+    ctx.save()
+
+    const frameColor = theme.isWood
+      ? '#451a03'
+      : theme.isStone
+      ? '#1e293b'
+      : theme.isGlass
+      ? '#0369a1'
+      : '#1e293b'
+    const trimColor = theme.trimColor || '#ffffff'
+    const wallBodyColor = theme.wallBody
+    const corridorBottomY = minY + backWallH
+
+    // Height of lower entrance door & balanced corridor length
+    // When backWallH = 64, doorH = 38 gives 26px of clean corridor and 38px of door
+    const doorH = Math.min(38, Math.max(30, backWallH - 18))
+    const lintelH = 7
+    const headerY = corridorBottomY - doorH
+    const leafH = doorH - lintelH
+
+    // -------------------------------------------------------------
+    // 1. CORRIDOR AMBIENT CONTACT SHADOWS & FLOOR TRANSITIONS
+    // -------------------------------------------------------------
+    // Ceiling contact shadow at top entrance from upper room
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'
+    ctx.fillRect(startX + 1, minY, doorW - 2, 2)
+
+    // Floor contact shadow above lower door lintel
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
+    ctx.fillRect(startX + 1, headerY - 2, doorW - 2, 2)
+
+    // -------------------------------------------------------------
+    // 2. ENTRANCE DOORWAY (Threshold, Welcome Mat, Lintel & Leaves)
+    // -------------------------------------------------------------
+    // A. Floor Threshold Bar at the bottom transition into lower room
+    const thresholdY = corridorBottomY - 6
+    const thresholdH = 6
+    ctx.fillStyle = '#1c1917'
+    ctx.fillRect(startX - 2, thresholdY, doorW + 4, thresholdH)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'
+    ctx.fillRect(startX - 2, thresholdY + thresholdH - 1, doorW + 4, 1)
+
+    // B. Sleek Zone Welcome Mat inside the doorway (between leaves)
+    const matPadding = Math.min(6, Math.floor(doorW * 0.1))
+    const matX = startX + matPadding
+    const matW = doorW - matPadding * 2
+    const matY = headerY + 4
+    const matH = doorH - 10
+
+    if (matW > 10 && matH > 8) {
+      // Mat border & shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.25)'
+      ctx.fillRect(matX, matY, matW, matH)
+
+      // Mat inner fabric with zone color
+      ctx.fillStyle = zone?.color ? `${zone.color}40` : 'rgba(76, 110, 245, 0.25)'
+      ctx.fillRect(matX + 2, matY + 2, matW - 4, matH - 4)
+
+      // Mat border line
+      ctx.strokeStyle = zone?.color || '#4c6ef5'
+      ctx.lineWidth = 1
+      ctx.strokeRect(matX + 1.5, matY + 1.5, matW - 3, matH - 3)
+
+      // Tiny welcome chevron / stripe
+      ctx.fillStyle = zone?.color || '#4c6ef5'
+      ctx.fillRect(matX + matW / 2 - 4, matY + matH / 2 - 1, 8, 2)
+    }
+
+    // C. Door Lintel Beam (Spans cleanly between side jambs without protruding)
+    const lintelTopColor = theme.isWood ? '#92400e' : '#64748b'
+    ctx.fillStyle = frameColor
+    ctx.fillRect(startX + 1, headerY, doorW - 2, lintelH)
+    // Borda cinza em cima da verga
+    ctx.fillStyle = lintelTopColor
+    ctx.fillRect(startX + 1, headerY, doorW - 2, 1)
+    // Bevel shadow on underside of lintel
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)'
+    ctx.fillRect(startX + 1, headerY + lintelH - 2, doorW - 2, 2)
+
+    // D. Door Leaves: Locked vs Open
+    if (isLocked) {
+      // Closed doors with security lock badge
+      const halfW = Math.floor(doorW / 2)
+      this.drawDoorPanel(ctx, startX + 1, headerY + lintelH, halfW - 2, leafH, theme, 'left', true)
+      this.drawDoorPanel(ctx, startX + halfW + 1, headerY + lintelH, halfW - 2, leafH, theme, 'right', true)
+
+      // Center seam
+      ctx.fillStyle = '#0f172a'
+      ctx.fillRect(startX + halfW - 1, headerY + lintelH, 2, leafH)
+
+      // Lock badge
+      const lockCenterX = startX + halfW
+      const lockCenterY = headerY + lintelH + Math.floor(leafH * 0.45)
+
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.25)'
+      ctx.beginPath()
+      ctx.arc(lockCenterX, lockCenterY, 8, 0, Math.PI * 2)
+      ctx.fill()
+
+      ctx.fillStyle = '#ef4444'
+      ctx.beginPath()
+      ctx.arc(lockCenterX, lockCenterY, 5, 0, Math.PI * 2)
+      ctx.fill()
+
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(lockCenterX - 2, lockCenterY - 1, 4, 3)
+      ctx.beginPath()
+      ctx.arc(lockCenterX, lockCenterY - 2, 1.5, Math.PI, 0)
+      ctx.lineWidth = 1
+      ctx.strokeStyle = '#ffffff'
+      ctx.stroke()
+    } else {
+      // Open sliding doors recessed neatly against the side casings
+      const openLeafW = Math.min(10, Math.floor(doorW * 0.24))
+      this.drawDoorPanel(ctx, startX + 1, headerY + lintelH, openLeafW, leafH, theme, 'left', false)
+      this.drawDoorPanel(ctx, endX - openLeafW - 1, headerY + lintelH, openLeafW, leafH, theme, 'right', false)
+    }
+
+    // -------------------------------------------------------------
+    // 3. SEAMLESS CONNECTING BORDER CASING (Drawn ON TOP of lintel & threshold)
+    // Runs uninterrupted from minY - 2 all the way to corridorBottomY
+    // Completely un-interrupted by lintel or threshold, in the door frame color
+    // -------------------------------------------------------------
+    const casingStartY = minY - 2
+    const casingH = backWallH + 2
+
+    // Left Connecting Border Casing (Batente Contínuo Esquerdo - cor da porta)
+    ctx.fillStyle = frameColor
+    ctx.fillRect(startX - 3, casingStartY, 4, casingH)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
+    ctx.fillRect(startX, casingStartY, 1, casingH)
+
+    // Left ambient occlusion shadow on corridor floor
+    const corridorOpenH = Math.max(0, headerY - minY)
+    if (corridorOpenH > 0) {
+      const leftShadow = ctx.createLinearGradient(startX + 1, 0, startX + 7, 0)
+      leftShadow.addColorStop(0, 'rgba(0, 0, 0, 0.22)')
+      leftShadow.addColorStop(1, 'rgba(0, 0, 0, 0)')
+      ctx.fillStyle = leftShadow
+      ctx.fillRect(startX + 1, minY, 6, corridorOpenH)
+    }
+
+    // Right Connecting Border Casing (Batente Contínuo Direito - cor da porta)
+    ctx.fillStyle = frameColor
+    ctx.fillRect(endX - 1, casingStartY, 4, casingH)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
+    ctx.fillRect(endX - 1, casingStartY, 1, casingH)
+
+    // Right ambient occlusion shadow on corridor floor
+    if (corridorOpenH > 0) {
+      const rightShadow = ctx.createLinearGradient(endX - 1, 0, endX - 7, 0)
+      rightShadow.addColorStop(0, 'rgba(0, 0, 0, 0.22)')
+      rightShadow.addColorStop(1, 'rgba(0, 0, 0, 0)')
+      ctx.fillStyle = rightShadow
+      ctx.fillRect(endX - 7, minY, 6, corridorOpenH)
+    }
+
+    ctx.restore()
+  }
 }
+
+

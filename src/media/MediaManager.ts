@@ -1069,7 +1069,7 @@ export class MediaManager {
       if (applicationAudioTrack) {
         applicationAudioTrack.enabled = true
         try {
-          const liveAudioTrack = this.createLiveAudioTrack(applicationAudioTrack, localStream)
+          const liveAudioTrack = await this.createLiveAudioTrack(applicationAudioTrack, localStream)
           ;(liveAudioTrack as any).__screenShareLiveAudio = true
           liveAudioTrack.enabled = true
           screenStream.addTrack(liveAudioTrack)
@@ -1149,7 +1149,7 @@ export class MediaManager {
    * the current PeerJS call: the isolated application PCM and the user's
    * microphone. No system output or remote-call stream is ever attached.
    */
-  private createLiveAudioTrack(sourceTrack: MediaStreamTrack, localStream: MediaStream | null): MediaStreamTrack {
+  private async createLiveAudioTrack(sourceTrack: MediaStreamTrack, localStream: MediaStream | null): Promise<MediaStreamTrack> {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
     if (!AudioContextClass) {
       diagLog('screenshare-audio', 'live-track-web-audio-unavailable', { sourceTrack: summarizeTrack(sourceTrack) })
@@ -1157,10 +1157,17 @@ export class MediaManager {
     }
 
     const audioContext = new AudioContextClass({ sampleRate: 48000 })
+    if (audioContext.state === 'suspended') {
+      try {
+        await audioContext.resume()
+      } catch {}
+    }
+
     const source = audioContext.createMediaStreamSource(new MediaStream([sourceTrack]))
     const applicationGain = audioContext.createGain()
     const destination = audioContext.createMediaStreamDestination()
-    const volume = useMediaStore.getState().screenShareAudioVolume / 100
+    const rawVolume = useMediaStore.getState().screenShareAudioVolume
+    const volume = (rawVolume !== undefined ? rawVolume : 100) / 100
 
     applicationGain.gain.setValueAtTime(volume, audioContext.currentTime)
     source.connect(applicationGain)
@@ -1185,11 +1192,10 @@ export class MediaManager {
 
     this.screenAudioContext = audioContext
     this.screenGainNode = applicationGain
-    if (audioContext.state === 'suspended') {
-      audioContext.resume().catch(() => {})
-    }
 
-    return destination.stream.getAudioTracks()[0] || sourceTrack
+    const track = destination.stream.getAudioTracks()[0] || sourceTrack
+    track.enabled = true
+    return track
   }
 
   private disposeScreenShareAudioPipeline() {
