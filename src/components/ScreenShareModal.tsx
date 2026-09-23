@@ -45,17 +45,9 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
   // Source-only audio is mandatory. It is never a user-selectable mode.
   const includeAudio = true
-  const [resolution, setResolution] = useState<'480p' | '720p' | '1080p'>('1080p')
-  const [fps, setFps] = useState<30 | 60>(30)
-
-  const captureMethods = [
-    { id: 'auto', label: 'Auto (Recomendado)', limits: 'Seleciona o melhor método suportado pelo hardware automaticamente.' },
-    { id: 'wgc', label: 'WGC', limits: 'Requer Windows 10 1903+. Pode requerer suporte a Direct3D 11.' },
-    { id: 'dxgi', label: 'DXGI Desktop Duplication', limits: 'Apenas tela inteira. Baixíssima latência via GPU.' },
-    { id: 'bitblt', label: 'BitBlt (GDI)', limits: 'Compatibilidade universal. Consome mais CPU.' },
-    { id: 'graphics-hook', label: 'Graphics Hook', limits: 'Captura direta de jogos Direct3D/Vulkan.' },
-  ]
-  const [captureMethod, setCaptureMethod] = useState<'auto' | 'wgc' | 'dxgi' | 'bitblt' | 'graphics-hook'>('auto')
+  const [resolution, setResolution] = useState<'auto' | '480p' | '720p' | '1080p'>('auto')
+  const [fps, setFps] = useState<'auto' | 30 | 60>('auto')
+  const captureMethod = 'auto'
 
   const fetchSources = async () => {
     setLoading(true)
@@ -398,39 +390,21 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
               <span>Qualidade & Taxa de Quadros</span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Método de captura</label>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  {captureMethods.map((method) => (
-                    <button
-                      key={method.id}
-                      type="button"
-                      onClick={() => setCaptureMethod(method.id as any)}
-                      title={method.limits}
-                      className={`py-2 px-2 rounded-xl text-center border transition-all ${
-                        captureMethod === method.id
-                          ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300 ring-1 ring-indigo-500/30'
-                          : 'border-[#2a3142] bg-[#1b202c] text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <div className="text-xs font-bold">{method.label}</div>
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-2 text-[10px] leading-relaxed text-slate-400">
-                  Limitação: {captureMethods.find((method) => method.id === captureMethod)?.limits}
-                </p>
-              </div>
-
-              {/* Resolution Options: 480p, 720p, 1080p */}
+            <div className="space-y-3">
+              {/* Resolution Options: Auto, 1080p, 720p, 480p */}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Resolução de Vídeo</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-semibold text-slate-300">Resolução de Vídeo</label>
+                  {resolution === 'auto' && (
+                    <span className="text-[10px] text-indigo-400 font-medium">✨ Calibração automática de rede ativa</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    { id: '480p', label: '480p SD', desc: 'Leve' },
-                    { id: '720p', label: '720p HD', desc: 'Equilibrado' },
+                    { id: 'auto', label: 'Automático', desc: 'IA / Dinâmico' },
                     { id: '1080p', label: '1080p FHD', desc: 'Nítido' },
+                    { id: '720p', label: '720p HD', desc: 'Equilibrado' },
+                    { id: '480p', label: '480p SD', desc: 'Econômico' },
                   ].map((res) => (
                     <button
                       key={res.id}
@@ -449,16 +423,22 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 </div>
               </div>
 
-              {/* Frame Rate (FPS) Options: 30, 60 */}
+              {/* Frame Rate (FPS) Options: Auto, 60, 30 */}
               <div>
-                <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">Taxa de Quadros (FPS)</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-semibold text-slate-300">Taxa de Quadros (FPS)</label>
+                  {fps === 'auto' && (
+                    <span className="text-[10px] text-indigo-400 font-medium">✨ 60 FPS fluído / 30 FPS estável</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
                   {[
-                    { id: 30, label: '30 FPS', desc: 'Padrão (Trabalho)' },
-                    { id: 60, label: '60 FPS', desc: 'Ultra Fluido (Vídeo / Jogos)' },
+                    { id: 'auto', label: 'Automático', desc: 'Ajuste Inteligente' },
+                    { id: 60, label: '60 FPS', desc: 'Ultra Fluido (Jogos / Vídeo)' },
+                    { id: 30, label: '30 FPS', desc: 'Padrão (Trabalho / Slides)' },
                   ].map((f) => (
                     <button
-                      key={f.id}
+                      key={String(f.id)}
                       type="button"
                       onClick={() => setFps(f.id as any)}
                       className={`py-2 px-2 rounded-xl text-center border transition-all ${
@@ -473,6 +453,12 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   ))}
                 </div>
               </div>
+
+              {(resolution === 'auto' || fps === 'auto') && (
+                <p className="text-[10px] text-slate-400 leading-relaxed bg-[#1b202c]/70 p-2.5 rounded-xl border border-indigo-500/20">
+                  💡 <strong className="text-indigo-300">Modo Automático:</strong> O aplicativo verifica seu ping, upload e quantas pessoas estão na sala, aplicando automaticamente o melhor bitrate (até 5.5 Mbps em 60 FPS) sem sobrecarregar sua internet.
+                </p>
+              )}
             </div>
 
             {/* Mandatory source-only audio policy */}
@@ -540,7 +526,11 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
         {/* Footer */}
         <div className="p-4 border-t border-[#2a3142] bg-[#12151d]/90 flex items-center justify-between">
           <div className="text-xs text-slate-400">
-            Transmissão: <strong className="text-indigo-400">{resolution} @ {fps} FPS</strong>
+            Transmissão:{' '}
+            <strong className="text-indigo-400">
+              {resolution === 'auto' ? 'Resolução Automática' : resolution} @{' '}
+              {fps === 'auto' ? 'FPS Dinâmico' : `${fps} FPS`}
+            </strong>
             <span className="text-slate-300"> • Som exclusivo da fonte</span>
           </div>
 
