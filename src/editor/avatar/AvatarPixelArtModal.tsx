@@ -19,6 +19,8 @@ import {
   Pause,
   Plus,
   Copy,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { AvatarConfig, AvatarComponentSlot, Direction } from '../../types/game'
 import { ColorWheelPicker } from '../../components/common/ColorWheelPicker'
@@ -165,6 +167,14 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
   // Directional Multi-Frames State
   const [activeDirection, setActiveDirection] = useState<Direction>('down')
   const [activeFrameIndex, setActiveFrameIndex] = useState<number>(0)
+  const activeDirectionRef = useRef(activeDirection)
+  activeDirectionRef.current = activeDirection
+  const activeFrameIndexRef = useRef(activeFrameIndex)
+  activeFrameIndexRef.current = activeFrameIndex
+
+  // Drag & drop state for reordering frames in the timeline
+  const [draggedFrameIndex, setDraggedFrameIndex] = useState<number | null>(null)
+  const [dragOverFrameIndex, setDragOverFrameIndex] = useState<number | null>(null)
 
   const [directionalFrames, setDirectionalFrames] = useState<Record<Direction, string[]>>(() => {
     const parseFrames = (raw?: string | string[]): string[] => {
@@ -246,6 +256,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
   const transformOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const transformScaleRef = useRef<number>(1.0)
   const transformCommitTimerRef = useRef<any>(null)
+  const handleMoveFrameRef = useRef<(from: number, to: number) => void>(() => {})
   const isMovingContentRef = useRef<boolean>(false)
   const [isMovingContent, setIsMovingContent] = useState<boolean>(false)
   const moveStartRef = useRef<{ clientX: number; clientY: number; startX: number; startY: number }>({
@@ -546,6 +557,18 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
         e.target instanceof HTMLTextAreaElement ||
         e.target instanceof HTMLSelectElement
       ) {
+        return
+      }
+
+      // Keyboard shortcut to move active frame in timeline: Alt + ArrowLeft / Alt + ArrowRight
+      if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault()
+        const curIdx = activeFrameIndexRef.current
+        if (e.key === 'ArrowLeft') {
+          handleMoveFrameRef.current(curIdx, curIdx - 1)
+        } else {
+          handleMoveFrameRef.current(curIdx, curIdx + 1)
+        }
         return
       }
 
@@ -1165,6 +1188,46 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
         [activeDirection]: newList,
       }
     })
+
+    if (masterFramesRef.current[activeDirection]) {
+      const masterList = [...masterFramesRef.current[activeDirection]]
+      masterList[activeFrameIndex] = currentData
+      const duplicateMaster = currentData || masterList[activeFrameIndex] || ''
+      masterFramesRef.current[activeDirection] = [
+        ...masterList.slice(0, newIndex),
+        duplicateMaster,
+        ...masterList.slice(newIndex),
+      ]
+    }
+
+    // Duplicate unclipped canvas if present
+    const map = unclippedFramesMapRef.current
+    const activeUnclipped = map.get(`${activeDirection}_${activeFrameIndex}`)
+    const listLen = currentList.length
+    const shiftCanvases: (HTMLCanvasElement | undefined)[] = []
+    for (let i = 0; i < listLen; i++) {
+      const key = `${activeDirection}_${i}`
+      shiftCanvases.push(map.get(key))
+      map.delete(key)
+    }
+    let clonedActive: HTMLCanvasElement | undefined
+    if (activeUnclipped) {
+      clonedActive = document.createElement('canvas')
+      clonedActive.width = activeUnclipped.width
+      clonedActive.height = activeUnclipped.height
+      const cCtx = clonedActive.getContext('2d')
+      if (cCtx) cCtx.drawImage(activeUnclipped, 0, 0)
+    }
+    const newCanvasList = [
+      ...shiftCanvases.slice(0, newIndex),
+      clonedActive,
+      ...shiftCanvases.slice(newIndex),
+    ]
+    for (let i = 0; i < newCanvasList.length; i++) {
+      const c = newCanvasList[i]
+      if (c) map.set(`${activeDirection}_${i}`, c)
+    }
+
     setActiveFrameIndex(newIndex)
   }
 
@@ -1183,6 +1246,28 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       [activeDirection]: newList,
     }))
 
+    if (masterFramesRef.current[activeDirection]) {
+      masterFramesRef.current[activeDirection] = masterFramesRef.current[activeDirection].filter(
+        (_, i) => i !== indexToDelete
+      )
+    }
+
+    // Re-key unclipped pristine canvases
+    const map = unclippedFramesMapRef.current
+    const listLen = currentList.length
+    const remainingCanvases: (HTMLCanvasElement | undefined)[] = []
+    for (let i = 0; i < listLen; i++) {
+      const key = `${activeDirection}_${i}`
+      if (i !== indexToDelete) {
+        remainingCanvases.push(map.get(key))
+      }
+      map.delete(key)
+    }
+    for (let i = 0; i < remainingCanvases.length; i++) {
+      const c = remainingCanvases[i]
+      if (c) map.set(`${activeDirection}_${i}`, c)
+    }
+
     if (activeFrameIndex === indexToDelete) {
       const nextIndex = Math.min(indexToDelete, newList.length - 1)
       setActiveFrameIndex(nextIndex)
@@ -1190,6 +1275,80 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       setActiveFrameIndex(activeFrameIndex - 1)
     }
   }
+
+  // Move / Reorder animation frames in active direction
+  const handleMoveFrame = (fromIndex: number, toIndex: number) => {
+    const dir = activeDirectionRef.current
+    const list = directionalFrames[dir] || ['']
+    if (
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= list.length ||
+      toIndex >= list.length ||
+      fromIndex === toIndex
+    ) {
+      return
+    }
+
+    const currentActiveIndex = activeFrameIndexRef.current
+
+    // Commit current canvas state so in-progress pixel edits are preserved
+    const canvas = drawCanvasRef.current
+    const currentData = canvas ? canvas.toDataURL('image/png') : ''
+
+    const reorder = <T,>(arr: T[], from: number, to: number): T[] => {
+      const result = [...arr]
+      const [removed] = result.splice(from, 1)
+      result.splice(to, 0, removed)
+      return result
+    }
+
+    setDirectionalFrames((prev) => {
+      const frames = [...(prev[dir] || [''])]
+      if (currentData && currentActiveIndex < frames.length) {
+        frames[currentActiveIndex] = currentData
+      }
+      return {
+        ...prev,
+        [dir]: reorder(frames, fromIndex, toIndex),
+      }
+    })
+
+    if (masterFramesRef.current[dir]) {
+      const masterList = [...masterFramesRef.current[dir]]
+      if (currentData && currentActiveIndex < masterList.length) {
+        masterList[currentActiveIndex] = currentData
+      }
+      masterFramesRef.current[dir] = reorder(masterList, fromIndex, toIndex)
+    }
+
+    // Re-key unclipped pristine canvases in unclippedFramesMapRef for this direction
+    const map = unclippedFramesMapRef.current
+    const listLen = list.length
+    const extractedCanvases: (HTMLCanvasElement | undefined)[] = []
+    for (let i = 0; i < listLen; i++) {
+      const key = `${dir}_${i}`
+      extractedCanvases.push(map.get(key))
+      map.delete(key)
+    }
+    const reorderedCanvases = reorder(extractedCanvases, fromIndex, toIndex)
+    for (let i = 0; i < reorderedCanvases.length; i++) {
+      const c = reorderedCanvases[i]
+      if (c) {
+        map.set(`${dir}_${i}`, c)
+      }
+    }
+
+    // Update activeFrameIndex so selection stays with the moved frame
+    if (currentActiveIndex === fromIndex) {
+      setActiveFrameIndex(toIndex)
+    } else if (fromIndex < currentActiveIndex && toIndex >= currentActiveIndex) {
+      setActiveFrameIndex(currentActiveIndex - 1)
+    } else if (fromIndex > currentActiveIndex && toIndex <= currentActiveIndex) {
+      setActiveFrameIndex(currentActiveIndex + 1)
+    }
+  }
+  handleMoveFrameRef.current = handleMoveFrame
 
   // Mirror Left/Right Side (mirrors all frames of current direction to opposite side)
   const handleMirrorOppositeSide = () => {
@@ -2098,17 +2257,64 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                 <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 max-w-md">
                   {currentDirectionFrames.map((frameData, idx) => {
                     const isFrameActive = idx === activeFrameIndex
+                    const isDragged = draggedFrameIndex === idx
+                    const isDragOver = dragOverFrameIndex === idx
                     return (
                       <div
                         key={idx}
+                        draggable={currentDirectionFrames.length > 1}
+                        onDragStart={(e) => {
+                          setDraggedFrameIndex(idx)
+                          e.dataTransfer.effectAllowed = 'move'
+                          e.dataTransfer.setData('text/plain', String(idx))
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault()
+                          e.dataTransfer.dropEffect = 'move'
+                          if (dragOverFrameIndex !== idx) {
+                            setDragOverFrameIndex(idx)
+                          }
+                        }}
+                        onDragLeave={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            if (dragOverFrameIndex === idx) {
+                              setDragOverFrameIndex(null)
+                            }
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          setDragOverFrameIndex(null)
+                          const rawFrom = e.dataTransfer.getData('text/plain')
+                          const fromIdx = draggedFrameIndex !== null ? draggedFrameIndex : rawFrom ? parseInt(rawFrom, 10) : null
+                          if (fromIdx !== null && !isNaN(fromIdx) && fromIdx !== idx) {
+                            handleMoveFrame(fromIdx, idx)
+                          }
+                          setDraggedFrameIndex(null)
+                        }}
+                        onDragEnd={() => {
+                          setDraggedFrameIndex(null)
+                          setDragOverFrameIndex(null)
+                        }}
                         onClick={() => switchFrame(idx)}
-                        className={`group relative flex flex-col items-center p-1 rounded-xl border cursor-pointer transition-all ${
-                          isFrameActive
+                        title={
+                          currentDirectionFrames.length > 1
+                            ? `Quadro Q${idx + 1} (Clique para selecionar, arraste para reordenar)`
+                            : `Quadro Q${idx + 1}`
+                        }
+                        className={`group relative flex flex-col items-center p-1 rounded-xl border transition-all select-none ${
+                          currentDirectionFrames.length > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+                        } ${
+                          isDragged
+                            ? 'opacity-35 scale-95 border-dashed border-blue-400 bg-blue-500/10'
+                            : isDragOver
+                            ? 'border-blue-400 bg-blue-500/25 ring-2 ring-blue-500/60 scale-105 shadow-lg shadow-blue-500/30'
+                            : isFrameActive
                             ? 'bg-[#3b82f6]/25 border-[#3b82f6] shadow-md shadow-blue-500/25 scale-105'
                             : 'bg-[#2b2d31] border-[#383a40] hover:border-slate-500 hover:bg-[#32353b]'
                         }`}
                       >
-                        <div className="w-9 h-9 rounded-lg bg-[#141517] border border-slate-700/60 flex items-center justify-center overflow-hidden">
+                        <div className="w-9 h-9 rounded-lg bg-[#141517] border border-slate-700/60 flex items-center justify-center overflow-hidden pointer-events-none">
                           {frameData ? (
                             <img
                               src={isFrameActive ? previewDataUrl || frameData : frameData}
@@ -2120,7 +2326,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                           )}
                         </div>
                         <span
-                          className={`text-[9px] font-bold mt-0.5 ${
+                          className={`text-[9px] font-bold mt-0.5 pointer-events-none ${
                             isFrameActive ? 'text-blue-300' : 'text-slate-400'
                           }`}
                         >
@@ -2131,8 +2337,9 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                         {currentDirectionFrames.length > 1 && (
                           <button
                             onClick={(e) => handleDeleteFrame(e, idx)}
+                            onMouseDown={(e) => e.stopPropagation()}
                             title="Excluir este quadro"
-                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity shadow cursor-pointer"
+                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity shadow cursor-pointer z-10"
                           >
                             ×
                           </button>
@@ -2161,6 +2368,32 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                     <Copy className="w-3.5 h-3.5" />
                     <span>Duplicar</span>
                   </button>
+
+                  {/* Reorder / Move Active Frame Buttons */}
+                  <div
+                    className="flex items-center bg-[#2b2d31] border border-[#383a40] rounded-xl p-0.5"
+                    title="Mover a posição do quadro ativo na animação (ou arraste os quadros diretamente)"
+                  >
+                    <button
+                      onClick={() => handleMoveFrame(activeFrameIndex, activeFrameIndex - 1)}
+                      disabled={activeFrameIndex <= 0 || currentDirectionFrames.length <= 1}
+                      title="Mover quadro ativo para a esquerda (Alt + ←)"
+                      className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-[#383a40] disabled:opacity-20 disabled:cursor-not-allowed transition-all cursor-pointer"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="text-[10px] font-bold text-slate-400 px-1 select-none flex items-center gap-1">
+                      Mover
+                    </span>
+                    <button
+                      onClick={() => handleMoveFrame(activeFrameIndex, activeFrameIndex + 1)}
+                      disabled={activeFrameIndex >= currentDirectionFrames.length - 1 || currentDirectionFrames.length <= 1}
+                      title="Mover quadro ativo para a direita (Alt + →)"
+                      className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-[#383a40] disabled:opacity-20 disabled:cursor-not-allowed transition-all cursor-pointer"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
 

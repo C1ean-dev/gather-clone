@@ -267,25 +267,21 @@ export const MapViewport: React.FC = () => {
         const floorW = Math.max(1, Math.round(customAsset?.width || 1))
         const floorH = Math.max(1, Math.round(customAsset?.height || 1))
 
-        if (floorW > 1 || floorH > 1) {
-          for (let dy = 0; dy < floorH; dy++) {
-            for (let dx = 0; dx < floorW; dx++) {
-              const tx = tile.x + dx
-              const ty = tile.y + dy
-              if (tx >= 0 && tx < mapData.width && ty >= 0 && ty < mapData.height) {
-                setFloorTile(tx, ty, selectedFloor as FloorType)
-                PeerManager.getInstance().sendMapEdit('set_floor', { x: tx, y: ty, floor: selectedFloor })
-              }
-            }
-          }
-        } else {
+        if (e.shiftKey) {
           const insideZone = findZoneAt(tile.x, tile.y)
-          if (insideZone && !e.shiftKey) {
+          if (insideZone) {
             applyFloorToZoneAt(tile.x, tile.y, selectedFloor)
-          } else {
-            if (tile.x >= 0 && tile.x < mapData.width && tile.y >= 0 && tile.y < mapData.height) {
-              setFloorTile(tile.x, tile.y, selectedFloor as FloorType)
-              PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: selectedFloor })
+            return
+          }
+        }
+
+        for (let dy = 0; dy < floorH; dy++) {
+          for (let dx = 0; dx < floorW; dx++) {
+            const tx = tile.x + dx
+            const ty = tile.y + dy
+            if (tx >= 0 && tx < mapData.width && ty >= 0 && ty < mapData.height) {
+              setFloorTile(tx, ty, selectedFloor as FloorType)
+              PeerManager.getInstance().sendMapEdit('set_floor', { x: tx, y: ty, floor: selectedFloor })
             }
           }
         }
@@ -349,6 +345,7 @@ export const MapViewport: React.FC = () => {
 
     const tile = engineRef.current.screenToTile(mouseX, mouseY, snapStep)
     engineRef.current.hoverTile = tile
+    engineRef.current.isShiftPressed = e.shiftKey
 
     // Continuous drag painting when mouse button is held down
     if (isEditorOpen && isMouseDownRef.current) {
@@ -360,25 +357,13 @@ export const MapViewport: React.FC = () => {
           const floorW = Math.max(1, Math.round(customAsset?.width || 1))
           const floorH = Math.max(1, Math.round(customAsset?.height || 1))
 
-          if (floorW > 1 || floorH > 1) {
-            for (let dy = 0; dy < floorH; dy++) {
-              for (let dx = 0; dx < floorW; dx++) {
-                const tx = tile.x + dx
-                const ty = tile.y + dy
-                if (tx >= 0 && tx < mapData.width && ty >= 0 && ty < mapData.height) {
-                  setFloorTile(tx, ty, selectedFloor as FloorType)
-                  PeerManager.getInstance().sendMapEdit('set_floor', { x: tx, y: ty, floor: selectedFloor })
-                }
-              }
-            }
-          } else {
-            const insideZone = findZoneAt(tile.x, tile.y)
-            if (insideZone && !e.shiftKey) {
-              applyFloorToZoneAt(tile.x, tile.y, selectedFloor)
-            } else {
-              if (tile.x >= 0 && tile.x < mapData.width && tile.y >= 0 && tile.y < mapData.height) {
-                setFloorTile(tile.x, tile.y, selectedFloor as FloorType)
-                PeerManager.getInstance().sendMapEdit('set_floor', { x: tile.x, y: tile.y, floor: selectedFloor })
+          for (let dy = 0; dy < floorH; dy++) {
+            for (let dx = 0; dx < floorW; dx++) {
+              const tx = tile.x + dx
+              const ty = tile.y + dy
+              if (tx >= 0 && tx < mapData.width && ty >= 0 && ty < mapData.height) {
+                setFloorTile(tx, ty, selectedFloor as FloorType)
+                PeerManager.getInstance().sendMapEdit('set_floor', { x: tx, y: ty, floor: selectedFloor })
               }
             }
           }
@@ -553,12 +538,11 @@ export const MapViewport: React.FC = () => {
         </div>
       )}
 
-      {/* Floor paint active banner — reminds the user that the click
-          will fill the WHOLE zone, not a single cell. */}
+      {/* Floor paint active banner */}
       {isEditorOpen && activeTool === 'paint_floor' && mapViewMode !== 'simplified' && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-emerald-600/90 backdrop-blur-md border border-emerald-400/40 text-white px-4 py-2 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold select-none z-30">
           <Sparkles className="w-4 h-4 text-amber-300" />
-          <span>Clique dentro de uma zona para preencher ela inteira com o piso selecionado</span>
+          <span>Clique e arraste para pintar o piso (Shift + Clique preenche a sala inteira)</span>
         </div>
       )}
 

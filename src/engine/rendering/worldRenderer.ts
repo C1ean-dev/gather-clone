@@ -23,7 +23,8 @@ export class WorldRenderer {
     zoneDragCurrent: { x: number; y: number } | null,
     currentTime: number,
     fps: number,
-    destination?: { x: number; y: number } | null
+    destination?: { x: number; y: number } | null,
+    isShiftPressed?: boolean
   ) {
     const mapStore = useMapStore.getState()
     const map = mapStore.mapData
@@ -444,12 +445,12 @@ export class WorldRenderer {
             ctx.fillText(badgeText, badgeX + 4, badgeY + badgeH / 2)
             ctx.restore()
           } else {
-            // 1x1 floor: if over a zone, show zone outline for full-room fill; otherwise show 1x1 placement tile
+            // 1x1 floor: if Shift is held over a zone, show zone outline for full-room fill; otherwise show 1x1 placement tile
             const zones = (mapStore as any).mapData?.zones as
               | { id: string; x: number; y: number; width: number; height: number }[]
               | undefined
             let insideZone: { x: number; y: number; width: number; height: number } | null = null
-            if (zones) {
+            if (isShiftPressed && zones) {
               let best: { x: number; y: number; width: number; height: number } | null = null
               let bestArea = Number.POSITIVE_INFINITY
               for (const z of zones) {
@@ -480,7 +481,16 @@ export class WorldRenderer {
                 insideZone.height * TILE_SIZE - 1
               )
             } else {
-              // 1x1 tile placement outside zone
+              // 1x1 tile placement (inside or outside zone)
+              if (customAsset && customAsset.frames && customAsset.frames.length > 0) {
+                const img = getCustomAssetImage(customAsset.frames[0])
+                if (img && img.complete && img.naturalWidth > 0) {
+                  ctx.save()
+                  ctx.globalAlpha = 0.65
+                  ctx.drawImage(img, tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+                  ctx.restore()
+                }
+              }
               ctx.fillStyle = 'rgba(32, 201, 151, 0.2)'
               ctx.fillRect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
               ctx.strokeStyle = '#20c997'
