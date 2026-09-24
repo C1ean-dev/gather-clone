@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
   Copy,
   Check,
@@ -48,7 +48,17 @@ export const TopNavBar: React.FC<Props> = ({
   const toggleEditor = useMapStore((s) => s.toggleEditor)
   const isChatOpen = useChatStore((s) => s.isChatOpen)
   const toggleChat = useChatStore((s) => s.toggleChat)
-  const totalUnread = useChatStore((s) => s.channels.reduce((acc, c) => acc + c.unreadCount, 0))
+  const messages = useChatStore((s) => s.messages)
+  const chatChannels = useChatStore((s) => s.channels)
+  const lastReadByPeer = useChatStore((s) => s.lastReadByPeer)
+  const getTotalUnreadDMs = useChatStore((s) => s.getTotalUnreadDMs)
+
+  const totalUnread = useMemo(() => {
+    const generalUnread = chatChannels.filter((c) => c.type !== 'dm').reduce((acc, c) => acc + c.unreadCount, 0)
+    return generalUnread + getTotalUnreadDMs()
+  }, [messages, chatChannels, lastReadByPeer, getTotalUnreadDMs])
+
+  const totalUnreadDMs = useMemo(() => getTotalUnreadDMs(), [messages, chatChannels, lastReadByPeer, getTotalUnreadDMs])
   const isMuted = useMediaStore((s) => s.isMuted)
   const toggleMute = useMediaStore((s) => s.toggleMute)
   const connectionStatus = useGameStore((s) => s.connectionStatus)
@@ -223,15 +233,24 @@ export const TopNavBar: React.FC<Props> = ({
         {/* Online People Toggle Button */}
         <button
           onClick={toggleOnlineUsers}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all relative ${
             isOnlineUsersOpen
               ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30 ring-2 ring-indigo-500/30'
+              : totalUnreadDMs > 0
+              ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 hover:bg-rose-500/30 animate-pulse'
               : 'bg-[#1b202c] hover:bg-slate-800 border-[#2a3142] text-slate-300 hover:text-white'
           }`}
-          title="Ver Participantes Online, Amigos e Gerenciar Permissões"
+          title={
+            totalUnreadDMs > 0
+              ? `Você tem ${totalUnreadDMs} nova(s) mensagem(ns) direta(s)!`
+              : 'Ver Participantes Online, Amigos e Gerenciar Permissões'
+          }
         >
-          <Users className={`w-3.5 h-3.5 ${isOnlineUsersOpen ? 'text-white' : 'text-emerald-400'}`} />
+          <Users className={`w-3.5 h-3.5 ${isOnlineUsersOpen ? 'text-white' : totalUnreadDMs > 0 ? 'text-rose-400' : 'text-emerald-400'}`} />
           <span>{remotePlayerCount + 1}</span>
+          {totalUnreadDMs > 0 && !isOnlineUsersOpen && (
+            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-[#12151d] animate-ping" />
+          )}
         </button>
 
         {/* Available Update Notification Download Icon */}

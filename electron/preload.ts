@@ -52,6 +52,10 @@ export interface IElectronAPI {
   isFullScreen: () => Promise<boolean>
   diagnosticLogBatch: (entries: unknown[]) => Promise<{ ok: boolean; path: string | null }>
   openLogsFolder: () => Promise<string | null>
+  broadcastPresence?: (presence: any) => Promise<any[]>
+  removePresence?: (userId: string) => Promise<void>
+  sendCrossProcessMessage?: (message: any) => Promise<boolean>
+  fetchCrossProcessMessages?: (payload: { forUserId: string; forUserName?: string }) => Promise<any[]>
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -103,4 +107,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isFullScreen: () => ipcRenderer.invoke('is-fullscreen'),
   diagnosticLogBatch: (entries: unknown[]) => ipcRenderer.invoke('diagnostic-log-batch', entries),
   openLogsFolder: () => ipcRenderer.invoke('open-logs-folder'),
+  broadcastPresence: (presence: any) => ipcRenderer.invoke('broadcast-presence', presence),
+  removePresence: (userId: string) => ipcRenderer.invoke('remove-presence', userId),
+  sendCrossProcessMessage: (message: any) => ipcRenderer.invoke('send-cross-message', message),
+  fetchCrossProcessMessages: (payload: { forUserId: string; forUserName?: string }) =>
+    ipcRenderer.invoke('fetch-cross-messages', payload),
 })

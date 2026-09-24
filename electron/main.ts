@@ -890,6 +890,133 @@ ipcMain.handle(
   }
 )
 
+
+// 8. Cross-process presence and direct messaging for multi-instance desktop
+function getPresenceDirectory(): string {
+  const dir = path.join(app.getPath('temp'), 'gather_v2_presence')
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+  return dir
+}
+
+function getMessagesDirectory(): string {
+  const dir = path.join(app.getPath('temp'), 'gather_v2_messages')
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true })
+  }
+  return dir
+}
+
+ipcMain.handle('broadcast-presence', async (_event, presence: any) => {
+  try {
+    if (!presence || !presence.userId) return []
+    const dir = getPresenceDirectory()
+    const myFile = path.join(dir, `user_${presence.userId}.json`)
+    fs.writeFileSync(myFile, JSON.stringify({ ...presence, lastHeartbeat: Date.now() }), 'utf-8')
+
+    const now = Date.now()
+    const activePresences: any[] = []
+    const files = fs.readdirSync(dir)
+    for (const f of files) {
+      if (!f.startsWith('user_') || !f.endsWith('.json')) continue
+      const filePath = path.join(dir, f)
+      try {
+        const raw = fs.readFileSync(filePath, 'utf-8')
+        const data = JSON.parse(raw)
+        if (now - data.lastHeartbeat > 8000) {
+          try { fs.unlinkSync(filePath) } catch (e) {}
+        } else {
+          activePresences.push(data)
+        }
+      } catch (err) {}
+    }
+    return activePresences
+  } catch (err) {
+    console.warn('[Presence] broadcast-presence error:', err)
+    return []
+  }
+})
+
+ipcMain.handle('remove-presence', async (_event, userId: string) => {
+  try {
+    if (!userId) return
+    const dir = getPresenceDirectory()
+    const myFile = path.join(dir, `user_${userId}.json`)
+    if (fs.existsSync(myFile)) {
+      try { fs.unlinkSync(myFile) } catch (e) {}
+    }
+  } catch (err) {}
+})
+
+ipcMain.handle('send-cross-message', async (_event, message: any) => {
+  try {
+    if (!message || !message.id) return false
+    const dir = getMessagesDirectory()
+    const file = path.join(dir, `msg_${message.id}.json`)
+    fs.writeFileSync(file, JSON.stringify({ ...message, savedAt: Date.now() }), 'utf-8')
+
+    // If this is a friend request update, sync any existing files with matching requestId
+    if (message.friendRequest?.requestId) {
+      try {
+        const files = fs.readdirSync(dir)
+        for (const f of files) {
+          if (!f.startsWith('msg_') || !f.endsWith('.json') || f === `msg_${message.id}.json`) continue
+          const otherPath = path.join(dir, f)
+          try {
+            const raw = fs.readFileSync(otherPath, 'utf-8')
+            const data = JSON.parse(raw)
+            if (data.friendRequest?.requestId === message.friendRequest.requestId) {
+              data.friendRequest.status = message.friendRequest.status
+              fs.writeFileSync(otherPath, JSON.stringify(data), 'utf-8')
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
+    }
+
+    return true
+  } catch (err) {
+    console.warn('[Presence] send-cross-message error:', err)
+    return false
+  }
+})
+
+ipcMain.handle('fetch-cross-messages', async (_event, payload: { forUserId: string; forUserName?: string }) => {
+  try {
+    const { forUserId, forUserName } = payload || {}
+    if (!forUserId && !forUserName) return []
+    const dir = getMessagesDirectory()
+    const files = fs.readdirSync(dir)
+    const now = Date.now()
+    const matching: any[] = []
+    for (const f of files) {
+      if (!f.startsWith('msg_') || !f.endsWith('.json')) continue
+      const filePath = path.join(dir, f)
+      try {
+        const raw = fs.readFileSync(filePath, 'utf-8')
+        const data = JSON.parse(raw)
+        // Clean up messages older than 10 minutes
+        if (now - data.savedAt > 600000) {
+          try { fs.unlinkSync(filePath) } catch (e) {}
+          continue
+        }
+        const matchesUser =
+          (forUserId && (data.recipientId === forUserId || (data.channelId && data.channelId.includes(forUserId)))) ||
+          (forUserName && (data.recipientName?.toLowerCase() === forUserName.toLowerCase() || (data.channelId && data.channelId.toLowerCase().includes(forUserName.toLowerCase()))))
+
+        if (matchesUser) {
+          matching.push(data)
+        }
+      } catch (err) {}
+    }
+    return matching
+  } catch (err) {
+    return []
+  }
+})
+
+
 // Socket UDP para descoberta local e disparo da janela nativa do Windows Defender Firewall
 let lanSocket: dgram.Socket | null = null
 

@@ -24,6 +24,7 @@ import {
   Compass,
   Zap,
   Activity,
+  Clock,
 } from 'lucide-react'
 import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
@@ -63,7 +64,13 @@ const OnlineUsersMenuInner: React.FC = () => {
   } = useGameStore()
 
   const { mapData } = useMapStore()
-  const { toggleChat, openDirectMessage } = useChatStore()
+  const {
+    toggleChat,
+    openDirectMessage,
+    getUnreadCountForFriend,
+    sendFriendRequest,
+    getFriendRequestStatus,
+  } = useChatStore()
   const peerStreams = useMediaStore((s) => s.peerStreams)
   const callStates = useGameStore((s) => s.callStates)
 
@@ -352,30 +359,68 @@ const OnlineUsersMenuInner: React.FC = () => {
                     </div>
 
                     {/* Quick Message Button */}
-                    {!isLocal && (
-                      <button
-                        onClick={() => openDirectMessage({ id: player.id, name: player.name })}
-                        className="p-1.5 rounded-lg bg-slate-800/60 text-slate-400 hover:text-indigo-300 hover:bg-indigo-600/20 border border-slate-700 hover:border-indigo-500/40 transition-colors"
-                        title={`Conversar com ${player.name}`}
-                      >
-                        <MessageSquare className="w-3 h-3 text-indigo-400" />
-                      </button>
-                    )}
+                    {!isLocal && (() => {
+                      const friendUnread = getUnreadCountForFriend({ id: player.id, name: player.name, actualUserId: player.id })
+                      return (
+                        <button
+                          onClick={() => openDirectMessage({ id: player.id, name: player.name })}
+                          className={`p-1.5 rounded-lg border transition-colors relative ${
+                            friendUnread > 0
+                              ? 'bg-rose-600 text-white border-rose-500 animate-pulse shadow-md shadow-rose-600/30'
+                              : 'bg-slate-800/60 text-slate-400 hover:text-indigo-300 hover:bg-indigo-600/20 border-slate-700 hover:border-indigo-500/40'
+                          }`}
+                          title={
+                            friendUnread > 0
+                              ? `${friendUnread} nova(s) mensagem(ns) de ${player.name}`
+                              : `Conversar com ${player.name}`
+                          }
+                        >
+                          <MessageSquare className={`w-3 h-3 ${friendUnread > 0 ? 'text-white' : 'text-indigo-400'}`} />
+                          {friendUnread > 0 && (
+                            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-[#12151d] animate-ping" />
+                          )}
+                        </button>
+                      )
+                    })()}
 
-                    {/* Friend Toggle */}
-                    {!isLocal && (
-                      <button
-                        onClick={() => toggleFriend(player.id)}
-                        className={`p-1.5 rounded-lg border transition-colors ${
-                          isFriend
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 border-slate-700'
-                        }`}
-                        title={isFriend ? 'Remover dos amigos' : 'Adicionar aos amigos'}
-                      >
-                        <Star className={`w-3 h-3 ${isFriend ? 'fill-amber-400 text-amber-400' : ''}`} />
-                      </button>
-                    )}
+                    {/* Friend Toggle / Request */}
+                    {!isLocal && (() => {
+                      const req = getFriendRequestStatus(player.id) || getFriendRequestStatus(player.name)
+                      const isPending = req?.status === 'pending'
+
+                      return (
+                        <button
+                          onClick={() => {
+                            if (isFriend) {
+                              toggleFriend(player.id, player)
+                            } else {
+                              sendFriendRequest({ id: player.id, name: player.name, avatar: player.avatar })
+                              openDirectMessage({ id: player.id, name: player.name })
+                            }
+                          }}
+                          className={`p-1.5 rounded-lg border transition-colors ${
+                            isFriend
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : isPending
+                              ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 animate-pulse'
+                              : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 border-slate-700'
+                          }`}
+                          title={
+                            isFriend
+                              ? 'Remover dos amigos'
+                              : isPending
+                              ? 'Solicitação de amizade pendente no chat'
+                              : 'Enviar solicitação de amizade'
+                          }
+                        >
+                          {isPending && !isFriend ? (
+                            <Clock className="w-3 h-3 text-indigo-400" />
+                          ) : (
+                            <Star className={`w-3 h-3 ${isFriend ? 'fill-amber-400 text-amber-400' : ''}`} />
+                          )}
+                        </button>
+                      )
+                    })()}
 
                     {/* More Menu Dropdown Toggle */}
                     {!isLocal && (
@@ -437,6 +482,20 @@ const OnlineUsersMenuInner: React.FC = () => {
                         <MessageSquare className="w-3.5 h-3.5 text-indigo-400" />
                         <span>Mensagem</span>
                       </button>
+
+                      {!isFriend && (
+                        <button
+                          onClick={() => {
+                            sendFriendRequest({ id: player.id, name: player.name, avatar: player.avatar })
+                            openDirectMessage({ id: player.id, name: player.name })
+                            setSelectedUserMenuId(null)
+                          }}
+                          className="py-1.5 px-2 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 font-bold text-xs flex items-center gap-1.5 border border-emerald-500/30 transition-colors col-span-2"
+                        >
+                          <UserPlus className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Adicionar aos Amigos</span>
+                        </button>
+                      )}
                     </div>
 
                     {/* Permissions (Owner only) */}

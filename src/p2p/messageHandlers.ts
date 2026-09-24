@@ -342,11 +342,23 @@ export function processNetworkMessage(
       const local = useGameStore.getState().localPlayer
       // If this is a DM, only process if addressed to me or sent by me
       if (chatMsg?.recipientId) {
-        if (chatMsg.recipientId !== local.id && chatMsg.senderId !== local.id) {
+        const isForMe =
+          chatMsg.recipientId === local.id ||
+          (local.gameId && chatMsg.recipientId === local.gameId) ||
+          (myPeerId && chatMsg.recipientId === myPeerId)
+        const isFromMe =
+          chatMsg.senderId === local.id ||
+          (local.gameId && chatMsg.senderId === local.gameId) ||
+          (myPeerId && chatMsg.senderId === myPeerId)
+        if (!isForMe && !isFromMe) {
           break
         }
       } else if (chatMsg?.channelId?.startsWith('dm-')) {
-        if (!chatMsg.channelId.includes(local.id)) {
+        const matchesMe =
+          chatMsg.channelId.includes(local.id) ||
+          (local.gameId && chatMsg.channelId.includes(local.gameId)) ||
+          (myPeerId && chatMsg.channelId.includes(myPeerId))
+        if (!matchesMe) {
           break
         }
       }

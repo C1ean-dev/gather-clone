@@ -19,6 +19,8 @@ import {
   Pause,
   Plus,
   Copy,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { AvatarConfig, AvatarComponentSlot, Direction } from '../../types/game'
 import { ColorWheelPicker } from '../../components/common/ColorWheelPicker'
@@ -165,6 +167,9 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
   // Directional Multi-Frames State
   const [activeDirection, setActiveDirection] = useState<Direction>('down')
   const [activeFrameIndex, setActiveFrameIndex] = useState<number>(0)
+  const [frameEpoch, setFrameEpoch] = useState<number>(0)
+  const [draggedFrameIndex, setDraggedFrameIndex] = useState<number | null>(null)
+  const [dragOverFrameIndex, setDragOverFrameIndex] = useState<number | null>(null)
 
   const [directionalFrames, setDirectionalFrames] = useState<Record<Direction, string[]>>(() => {
     const parseFrames = (raw?: string | string[]): string[] => {
@@ -823,7 +828,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       setCanUndo(false)
       setCanRedo(false)
     }
-  }, [activeDirection, activeFrameIndex, canvasPixelWidth, canvasPixelHeight])
+  }, [activeDirection, activeFrameIndex, canvasPixelWidth, canvasPixelHeight, frameEpoch])
 
   // Helper to commit current drawing canvas to state
   const commitCurrentCanvas = () => {
@@ -1056,6 +1061,61 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     setActiveFrameIndex(newIndex)
   }
 
+  // Move / Reorder a frame from fromIndex to toIndex
+  const handleMoveFrame = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return
+    const currentList = [...(directionalFrames[activeDirection] || [''])]
+    if (
+      fromIndex < 0 ||
+      fromIndex >= currentList.length ||
+      toIndex < 0 ||
+      toIndex >= currentList.length
+    ) {
+      return
+    }
+
+    // Commit current canvas state for the currently active frame before reordering
+    const canvas = drawCanvasRef.current
+    const currentData = canvas ? canvas.toDataURL('image/png') : ''
+    if (currentData) {
+      currentList[activeFrameIndex] = currentData
+    }
+
+    // Reorder the frame in currentList
+    const [movedItem] = currentList.splice(fromIndex, 1)
+    currentList.splice(toIndex, 0, movedItem)
+
+    // Reorder in masterFramesRef as well if present
+    if (
+      masterFramesRef.current[activeDirection] &&
+      masterFramesRef.current[activeDirection].length > 0
+    ) {
+      const masterList = [...masterFramesRef.current[activeDirection]]
+      if (fromIndex < masterList.length) {
+        const [movedMaster] = masterList.splice(fromIndex, 1)
+        masterList.splice(toIndex, 0, movedMaster)
+        masterFramesRef.current[activeDirection] = masterList
+      }
+    }
+
+    // Determine new activeFrameIndex so the user stays on the same content they were viewing/editing
+    let newActiveIndex = activeFrameIndex
+    if (activeFrameIndex === fromIndex) {
+      newActiveIndex = toIndex
+    } else if (fromIndex < activeFrameIndex && toIndex >= activeFrameIndex) {
+      newActiveIndex = activeFrameIndex - 1
+    } else if (fromIndex > activeFrameIndex && toIndex <= activeFrameIndex) {
+      newActiveIndex = activeFrameIndex + 1
+    }
+
+    setDirectionalFrames((prev) => ({
+      ...prev,
+      [activeDirection]: currentList,
+    }))
+    setActiveFrameIndex(newActiveIndex)
+    setFrameEpoch((prev) => prev + 1)
+  }
+
   // Delete a frame
   const handleDeleteFrame = (e: React.MouseEvent, indexToDelete: number) => {
     e.stopPropagation()
@@ -1071,12 +1131,19 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       [activeDirection]: newList,
     }))
 
+    if (masterFramesRef.current[activeDirection]) {
+      masterFramesRef.current[activeDirection] = masterFramesRef.current[activeDirection].filter(
+        (_, i) => i !== indexToDelete
+      )
+    }
+
     if (activeFrameIndex === indexToDelete) {
       const nextIndex = Math.min(indexToDelete, newList.length - 1)
       setActiveFrameIndex(nextIndex)
     } else if (activeFrameIndex > indexToDelete) {
       setActiveFrameIndex(activeFrameIndex - 1)
     }
+    setFrameEpoch((prev) => prev + 1)
   }
 
   // Mirror Left/Right Side (mirrors all frames of current direction to opposite side)
@@ -1986,41 +2053,131 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                 <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 max-w-md">
                   {currentDirectionFrames.map((frameData, idx) => {
                     const isFrameActive = idx === activeFrameIndex
+                    const isDragged = draggedFrameIndex === idx
+                    const isDragOver = dragOverFrameIndex === idx && draggedFrameIndex !== idx
+
                     return (
                       <div
                         key={idx}
+                        draggable={true}
+                        onDragStart={(e) => {
+                          setDraggedFrameIndex(idx)
+                          e.dataTransfer.effectAllowed = 'move'
+                          e.dataTransfer.setData('text/plain', String(idx))
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault()
+                          e.dataTransfer.dropEffect = 'move'
+                          if (dragOverFrameIndex !== idx) {
+                            setDragOverFrameIndex(idx)
+                          }
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverFrameIndex === idx) {
+                            setDragOverFrameIndex(null)
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          const fromStr = e.dataTransfer.getData('text/plain')
+                          const from = fromStr !== '' ? parseInt(fromStr, 10) : draggedFrameIndex
+                          if (from !== null && !isNaN(from) && from !== idx) {
+                            handleMoveFrame(from, idx)
+                          }
+                          setDraggedFrameIndex(null)
+                          setDragOverFrameIndex(null)
+                        }}
+                        onDragEnd={() => {
+                          setDraggedFrameIndex(null)
+                          setDragOverFrameIndex(null)
+                        }}
                         onClick={() => switchFrame(idx)}
-                        className={`group relative flex flex-col items-center p-1 rounded-xl border cursor-pointer transition-all ${
-                          isFrameActive
+                        title={`Quadro ${idx + 1} (Clique para selecionar, arraste ou use as setas para reposicionar)`}
+                        className={`group relative flex flex-col items-center p-1 rounded-xl border transition-all select-none min-w-[44px] cursor-grab active:cursor-grabbing ${
+                          isDragged
+                            ? 'opacity-40 scale-95 border-dashed border-blue-400 bg-blue-500/10'
+                            : isDragOver
+                            ? 'ring-2 ring-blue-400 border-blue-400 bg-blue-500/20 scale-105'
+                            : isFrameActive
                             ? 'bg-[#3b82f6]/25 border-[#3b82f6] shadow-md shadow-blue-500/25 scale-105'
                             : 'bg-[#2b2d31] border-[#383a40] hover:border-slate-500 hover:bg-[#32353b]'
                         }`}
                       >
-                        <div className="w-9 h-9 rounded-lg bg-[#141517] border border-slate-700/60 flex items-center justify-center overflow-hidden">
+                        <div className="w-9 h-9 rounded-lg bg-[#141517] border border-slate-700/60 flex items-center justify-center overflow-hidden pointer-events-none">
                           {frameData ? (
                             <img
                               src={isFrameActive ? previewDataUrl || frameData : frameData}
                               alt={`Q${idx + 1}`}
+                              draggable={false}
                               className="w-8 h-8 [image-rendering:pixelated]"
                             />
                           ) : (
                             <span className="text-[9px] text-slate-500 italic">Vazio</span>
                           )}
                         </div>
-                        <span
-                          className={`text-[9px] font-bold mt-0.5 ${
-                            isFrameActive ? 'text-blue-300' : 'text-slate-400'
-                          }`}
-                        >
-                          Q{idx + 1}
-                        </span>
+
+                        {currentDirectionFrames.length > 1 ? (
+                          <div className="flex items-center justify-between w-full mt-0.5 px-0.5 gap-0.5">
+                            {idx > 0 ? (
+                              <button
+                                type="button"
+                                draggable={false}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleMoveFrame(idx, idx - 1)
+                                }}
+                                title="Mover para a esquerda"
+                                className="p-0.5 rounded text-slate-400 hover:text-white hover:bg-slate-700/80 transition-all cursor-pointer opacity-70 group-hover:opacity-100"
+                              >
+                                <ChevronLeft className="w-2.5 h-2.5" />
+                              </button>
+                            ) : (
+                              <div className="w-3.5" />
+                            )}
+
+                            <span
+                              className={`text-[9px] font-bold leading-none ${
+                                isFrameActive ? 'text-blue-300' : 'text-slate-400'
+                              }`}
+                            >
+                              Q{idx + 1}
+                            </span>
+
+                            {idx < currentDirectionFrames.length - 1 ? (
+                              <button
+                                type="button"
+                                draggable={false}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleMoveFrame(idx, idx + 1)
+                                }}
+                                title="Mover para a direita"
+                                className="p-0.5 rounded text-slate-400 hover:text-white hover:bg-slate-700/80 transition-all cursor-pointer opacity-70 group-hover:opacity-100"
+                              >
+                                <ChevronRight className="w-2.5 h-2.5" />
+                              </button>
+                            ) : (
+                              <div className="w-3.5" />
+                            )}
+                          </div>
+                        ) : (
+                          <span
+                            className={`text-[9px] font-bold mt-0.5 ${
+                              isFrameActive ? 'text-blue-300' : 'text-slate-400'
+                            }`}
+                          >
+                            Q{idx + 1}
+                          </span>
+                        )}
 
                         {/* Delete Frame Button */}
                         {currentDirectionFrames.length > 1 && (
                           <button
+                            type="button"
+                            draggable={false}
                             onClick={(e) => handleDeleteFrame(e, idx)}
                             title="Excluir este quadro"
-                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity shadow cursor-pointer"
+                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity shadow cursor-pointer z-10"
                           >
                             ×
                           </button>

@@ -202,3 +202,17 @@ export interface RoomKnockRequest {
 }
 
 export type KnockStatus = 'idle' | 'knocking' | 'approved' | 'denied'
+
+export interface FriendProfile {
+  id: string
+  name: string
+  avatar?: AvatarConfig
+  gameId?: string
+  actualUserId?: string
+  status?: PresenceStatus
+  statusText?: string
+  lastSeen?: number
+  lastRoomCode?: string
+  lastRoomName?: string
+  isOnline?: boolean
+}

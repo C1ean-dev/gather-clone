@@ -1,10 +1,12 @@
 import { create } from 'zustand'
-import { Player, PresenceStatus, ReactionItem, AvatarConfig, UserRole, PlayerPermissions, ConnectionStatus, RoomKnockRequest, KnockStatus } from '../types/game'
+import { Player, PresenceStatus, ReactionItem, AvatarConfig, UserRole, PlayerPermissions, ConnectionStatus, RoomKnockRequest, KnockStatus, FriendProfile } from '../types/game'
 import { DEFAULT_AVATAR } from '../engine/Constants'
 import { PublicRoomsService } from '../services/publicRoomsService'
 
 const PROFILE_STORAGE_KEY = 'gather_v2_user_profile'
 const AVAILABLE_ROOMS_KEY = 'gather_v2_available_rooms'
+const FRIENDS_STORAGE_KEY = 'gather_v2_friends_list'
+const FRIEND_PROFILES_STORAGE_KEY = 'gather_v2_friend_profiles'
 
 interface SavedProfile {
   id?: string
@@ -147,7 +149,11 @@ interface GameStore {
   setOnlineUsersOpen: (open: boolean) => void
   toggleOnlineUsers: () => void
   friends: string[]
-  toggleFriend: (playerId: string) => void
+  friendProfiles: Record<string, FriendProfile>
+  toggleFriend: (playerId: string, profile?: Partial<FriendProfile>) => void
+  addFriend: (profile: FriendProfile) => void
+  removeFriend: (playerId: string) => void
+  updateFriendProfile: (playerId: string, partial: Partial<FriendProfile>) => void
   updateRemotePlayer: (id: string, partial: Partial<Player>) => void
   updatePlayerPing: (id: string, ping: number) => void
   updatePlayerRole: (id: string, role: UserRole, permissions?: PlayerPermissions) => void
@@ -167,7 +173,6 @@ interface GameStore {
   setMyKnockStatus: (zoneId: string, status: KnockStatus) => void
 }
 
-const FRIENDS_STORAGE_KEY = 'gather_v2_friends_list'
 const MAP_VIEW_STORAGE_KEY = 'gather_v2_map_view_mode'
 
 const loadSavedMapViewMode = (): 'immersive' | 'simplified' => {
@@ -192,6 +197,17 @@ const loadSavedFriends = (): string[] => {
   return []
 }
 
+const loadSavedFriendProfiles = (): Record<string, FriendProfile> => {
+  try {
+    const storage = getStorage()
+    if (storage) {
+      const raw = storage.getItem(FRIEND_PROFILES_STORAGE_KEY)
+      if (raw) return JSON.parse(raw)
+    }
+  } catch (e) {}
+  return {}
+}
+
 export const useGameStore = create<GameStore>((set, get) => ({
   mapViewMode: loadSavedMapViewMode(),
   isManualSimplified: false,
@@ -209,15 +225,90 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setOnlineUsersOpen: (isOnlineUsersOpen) => set({ isOnlineUsersOpen }),
   toggleOnlineUsers: () => set((state) => ({ isOnlineUsersOpen: !state.isOnlineUsersOpen })),
   friends: loadSavedFriends(),
-  toggleFriend: (playerId) =>
+  friendProfiles: loadSavedFriendProfiles(),
+  toggleFriend: (playerId, profileData) =>
     set((state) => {
       const exists = state.friends.includes(playerId)
-      const next = exists ? state.friends.filter((id) => id !== playerId) : [...state.friends, playerId]
+      const nextFriends = exists
+        ? state.friends.filter((id) => id !== playerId)
+        : [...state.friends, playerId]
+
+      const nextProfiles = { ...state.friendProfiles }
+      if (exists) {
+        delete nextProfiles[playerId]
+      } else {
+        const remote = state.remotePlayers[playerId]
+        nextProfiles[playerId] = {
+          id: playerId,
+          name: profileData?.name || remote?.name || 'Amigo',
+          avatar: profileData?.avatar || remote?.avatar,
+          gameId: profileData?.gameId || remote?.gameId,
+          lastSeen: Date.now(),
+          ...profileData,
+        }
+      }
+
       try {
         const storage = getStorage()
-        if (storage) storage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(next))
+        if (storage) {
+          storage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(nextFriends))
+          storage.setItem(FRIEND_PROFILES_STORAGE_KEY, JSON.stringify(nextProfiles))
+        }
       } catch (e) {}
-      return { friends: next }
+
+      return { friends: nextFriends, friendProfiles: nextProfiles }
+    }),
+  addFriend: (profile) =>
+    set((state) => {
+      const nextFriends = state.friends.includes(profile.id)
+        ? state.friends
+        : [...state.friends, profile.id]
+      const nextProfiles = {
+        ...state.friendProfiles,
+        [profile.id]: {
+          ...state.friendProfiles[profile.id],
+          ...profile,
+          lastSeen: profile.lastSeen || Date.now(),
+        },
+      }
+      try {
+        const storage = getStorage()
+        if (storage) {
+          storage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(nextFriends))
+          storage.setItem(FRIEND_PROFILES_STORAGE_KEY, JSON.stringify(nextProfiles))
+        }
+      } catch (e) {}
+      return { friends: nextFriends, friendProfiles: nextProfiles }
+    }),
+  removeFriend: (playerId) =>
+    set((state) => {
+      const nextFriends = state.friends.filter((id) => id !== playerId)
+      const nextProfiles = { ...state.friendProfiles }
+      delete nextProfiles[playerId]
+      try {
+        const storage = getStorage()
+        if (storage) {
+          storage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(nextFriends))
+          storage.setItem(FRIEND_PROFILES_STORAGE_KEY, JSON.stringify(nextProfiles))
+        }
+      } catch (e) {}
+      return { friends: nextFriends, friendProfiles: nextProfiles }
+    }),
+  updateFriendProfile: (playerId, partial) =>
+    set((state) => {
+      const existing = state.friendProfiles[playerId]
+      if (!existing) return state
+      const nextProfiles = {
+        ...state.friendProfiles,
+        [playerId]: { ...existing, ...partial },
+      }
+      try {
+        const storage = getStorage()
+        if (storage) {
+          storage.setItem(FRIEND_PROFILES_STORAGE_KEY, JSON.stringify(nextProfiles))
+        }
+      } catch (e) {}
+      return { friendProfiles: nextProfiles }
     }),
   updateRemotePlayer: (id, partial) =>
     set((state) => {

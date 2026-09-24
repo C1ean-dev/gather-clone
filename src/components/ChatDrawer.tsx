@@ -17,6 +17,7 @@ import { useGameStore } from '../store/useGameStore'
 import { useMediaStore } from '../store/useMediaStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { ChatMessage, ChatAttachment } from '../types/chat'
+import { FriendRequestCard } from './chat/FriendRequestCard'
 
 function formatFileSize(bytes: number): string {
   if (!bytes || bytes < 1024) return `${bytes || 0} B`
@@ -63,6 +64,7 @@ const ChatDrawerInner: React.FC = () => {
     openDirectMessage,
     addMessage,
     addReactionToMessage,
+    respondToFriendRequest,
   } = useChatStore()
 
   const { localPlayer, remotePlayers } = useGameStore()
@@ -78,7 +80,19 @@ const ChatDrawerInner: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
 
   const activeChannel = channels.find((c) => c.id === activeChannelId) || channels[0]
-  const filteredMessages = messages.filter((m) => m.channelId === activeChannelId)
+  const filteredMessages = messages.filter((m) => {
+    if (m.channelId === activeChannelId) return true
+    if (activeChannel?.type === 'dm' && activeChannel.recipientId) {
+      const recId = activeChannel.recipientId
+      const isBetweenUs =
+        (m.senderId === localPlayer.id && m.recipientId === recId) ||
+        (m.senderId === recId && (m.recipientId === localPlayer.id || !m.recipientId)) ||
+        (localPlayer.gameId && m.senderId === localPlayer.gameId && m.recipientId === recId) ||
+        (localPlayer.gameId && m.recipientId === localPlayer.gameId && m.senderId === recId)
+      return isBetweenUs
+    }
+    return false
+  })
   const remotePlayerList = Object.values(remotePlayers)
 
   useEffect(() => {
@@ -234,8 +248,17 @@ const ChatDrawerInner: React.FC = () => {
             ) : (
               remotePlayerList.map((player) => {
                 const dmChannelId = getDmChannelId(localPlayer.id, player.id)
-                const isCurrent = activeChannelId === dmChannelId
-                const dmChannel = channels.find((c) => c.id === dmChannelId)
+                const dmChannel = channels.find(
+                  (c) =>
+                    c.id === dmChannelId ||
+                    (c.type === 'dm' &&
+                      (c.recipientId === player.id ||
+                        (player.gameId && c.recipientId === player.gameId) ||
+                        c.id.includes(player.id)))
+                )
+                const isCurrent =
+                  activeChannelId === dmChannelId ||
+                  (dmChannel && activeChannelId === dmChannel.id)
                 const unreadCount = dmChannel?.unreadCount || 0
 
                 return (
@@ -277,7 +300,10 @@ const ChatDrawerInner: React.FC = () => {
                 (c) =>
                   c.type === 'dm' &&
                   !remotePlayerList.some(
-                    (p) => getDmChannelId(localPlayer.id, p.id) === c.id
+                    (p) =>
+                      getDmChannelId(localPlayer.id, p.id) === c.id ||
+                      c.recipientId === p.id ||
+                      (p.gameId && c.recipientId === p.gameId)
                   )
               )
               .map((dm) => {
@@ -351,11 +377,56 @@ const ChatDrawerInner: React.FC = () => {
                     : 'Envie uma mensagem ou arquivo para todos no canal!'}
                 </div>
               </div>
-            ) : (
-              filteredMessages.map((msg) => {
-                const isMine = msg.senderId === localPlayer.id
+            ) : (() => {
+              const seenRequestIds = new Set<string>()
+
+              return filteredMessages.map((msg) => {
+                const isMine =
+                  msg.senderId === localPlayer.id ||
+                  (localPlayer.gameId && msg.senderId === localPlayer.gameId)
                 const hasAttachment = !!msg.attachment
                 const isImage = hasAttachment && isImageAttachment(msg.attachment!)
+
+                if (msg.friendRequest) {
+                  const rId = msg.friendRequest.requestId
+                  if (seenRequestIds.has(rId)) {
+                    if (!msg.content) return null
+                    return (
+                      <div key={msg.id} className="group relative flex flex-col space-y-1">
+                        <div className="flex items-baseline justify-between">
+                          <span className={`text-xs font-semibold ${isMine ? 'text-indigo-400' : 'text-slate-300'}`}>
+                            {msg.senderName}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-200 bg-[#1b202c] p-2.5 rounded-xl border border-[#2a3142]/60 break-words">
+                          {msg.content}
+                        </div>
+                      </div>
+                    )
+                  }
+                  seenRequestIds.add(rId)
+
+                  return (
+                    <div key={msg.id} className="group relative flex flex-col space-y-1">
+                      <div className="flex items-baseline justify-between">
+                        <span className={`text-xs font-semibold ${isMine ? 'text-indigo-400' : 'text-slate-300'}`}>
+                          {msg.senderName}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <FriendRequestCard
+                        message={msg}
+                        onAccept={(reqId) => respondToFriendRequest(reqId, 'accepted')}
+                        onDecline={(reqId) => respondToFriendRequest(reqId, 'declined')}
+                      />
+                    </div>
+                  )
+                }
 
                 return (
                   <div key={msg.id} className="group relative flex flex-col space-y-1">
@@ -467,7 +538,7 @@ const ChatDrawerInner: React.FC = () => {
                   </div>
                 )
               })
-            )}
+            })()}
             <div ref={messagesEndRef} />
           </div>
 

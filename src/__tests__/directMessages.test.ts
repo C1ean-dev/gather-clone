@@ -114,4 +114,45 @@ describe('Direct Messages & Friend Chat Selection', () => {
     openDirectMessage({ id: 'player-bob', name: 'Bob' })
     expect(useChatStore.getState().activeChannelId).toBe('dm-player-alice-player-bob')
   })
+
+  it('correctly maps incoming DM when receiver opened channel using target peer id', () => {
+    // Alice's localPlayer has peer ID 'gather-v2-room-peer-alice' and gameId 'profile-alice'
+    useGameStore.setState({
+      localPlayer: {
+        id: 'gather-v2-room-peer-alice',
+        gameId: 'profile-alice',
+        name: 'Alice',
+        x: 10,
+        y: 10,
+        direction: 'down',
+        isMoving: false,
+      },
+    })
+
+    // Alice opens direct message with Bob using Bob's peer ID
+    const { openDirectMessage, addMessage } = useChatStore.getState()
+    openDirectMessage({ id: 'gather-v2-room-host-bob', name: 'Bob' })
+
+    const aliceActiveChannel = useChatStore.getState().activeChannelId
+    expect(aliceActiveChannel).toBe('dm-gather-v2-room-host-bob-gather-v2-room-peer-alice')
+
+    // Bob sends a message addressed to Alice's peer ID
+    const msgFromBob: ChatMessage = {
+      id: 'msg-from-bob-1',
+      senderId: 'gather-v2-room-host-bob',
+      senderName: 'Bob',
+      channelId: 'dm-gather-v2-room-host-bob-gather-v2-room-peer-alice',
+      recipientId: 'gather-v2-room-peer-alice',
+      content: 'Oi Alice, recebeu minha mensagem?',
+      timestamp: Date.now(),
+    }
+
+    addMessage(msgFromBob)
+
+    const state = useChatStore.getState()
+    const activeMsgs = state.messages.filter((m) => m.channelId === state.activeChannelId)
+    expect(activeMsgs.length).toBe(1)
+    expect(activeMsgs[0].content).toBe('Oi Alice, recebeu minha mensagem?')
+  })
 })
+

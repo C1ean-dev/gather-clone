@@ -155,6 +155,14 @@ export class PeerManager {
         if (hostTimeout) clearTimeout(hostTimeout)
         console.log('[P2P] Room created with Host ID:', id)
         diagLog('room', 'create-open', { roomCode: this.roomCode, hostPeerId: id })
+        const currentLocal = useGameStore.getState().localPlayer
+        useGameStore.getState().setLocalPlayer({
+          id,
+          gameId: currentLocal.gameId || currentLocal.id,
+          isHost: true,
+          isOwner: true,
+          role: 'host',
+        })
         useGameStore.getState().setRoomSession(this.roomCode!, true, options)
         useGameStore.getState().setConnected(true)
         useGameStore.getState().setConnectionStatus('connected')
@@ -273,7 +281,7 @@ export class PeerManager {
           } else {
             useGameStore.getState().setConnected(false)
             useGameStore.getState().setConnectionStatus('disconnected')
-            reject(new Error(`Host da sala ${this.roomCode} não respondeu.`))
+            reject(new Error(`O anfitrião da sala ${this.roomCode} não respondeu. A sessão P2P anterior pode ainda estar ativa no servidor.`))
           }
         } catch (err) {
           console.error('[P2P AutoHost] Error promoting to host:', err)
@@ -316,6 +324,13 @@ export class PeerManager {
         }
         if (this.peer !== myPeer) return
         diagLog('room', 'join-open', { roomCode: this.roomCode, clientPeerId: id })
+        const currentLocal = useGameStore.getState().localPlayer
+        useGameStore.getState().setLocalPlayer({
+          id,
+          gameId: currentLocal.gameId || currentLocal.id,
+          isHost: false,
+          isOwner: false,
+        })
         useGameStore.getState().setRoomSession(this.roomCode!, false)
         useGameStore.getState().setConnected(true)
         useGameStore.getState().setConnectionStatus('connecting')
@@ -324,7 +339,7 @@ export class PeerManager {
 
         // Connect to Host
         const conn = this.peer!.connect(hostPeerId, {
-          metadata: { player: localPlayer },
+          metadata: { player: useGameStore.getState().localPlayer },
           reliable: true,
         })
 
@@ -739,6 +754,13 @@ export class PeerManager {
 
     this.peer.on('open', (id) => {
       console.log('[P2P Failover] Successfully claimed Host ID:', id)
+      const currentLocal = useGameStore.getState().localPlayer
+      useGameStore.getState().setLocalPlayer({
+        id,
+        gameId: currentLocal.gameId || currentLocal.id,
+        isHost: true,
+        role: 'host',
+      })
       useGameStore.getState().setConnected(true)
       useGameStore.getState().setConnectionStatus('connected')
       this.setupPeerListeners()
@@ -1270,6 +1292,11 @@ export class PeerManager {
 
     this.roomCode = null
     this.isHost = false
+
+    const currentLocal = useGameStore.getState().localPlayer
+    if (currentLocal.gameId) {
+      useGameStore.getState().setLocalPlayer({ id: currentLocal.gameId })
+    }
 
     useGameStore.getState().setConnected(false)
     useGameStore.getState().setConnectionStatus('disconnected')

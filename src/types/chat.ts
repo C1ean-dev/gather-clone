@@ -18,6 +18,17 @@ export interface ChatAttachment {
   dataUrl: string // base64 data url for direct download or image rendering
 }
 
+export type FriendRequestStatus = 'pending' | 'accepted' | 'declined'
+
+export interface FriendRequestData {
+  requestId: string
+  fromUserId: string
+  fromUserName: string
+  toUserId?: string
+  toUserName: string
+  status: FriendRequestStatus
+}
+
 export interface ChatMessage {
   id: string
   senderId: string
@@ -29,5 +40,7 @@ export interface ChatMessage {
   reactions?: Record<string, string[]> // emoji -> array of userIds
   attachment?: ChatAttachment
   recipientId?: string // for direct messages
+  recipientName?: string
+  friendRequest?: FriendRequestData
 }
 
