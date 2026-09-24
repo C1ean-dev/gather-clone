@@ -29,6 +29,13 @@ export interface ProcessAudioCaptureInfo {
   error?: string
 }
 
+export interface AppSettings {
+  openAtLogin: boolean
+  openAsHidden: boolean
+  closeToTray: boolean
+  minimizeToTray: boolean
+}
+
 export interface IElectronAPI {
   getSources: () => Promise<Array<{ id: string; name: string; thumbnail: string; appIcon: string | null }>>
   setScreenSource: (sourceId: string | null, withAudio?: boolean, captureMethod?: string) => Promise<boolean>
@@ -52,6 +59,10 @@ export interface IElectronAPI {
   isFullScreen: () => Promise<boolean>
   diagnosticLogBatch: (entries: unknown[]) => Promise<{ ok: boolean; path: string | null }>
   openLogsFolder: () => Promise<string | null>
+  getAppSettings: () => Promise<AppSettings>
+  setAppSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>
+  minimizeToTray: () => Promise<boolean>
+  quitApp: () => Promise<boolean>
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -103,4 +114,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isFullScreen: () => ipcRenderer.invoke('is-fullscreen'),
   diagnosticLogBatch: (entries: unknown[]) => ipcRenderer.invoke('diagnostic-log-batch', entries),
   openLogsFolder: () => ipcRenderer.invoke('open-logs-folder'),
+  getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
+  setAppSettings: (settings: Partial<AppSettings>) => ipcRenderer.invoke('set-app-settings', settings),
+  minimizeToTray: () => ipcRenderer.invoke('minimize-to-tray'),
+  quitApp: () => ipcRenderer.invoke('quit-app'),
 })

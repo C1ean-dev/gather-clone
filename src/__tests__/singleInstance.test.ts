@@ -57,6 +57,21 @@ describe('setupSingleInstanceLock', () => {
     expect(win.focus).toHaveBeenCalledTimes(1)
   })
 
+  it('second launch restores and shows the running window when hidden in system tray', () => {
+    const win = { isVisible: () => false, isMinimized: () => false, show: vi.fn(), restore: vi.fn(), focus: vi.fn() }
+    let cb: (() => void) | null = null
+    const d = deps({
+      getWindows: () => [win],
+      onSecondInstance: (fn: () => void) => {
+        cb = fn
+      },
+    })
+    setupSingleInstanceLock(d)
+    cb!()
+    expect(win.show).toHaveBeenCalledTimes(1)
+    expect(win.focus).toHaveBeenCalledTimes(1)
+  })
+
   it('second launch with no window is a safe no-op', () => {
     let cb: (() => void) | null = null
     const d = deps({

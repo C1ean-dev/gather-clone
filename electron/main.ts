@@ -8,11 +8,13 @@ import dgram from 'dgram'
 import { spawn, exec } from 'child_process'
 import { release as getOsRelease } from 'os'
 import { setupSingleInstanceLock } from './singleInstance'
+import { TrayManager, AppSettings } from './trayManager'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 let mainWindow: BrowserWindow | null = null
+let trayManager: TrayManager | null = null
 let processAudioCapture: ReturnType<typeof spawn> | null = null
 let processAudioCaptureSourceId: string | null = null
 let processAudioCaptureBytes = 0
@@ -329,15 +331,22 @@ function createWindow() {
   const xOffset = isMultiInstance && instNum > 1 ? 40 + (instNum - 1) * 70 : undefined
   const yOffset = isMultiInstance && instNum > 1 ? 40 + (instNum - 1) * 60 : undefined
 
+  const isStartHidden =
+    process.argv.includes('--hidden') ||
+    process.argv.includes('--start-hidden') ||
+    (app.getLoginItemSettings?.().wasOpenedAsHidden ?? false)
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    show: !isStartHidden,
     ...(xOffset !== undefined ? { x: xOffset } : {}),
     ...(yOffset !== undefined ? { y: yOffset } : {}),
     title: isMultiInstance ? `Gather V2 Clone (Instância ${instanceId})` : 'Gather V2 Clone',
     backgroundColor: '#0c0e14',
+    icon: path.join(__dirname, '../public/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -346,6 +355,10 @@ function createWindow() {
     },
     autoHideMenuBar: true,
   })
+
+  // Inicializa a bandeja do sistema (ícones ocultos no Windows)
+  trayManager = new TrayManager(instanceId, isMultiInstance)
+  trayManager.init(mainWindow)
 
   // Grant media permissions automatically
   session.defaultSession.setPermissionCheckHandler(() => {
@@ -959,6 +972,43 @@ ipcMain.handle('request-firewall-access', async () => {
   })
 })
 
+// IPCs para configurações do sistema (Inicialização com Windows e Bandeja)
+ipcMain.handle('get-app-settings', () => {
+  return trayManager?.getSettings() || {
+    openAtLogin: false,
+    openAsHidden: true,
+    closeToTray: true,
+    minimizeToTray: false,
+  }
+})
+
+ipcMain.handle('set-app-settings', (_event, partial: Partial<AppSettings>) => {
+  return (
+    trayManager?.updateSettings(partial) || {
+      openAtLogin: false,
+      openAsHidden: true,
+      closeToTray: true,
+      minimizeToTray: false,
+    }
+  )
+})
+
+ipcMain.handle('minimize-to-tray', () => {
+  trayManager?.hideWindowToTray()
+  return true
+})
+
+ipcMain.handle('quit-app', () => {
+  if (trayManager) trayManager.setQuitting(true)
+  app.quit()
+  return true
+})
+
+app.on('before-quit', () => {
+  if (trayManager) {
+    trayManager.setQuitting(true)
+  }
+})
 
 app.whenReady().then(() => {
   createWindow()
@@ -967,6 +1017,8 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
+    } else if (mainWindow) {
+      trayManager?.showAndFocusWindow()
     }
   })
 })
@@ -977,6 +1029,10 @@ app.on('window-all-closed', () => {
     try {
       lanSocket.close()
     } catch (e) {}
+  }
+  if (trayManager) {
+    trayManager.destroy()
+    trayManager = null
   }
   if (process.platform !== 'darwin') {
     app.quit()
