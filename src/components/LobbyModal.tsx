@@ -15,6 +15,7 @@ import { createEnterGuard } from '../utils/enterGuard'
 import { DirectConnectTab } from './lobby/DirectConnectTab'
 import { PublicRoomsTab } from './lobby/PublicRoomsTab'
 import { SavedSpacesTab } from './lobby/SavedSpacesTab'
+import { LiraLogo } from './LiraLogo'
 
 interface Props {
   onJoined: () => void
@@ -49,7 +50,7 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
   const [roomInput, setRoomInput] = useState('')
   const [mode, setMode] = useState<'create' | 'join'>('create')
   const [createRoomName, setCreateRoomName] = useState(`Espaço de ${localPlayer.name || 'Trabalho'}`)
-  const [createDescription, setCreateDescription] = useState('Espaço de colaboração e produtividade')
+  const [createDescription, setCreateDescription] = useState('Espaço virtual e comunicação em tempo real')
   const [createIsPublic, setCreateIsPublic] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -376,12 +377,12 @@ export const LobbyModal: React.FC<Props> = ({ onJoined, onOpenAvatarCustomizer }
         <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 p-5 text-center relative overflow-hidden shrink-0">
           <div className="absolute -top-12 -right-12 w-36 h-36 rounded-full bg-white/10 blur-2xl" />
           <div className="relative z-10 flex flex-col items-center">
-            <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center text-2xl font-extrabold text-white shadow-xl mb-1.5">
-              G
+            <div className="mb-2">
+              <LiraLogo size={52} />
             </div>
-            <h1 className="text-lg font-extrabold text-white tracking-tight">Gather V2 Desktop</h1>
-            <p className="text-xs text-indigo-100">
-              Escritório virtual colaborativo com salas públicas em tempo real, áudio P2P e zonas privadas
+            <h1 className="text-xl font-extrabold text-white tracking-wider">LIRA</h1>
+            <p className="text-xs text-indigo-100 max-w-sm mt-0.5">
+              Escritório virtual colaborativo com salas em tempo real, áudio P2P e zonas privadas
             </p>
           </div>
         </div>

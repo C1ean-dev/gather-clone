@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { Channel, ChatMessage } from '../types/chat'
 import { useGameStore } from './useGameStore'
+import { sendNotification } from '../services/notificationService'
 
 export const getDmChannelId = (userId1: string, userId2: string): string => {
   const sorted = [userId1, userId2].sort()
@@ -133,6 +134,24 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           }
           return c
         })
+      }
+
+      // Trigger notification if message is from another user and not currently focused
+      const localId = useGameStore.getState().localPlayer?.id
+      if (message.senderId && message.senderId !== localId && message.senderId !== 'system') {
+        const isDm = message.channelId.startsWith('dm-') || !!message.recipientId
+        if (isDm || !isCurrent) {
+          sendNotification({
+            title: isDm ? `Mensagem de ${message.senderName}` : `#${message.channelId} - ${message.senderName}`,
+            body: message.content,
+            soundType: 'message',
+            tag: `chat-${message.id}`,
+            onClick: () => {
+              get().setActiveChannel(message.channelId)
+              get().setChatOpen(true)
+            },
+          })
+        }
       }
 
       return {

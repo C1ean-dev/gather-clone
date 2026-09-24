@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react'
 import { Radio, MicOff, Maximize, Pin, Maximize2, Volume2, Volume1, VolumeX, Headphones } from 'lucide-react'
 import { useMediaStore } from '../../store/useMediaStore'
+import { useNetworkQualityStore } from '../../store/useNetworkQualityStore'
+import { NetworkSignalIcon } from '../NetworkSignalIcon'
 import { attachStreamToVideo } from '../../media/attachVideoElement'
 
 export interface ParticipantData {
@@ -54,6 +56,11 @@ export const GridParticipantTile: React.FC<Props> = ({
   const selectedAudioOutput = useMediaStore((s) => s.selectedAudioOutput)
   const isDeafened = useMediaStore((s) => s.isDeafened)
   const isSilenced = useMediaStore((s) => s.isUserSilenced(user.id, user.name))
+  const networkQuality = useNetworkQualityStore((s) =>
+    user.isLocal
+      ? s.localQuality
+      : s.peerQualities[user.id] || { pingMs: 0, lossPct: 0, jitterMs: 0, rating: 'excellent', lastUpdated: 0 }
+  )
 
   const rawVolume =
     participantVolumes[user.id] !== undefined
@@ -213,6 +220,13 @@ export const GridParticipantTile: React.FC<Props> = ({
                 <MicOff className={`w-2.5 h-2.5 shrink-0 ${user.isMutedByAdmin ? 'text-amber-400' : 'text-rose-400'}`} />
               </span>
             )}
+            <NetworkSignalIcon
+              rating={networkQuality.rating}
+              pingMs={networkQuality.pingMs}
+              lossPct={networkQuality.lossPct}
+              showPingText={false}
+              size="sm"
+            />
           </div>
         </div>
       </div>
@@ -399,6 +413,13 @@ export const GridParticipantTile: React.FC<Props> = ({
       <div className="absolute bottom-3 left-3 pointer-events-none z-10">
         <div className="bg-black/80 backdrop-blur-md px-3.5 py-1.5 rounded-xl flex items-center gap-2 border border-white/10 text-xs font-semibold text-white pointer-events-auto">
           <span>{isLive ? `Tela de ${user.name}` : user.isLocal ? `${user.name} (Você)` : user.name}</span>
+          <NetworkSignalIcon
+            rating={networkQuality.rating}
+            pingMs={networkQuality.pingMs}
+            lossPct={networkQuality.lossPct}
+            showPingText={true}
+            size="sm"
+          />
           {user.isDeafened && (
             <span
               className="flex items-center gap-1 text-[10px] text-amber-300 bg-amber-950/70 px-1.5 py-0.5 rounded border border-amber-800/50"

@@ -76,7 +76,7 @@ export class TrayManager {
   private instanceTitle: string
 
   constructor(instanceId: string = '1', isMultiInstance: boolean = false) {
-    this.instanceTitle = isMultiInstance ? `Gather Clone V2 (Instância ${instanceId})` : 'Gather Clone V2'
+    this.instanceTitle = isMultiInstance ? `Lira (Instância ${instanceId})` : 'Lira'
     this.settings = readSettingsFromDisk()
 
     // Sync with OS registry if on Windows/Mac
@@ -266,7 +266,7 @@ export class TrayManager {
       },
       { type: 'separator' },
       {
-        label: 'Sair do Gather Clone',
+        label: 'Sair do Lira',
         click: () => {
           this.isQuitting = true
           app.quit()

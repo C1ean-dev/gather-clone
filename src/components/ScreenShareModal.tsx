@@ -41,6 +41,8 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const isScreenSharing = useMediaStore((s) => s.isScreenSharing)
   const screenShareAudioVolume = useMediaStore((s) => s.screenShareAudioVolume)
   const setScreenShareAudioVolume = useMediaStore((s) => s.setScreenShareAudioVolume)
+  const isHardwareAccelerationEnabled = useMediaStore((s) => s.isHardwareAccelerationEnabled)
+  const toggleHardwareAcceleration = useMediaStore((s) => s.toggleHardwareAcceleration)
 
   // Source-only audio is mandatory. It is never a user-selectable mode.
   const includeAudio = true
@@ -372,19 +374,50 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
           {/* Settings Section: Resolution, FPS and Sound */}
           <div className="bg-[#12151d]/60 rounded-2xl p-4 border border-[#2a3142] space-y-4">
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
-              <Sliders className="w-4 h-4 text-indigo-400" />
-              <span>Qualidade & Taxa de Quadros</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
+                <Sliders className="w-4 h-4 text-indigo-400" />
+                <span>Qualidade & Taxa de Quadros</span>
+              </div>
+              <button
+                type="button"
+                onClick={toggleHardwareAcceleration}
+                title={
+                  isHardwareAccelerationEnabled
+                    ? 'Aceleração por GPU ativada (H.264). Clique para alternar para CPU (VP8).'
+                    : 'Aceleração por GPU desativada (CPU/VP8). Clique para ativar aceleração por hardware H.264.'
+                }
+                className={`group flex items-center gap-1.5 px-2.5 py-1 rounded-full border transition-all text-[10px] font-bold cursor-pointer hover:scale-[1.02] active:scale-[0.98] ${
+                  isHardwareAccelerationEnabled
+                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 shadow-sm shadow-emerald-500/10'
+                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700/80 hover:text-slate-200'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full transition-all ${
+                    isHardwareAccelerationEnabled
+                      ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse'
+                      : 'bg-slate-500'
+                  }`}
+                />
+                <span>{isHardwareAccelerationEnabled ? 'GPU / H.264 Acelerado' : 'CPU / Software (VP8)'}</span>
+                <span
+                  className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold transition-colors ${
+                    isHardwareAccelerationEnabled
+                      ? 'bg-emerald-500/25 text-emerald-200'
+                      : 'bg-slate-700 text-slate-300'
+                  }`}
+                >
+                  {isHardwareAccelerationEnabled ? 'ON' : 'OFF'}
+                </span>
+              </button>
             </div>
 
             <div className="space-y-3">
               {/* Resolution Options: Auto, 1080p, 720p, 480p */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="mb-1.5">
                   <label className="text-[11px] font-semibold text-slate-300">Resolução de Vídeo</label>
-                  {resolution === 'auto' && (
-                    <span className="text-[10px] text-indigo-400 font-medium">✨ Calibração automática de rede ativa</span>
-                  )}
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
@@ -412,11 +445,8 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
               {/* Frame Rate (FPS) Options: Auto, 60, 30 */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="mb-1.5">
                   <label className="text-[11px] font-semibold text-slate-300">Taxa de Quadros (FPS)</label>
-                  {fps === 'auto' && (
-                    <span className="text-[10px] text-indigo-400 font-medium">✨ 60 FPS fluído / 30 FPS estável</span>
-                  )}
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   {[
@@ -440,12 +470,6 @@ export const ScreenShareModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   ))}
                 </div>
               </div>
-
-              {(resolution === 'auto' || fps === 'auto') && (
-                <p className="text-[10px] text-slate-400 leading-relaxed bg-[#1b202c]/70 p-2.5 rounded-xl border border-indigo-500/20">
-                  💡 <strong className="text-indigo-300">Modo Automático:</strong> O aplicativo verifica seu ping, upload e quantas pessoas estão na sala, aplicando automaticamente o melhor bitrate (até 5.5 Mbps em 60 FPS) sem sobrecarregar sua internet.
-                </p>
-              )}
             </div>
 
             {/* Volume Control */}

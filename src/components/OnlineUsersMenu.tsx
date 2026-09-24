@@ -29,6 +29,8 @@ import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
 import { useChatStore } from '../store/useChatStore'
 import { useMediaStore } from '../store/useMediaStore'
+import { useNetworkQualityStore } from '../store/useNetworkQualityStore'
+import { NetworkSignalIcon } from './NetworkSignalIcon'
 import { ConfirmModal } from './ConfirmModal'
 import { Player, UserRole } from '../types/game'
 import { knockOnLockedDoor } from '../utils/doorKnockHelper'
@@ -66,6 +68,8 @@ const OnlineUsersMenuInner: React.FC = () => {
   const { toggleChat, openDirectMessage } = useChatStore()
   const peerStreams = useMediaStore((s) => s.peerStreams)
   const callStates = useGameStore((s) => s.callStates)
+  const networkQualities = useNetworkQualityStore((s) => s.peerQualities)
+  const localQuality = useNetworkQualityStore((s) => s.localQuality)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [filterTab, setFilterTab] = useState<'all' | 'friends' | 'roles'>('all')
@@ -296,10 +300,20 @@ const OnlineUsersMenuInner: React.FC = () => {
                           <MapPin className="w-2.5 h-2.5" />
                           <span>{getZoneName(player.currentZoneId)}</span>
                         </span>
-                        <span className="flex items-center gap-1 font-mono">
-                          <span className={`w-1.5 h-1.5 rounded-full ${pingDot}`} />
-                          <span className={pingColor}>{pingMs}ms</span>
-                        </span>
+                        {(() => {
+                          const q = isLocal
+                            ? localQuality
+                            : networkQualities[player.id] || { pingMs, lossPct: 0, jitterMs: 0, rating: 'excellent', lastUpdated: 0 }
+                          return (
+                            <NetworkSignalIcon
+                              rating={q.rating}
+                              pingMs={q.pingMs}
+                              lossPct={q.lossPct}
+                              showPingText={true}
+                              size="sm"
+                            />
+                          )
+                        })()}
                         {player.statusText && (
                           <>
                             <span>•</span>

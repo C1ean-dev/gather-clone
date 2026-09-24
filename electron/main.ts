@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, session, shell, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, desktopCapturer, session, shell, screen, Notification, powerMonitor } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import fs from 'fs'
@@ -305,10 +305,14 @@ if (isMultiInstance) {
 // Prevent AMD GPU DirectComposition video overlay driver conflict on Windows
 app.commandLine.appendSwitch('disable-direct-composition-video-overlays')
 
-// Enable full GPU acceleration
+// Enable full GPU hardware acceleration for live video encoding/decoding and canvas
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('enable-accelerated-video-decode')
+app.commandLine.appendSwitch('enable-accelerated-video-encode')
+app.commandLine.appendSwitch('enable-accelerated-mjpeg-decode')
+app.commandLine.appendSwitch('enable-zero-copy')
+app.commandLine.appendSwitch('enable-native-gpu-memory-buffers')
 // Remote call audio is rendered by the video elements created as soon as a
 // MediaStream arrives. Chromium's default autoplay policy can leave those
 // elements paused until the user clicks the grid/participant tile, which made
@@ -324,7 +328,10 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 // Disabling WGC allows WebRTC to use DXGI Desktop Duplication (ScreenCapturerWinDirectx) for screens
 // and GDI/D3D for windows, which run reliably with zero black screens.
 app.commandLine.appendSwitch('disable-features', 'WebRtcAllowWgcScreenCapturer,WebRtcAllowWgcWindowCapturer')
-app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport,CanvasOopRasterization')
+app.commandLine.appendSwitch(
+  'enable-features',
+  'PlatformHEVCDecoderSupport,CanvasOopRasterization,WebRtcHWEncoding,WebRtcHWDecoding,ZeroCopy'
+)
 
 function createWindow() {
   const instNum = parseInt(instanceId, 10) || 1
@@ -344,7 +351,7 @@ function createWindow() {
     show: !isStartHidden,
     ...(xOffset !== undefined ? { x: xOffset } : {}),
     ...(yOffset !== undefined ? { y: yOffset } : {}),
-    title: isMultiInstance ? `Gather V2 Clone (Instância ${instanceId})` : 'Gather V2 Clone',
+    title: isMultiInstance ? `Lira (Instância ${instanceId})` : 'Lira',
     backgroundColor: '#0c0e14',
     icon: path.join(__dirname, '../public/icon.png'),
     webPreferences: {
@@ -937,7 +944,7 @@ ipcMain.handle('check-firewall-status', async () => {
   if (process.platform !== 'win32') return { isAllowed: true }
   return new Promise((resolve) => {
     const execPath = process.execPath.replace(/'/g, "''")
-    const query = `((Get-NetFirewallRule -DisplayName '*Gather*' -ErrorAction SilentlyContinue | Where-Object { $_.Action -eq 'Allow' -and $_.Enabled -eq 'True' }).Count + (Get-NetFirewallApplicationFilter -Program '${execPath}' -ErrorAction SilentlyContinue | Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object { $_.Action -eq 'Allow' -and $_.Enabled -eq 'True' }).Count)`
+    const query = `((Get-NetFirewallRule -DisplayName '*Lira*','*Gather*' -ErrorAction SilentlyContinue | Where-Object { $_.Action -eq 'Allow' -and $_.Enabled -eq 'True' }).Count + (Get-NetFirewallApplicationFilter -Program '${execPath}' -ErrorAction SilentlyContinue | Get-NetFirewallRule -ErrorAction SilentlyContinue | Where-Object { $_.Action -eq 'Allow' -and $_.Enabled -eq 'True' }).Count)`
     exec(
       `powershell -NoProfile -Command "${query}"`,
       (error, stdout) => {
@@ -957,7 +964,7 @@ ipcMain.handle('request-firewall-access', async () => {
   return new Promise((resolve) => {
     const execPath = process.execPath.replace(/'/g, "''")
     // Cria ou atualiza a regra no Firewall do Windows com Profile Any (Privada + Pública) com privilégios de Administrador
-    const script = `if (!(Get-NetFirewallRule -DisplayName ''Gather Clone'' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName ''Gather Clone'' -Direction Inbound -Program ''${execPath}'' -Action Allow -Profile Any -Enabled True } else { Set-NetFirewallRule -DisplayName ''Gather Clone'' -Program ''${execPath}'' -Action Allow -Profile Any -Enabled True }`
+    const script = `if (!(Get-NetFirewallRule -DisplayName ''Lira'' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName ''Lira'' -Direction Inbound -Program ''${execPath}'' -Action Allow -Profile Any -Enabled True } else { Set-NetFirewallRule -DisplayName ''Lira'' -Program ''${execPath}'' -Action Allow -Profile Any -Enabled True }`
     const psCommand = `Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile', '-Command', "${script}"`
 
     exec(`powershell -NoProfile -Command "${psCommand}"`, (error) => {
@@ -1004,6 +1011,69 @@ ipcMain.handle('quit-app', () => {
   return true
 })
 
+// Native Windows Notifications
+ipcMain.handle(
+  'show-native-notification',
+  async (
+    _event,
+    options: {
+      title: string
+      body: string
+      sound?: boolean
+      tag?: string
+      actions?: Array<{ type: 'button'; text: string }>
+    }
+  ) => {
+    try {
+      if (!Notification.isSupported()) return { ok: false, reason: 'unsupported' }
+      const iconPath = path.join(process.cwd(), 'public', 'tray-icon.png')
+      const notif = new Notification({
+        title: options.title,
+        body: options.body,
+        icon: fs.existsSync(iconPath) ? iconPath : undefined,
+        silent: options.sound === false,
+        actions: options.actions?.map((a) => ({ type: 'button' as const, text: a.text })),
+      })
+
+      notif.on('click', () => {
+        trayManager?.showAndFocusWindow()
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('notification-action', {
+            tag: options.tag,
+            action: 'click',
+          })
+        }
+      })
+
+      notif.on('action', (_actionEvent, index) => {
+        trayManager?.showAndFocusWindow()
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('notification-action', {
+            tag: options.tag,
+            action: 'button',
+            buttonIndex: index,
+          })
+        }
+      })
+
+      notif.show()
+      return { ok: true }
+    } catch (err) {
+      console.warn('[Notification] Failed to show native notification:', err)
+      return { ok: false, error: String(err) }
+    }
+  }
+)
+
+// System Idle Time (for OS-level inactivity detection)
+ipcMain.handle('get-system-idle-time', () => {
+  try {
+    return powerMonitor.getSystemIdleTime()
+  } catch (err) {
+    return 0
+  }
+})
+
 app.on('before-quit', () => {
   if (trayManager) {
     trayManager.setQuitting(true)
@@ -1011,6 +1081,9 @@ app.on('before-quit', () => {
 })
 
 app.whenReady().then(() => {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.lira.app')
+  }
   createWindow()
   initNetworkTriggerAndLanDiscovery()
 

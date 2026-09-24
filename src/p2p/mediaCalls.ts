@@ -949,6 +949,12 @@ export class MediaCallHandler {
       sharing: isSharing,
       tracks: summarizeStream(streamToAnswer),
     })
+    const pc = (call as any).peerConnection as RTCPeerConnection | undefined
+    if (pc) {
+      try {
+        prioritizeH264HardwareCodec(pc)
+      } catch {}
+    }
     call.answer(streamToAnswer)
     ;(call as unknown as { __dir?: 'in' | 'out' }).__dir = 'in'
     mediaCalls.set(call.peer, call)

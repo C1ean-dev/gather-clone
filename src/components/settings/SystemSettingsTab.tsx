@@ -12,13 +12,17 @@ import {
   HelpCircle,
   RefreshCw,
   LogOut,
+  Cpu,
 } from 'lucide-react'
 import { useAppSettings } from '../../hooks/useAppSettings'
 import { useFirewallStatus } from '../../hooks/useFirewallStatus'
+import { useMediaStore } from '../../store/useMediaStore'
 
 export const SystemSettingsTab: React.FC = () => {
   const { settings, isElectron, updateSettings, minimizeToTray, quitApp } = useAppSettings()
   const { isAllowed: isFirewallAllowed, isChecking: isFirewallChecking, isRequesting: isFirewallRequesting, feedback: firewallFeedback, requestAccess: requestFirewallAccess, checkStatus: checkFirewallStatus } = useFirewallStatus()
+  const isHardwareAccelerationEnabled = useMediaStore((s) => s.isHardwareAccelerationEnabled)
+  const setHardwareAccelerationEnabled = useMediaStore((s) => s.setHardwareAccelerationEnabled)
 
   return (
     <div className="space-y-6 text-slate-200 select-none pb-4">
@@ -29,7 +33,7 @@ export const SystemSettingsTab: React.FC = () => {
           <div>
             <div className="font-semibold">Modo Navegador Web detectado</div>
             <div className="text-[11px] text-amber-300/80 mt-0.5">
-              As opções de bandeja do sistema e inicialização com o Windows requerem o aplicativo desktop Electron do Gather Clone.
+              As opções de bandeja do sistema e inicialização com o Windows requerem o aplicativo desktop Electron do Lira.
             </div>
           </div>
         </div>
@@ -45,7 +49,7 @@ export const SystemSettingsTab: React.FC = () => {
             <div>
               <div className="text-sm font-bold text-slate-100">Inicialização Automática</div>
               <div className="text-xs text-slate-400">
-                Iniciar o Gather Clone com o Windows
+                Iniciar o Lira com o Windows
               </div>
             </div>
           </div>
@@ -165,7 +169,59 @@ export const SystemSettingsTab: React.FC = () => {
         )}
       </div>
 
-      {/* Card 3: Windows Defender Firewall */}
+      {/* Card 3: Aceleração por Hardware GPU */}
+      <div className="p-5 rounded-2xl bg-[#12151d]/70 border border-[#2a3142] space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-colors ${
+                isHardwareAccelerationEnabled
+                  ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
+                  : 'bg-slate-800 border-slate-700 text-slate-400'
+              }`}
+            >
+              <Cpu className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <span>Aceleração por Hardware GPU (Live & Vídeo)</span>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full uppercase font-extrabold tracking-wider border transition-colors ${
+                    isHardwareAccelerationEnabled
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                      : 'bg-slate-700/60 text-slate-400 border-slate-600'
+                  }`}
+                >
+                  {isHardwareAccelerationEnabled ? 'Ativada (GPU H.264)' : 'Desativada (CPU VP8)'}
+                </span>
+              </div>
+              <div className="text-xs text-slate-400">
+                {isHardwareAccelerationEnabled
+                  ? 'Codificação e decodificação H.264 via GPU (NVIDIA NVENC, AMD AMF/VCN, Intel QuickSync)'
+                  : 'Codificação via software libvpx na CPU (útil se a GPU for incompatível)'}
+              </div>
+            </div>
+          </div>
+
+          <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-4">
+            <input
+              type="checkbox"
+              checked={isHardwareAccelerationEnabled}
+              onChange={(e) => setHardwareAccelerationEnabled(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+          </label>
+        </div>
+
+        <div className="text-[11.5px] text-slate-400 pl-1 pt-1 leading-relaxed">
+          {isHardwareAccelerationEnabled
+            ? 'A codificação da live (compartilhamento de tela e câmera) e a decodificação dos vídeos recebidos são processadas diretamente nos núcleos dedicados da sua placa de vídeo (GPU) com WebRTC Zero-Copy, aliviando o uso do processador (CPU) para jogos e programas pesados.'
+            : 'A aceleração por hardware está desligada. O vídeo será codificado e decodificado pelo processador do computador (CPU). Pode causar maior uso de CPU durante jogos ou transmissões pesadas.'}
+        </div>
+      </div>
+
+      {/* Card 4: Windows Defender Firewall */}
       <div className="p-5 rounded-2xl bg-[#12151d]/70 border border-[#2a3142] space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -256,13 +312,13 @@ export const SystemSettingsTab: React.FC = () => {
         </div>
         <ul className="list-disc list-inside space-y-1 text-[11.5px] text-slate-400 pl-1">
           <li>
-            <strong className="text-slate-200">Clique com botão esquerdo</strong> no ícone do Gather na barra de tarefas para alternar rapidamente entre mostrar ou ocultar a janela.
+            <strong className="text-slate-200">Clique com botão esquerdo</strong> no ícone do Lira na barra de tarefas para alternar rapidamente entre mostrar ou ocultar a janela.
           </li>
           <li>
             <strong className="text-slate-200">Clique com botão direito</strong> no ícone para acessar o menu rápido de configurações ou sair totalmente.
           </li>
           <li>
-            Para <strong className="text-slate-200">fechar por completo</strong> o aplicativo sem deixá-lo em segundo plano, selecione <em>"Sair do Gather Clone"</em> no menu do ícone da bandeja.
+            Para <strong className="text-slate-200">fechar por completo</strong> o aplicativo sem deixá-lo em segundo plano, selecione <em>"Sair do Lira"</em> no menu do ícone da bandeja.
           </li>
         </ul>
 

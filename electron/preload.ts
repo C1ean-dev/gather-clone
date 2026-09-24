@@ -63,6 +63,17 @@ export interface IElectronAPI {
   setAppSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>
   minimizeToTray: () => Promise<boolean>
   quitApp: () => Promise<boolean>
+  showNativeNotification: (options: {
+    title: string
+    body: string
+    sound?: boolean
+    tag?: string
+    actions?: Array<{ type: 'button'; text: string }>
+  }) => Promise<{ ok: boolean }>
+  onNotificationAction: (
+    callback: (event: { tag?: string; action: 'click' | 'button'; buttonIndex?: number }) => void
+  ) => () => void
+  getSystemIdleTime: () => Promise<number>
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -118,4 +129,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setAppSettings: (settings: Partial<AppSettings>) => ipcRenderer.invoke('set-app-settings', settings),
   minimizeToTray: () => ipcRenderer.invoke('minimize-to-tray'),
   quitApp: () => ipcRenderer.invoke('quit-app'),
+  showNativeNotification: (options: {
+    title: string
+    body: string
+    sound?: boolean
+    tag?: string
+    actions?: Array<{ type: 'button'; text: string }>
+  }) => ipcRenderer.invoke('show-native-notification', options),
+  onNotificationAction: (
+    callback: (event: { tag?: string; action: 'click' | 'button'; buttonIndex?: number }) => void
+  ) => {
+    const handler = (
+      _event: unknown,
+      data: { tag?: string; action: 'click' | 'button'; buttonIndex?: number }
+    ) => callback(data)
+    ipcRenderer.on('notification-action', handler)
+    return () => ipcRenderer.removeListener('notification-action', handler)
+  },
+  getSystemIdleTime: () => ipcRenderer.invoke('get-system-idle-time'),
 })

@@ -1,6 +1,10 @@
 import { create } from 'zustand'
 import { SensitivityMode, AudioProcessorMode } from '../types/audio'
 import { useGameStore } from './useGameStore'
+import {
+  isHardwareAccelerationEnabled as getHwCodecEnabled,
+  setHardwareAccelerationEnabled as setHwCodecEnabled,
+} from '../media/hardwareCodec'
 
 export interface MicCalibration {
   noiseFloorDb: number
@@ -88,6 +92,11 @@ interface MediaStore {
   setScreenShareTargetTitle: (title: string | null) => void
   setScreenShareAudioMode: (mode: 'app_only' | 'app_and_mic') => void
 
+  // WebRTC GPU Hardware Acceleration
+  isHardwareAccelerationEnabled: boolean
+  setHardwareAccelerationEnabled: (enabled: boolean) => void
+  toggleHardwareAcceleration: () => void
+
   // RNNoise engine lifecycle (surfaced so the UI can show ground truth —
   // previously a failed init was silent and the user got raw mic audio).
   rnnoiseStatus: 'idle' | 'loading' | 'ready' | 'fallback' | 'error'
@@ -169,6 +178,12 @@ const loadSavedAudioSettings = () => {
 
 const saved = loadSavedAudioSettings() || {}
 
+if (saved && saved.isHardwareAccelerationEnabled !== undefined) {
+  try {
+    setHwCodecEnabled(Boolean(saved.isHardwareAccelerationEnabled))
+  } catch {}
+}
+
 const saveAudioSettings = (settings: Record<string, any>) => {
   try {
     if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
@@ -232,6 +247,10 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   screenShareIsolateCallAudio: saved.screenShareIsolateCallAudio !== undefined ? saved.screenShareIsolateCallAudio : true,
   screenShareTargetTitle: null,
   screenShareAudioMode: saved.screenShareAudioMode === 'app_and_mic' ? 'app_and_mic' : 'app_only',
+  isHardwareAccelerationEnabled:
+    saved.isHardwareAccelerationEnabled !== undefined
+      ? Boolean(saved.isHardwareAccelerationEnabled)
+      : getHwCodecEnabled(),
 
   // Per-device calibrations, persisted as a flat map.
   micCalibrations: (saved.micCalibrations as Record<string, MicCalibration>) || {},
@@ -315,6 +334,17 @@ export const useMediaStore = create<MediaStore>((set, get) => ({
   setScreenShareAudioMode: (screenShareAudioMode) => {
     saveAudioSettings({ screenShareAudioMode })
     set({ screenShareAudioMode })
+  },
+  setHardwareAccelerationEnabled: (enabled: boolean) => {
+    saveAudioSettings({ isHardwareAccelerationEnabled: enabled })
+    setHwCodecEnabled(enabled)
+    set({ isHardwareAccelerationEnabled: enabled })
+  },
+  toggleHardwareAcceleration: () => {
+    const next = !get().isHardwareAccelerationEnabled
+    saveAudioSettings({ isHardwareAccelerationEnabled: next })
+    setHwCodecEnabled(next)
+    set({ isHardwareAccelerationEnabled: next })
   },
 
   setMicCalibration: (deviceId, cal) => {
