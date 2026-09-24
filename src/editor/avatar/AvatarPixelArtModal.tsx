@@ -242,6 +242,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
   const [scaleDisplay, setScaleDisplay] = useState<string | null>(null)
   const [transformScaleState, setTransformScaleState] = useState<number>(1.0)
   const transformSourceCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const unclippedFramesMapRef = useRef<Map<string, HTMLCanvasElement>>(new Map())
   const transformOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const transformScaleRef = useRef<number>(1.0)
   const transformCommitTimerRef = useRef<any>(null)
@@ -345,7 +346,23 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
 
   // Capture a pristine unclipped snapshot of current drawing canvas as the baseline for Move/Scale
   const captureTransformSource = useCallback(() => {
+    const frameKey = `${activeDirection}_${activeFrameIndex}`
+    const existingUnclipped = unclippedFramesMapRef.current.get(frameKey)
     const canvas = drawCanvasRef.current
+
+    if (
+      existingUnclipped &&
+      canvas &&
+      (existingUnclipped.width > canvas.width || existingUnclipped.height > canvas.height)
+    ) {
+      transformSourceCanvasRef.current = existingUnclipped
+      transformOffsetRef.current = { x: 0, y: 0 }
+      transformScaleRef.current = 1.0
+      setTransformScaleState(1.0)
+      setScaleDisplay(null)
+      return
+    }
+
     if (!canvas) return
     const temp = document.createElement('canvas')
     temp.width = canvas.width
@@ -355,11 +372,12 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     ctx.imageSmoothingEnabled = false
     ctx.drawImage(canvas, 0, 0)
     transformSourceCanvasRef.current = temp
+    unclippedFramesMapRef.current.set(frameKey, temp)
     transformOffsetRef.current = { x: 0, y: 0 }
     transformScaleRef.current = 1.0
     setTransformScaleState(1.0)
     setScaleDisplay(null)
-  }, [])
+  }, [activeDirection, activeFrameIndex])
 
   // Redraw image from pristine source with exact scale and offset (centered within canvas)
   const redrawTransformedImage = useCallback(
@@ -377,16 +395,19 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       const w = canvas.width
       const h = canvas.height
 
+      const srcW = source.width
+      const srcH = source.height
+
       const S = scale
-      const destW = w * S
-      const destH = h * S
+      const destW = Math.round(srcW * S)
+      const destH = Math.round(srcH * S)
       // Scale anchored symmetrically to the center of the canvas:
       const destX = Math.round((w - destW) / 2 + offsetX)
       const destY = Math.round((h - destH) / 2 + offsetY)
 
       ctx.imageSmoothingEnabled = false
       ctx.clearRect(0, 0, w, h)
-      ctx.drawImage(source, 0, 0, w, h, destX, destY, destW, destH)
+      ctx.drawImage(source, 0, 0, srcW, srcH, destX, destY, destW, destH)
 
       setPreviewDataUrl(canvas.toDataURL('image/png'))
     },
@@ -412,6 +433,25 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     redrawTransformedImage(transformSourceCanvasRef.current, 0, 0, 1.0)
     commitTransform()
   }, [redrawTransformedImage, commitTransform])
+
+  // Fit entire source image inside the canvas dimensions without cropping
+  const fitTransform = useCallback(() => {
+    if (!transformSourceCanvasRef.current) {
+      captureTransformSource()
+    }
+    const source = transformSourceCanvasRef.current
+    const canvas = drawCanvasRef.current
+    if (!source || !canvas) return
+
+    const fitScale = Math.min(1.0, canvas.width / source.width, canvas.height / source.height)
+    const roundedScale = Math.max(0.05, Math.round(fitScale * 100) / 100)
+    transformOffsetRef.current = { x: 0, y: 0 }
+    transformScaleRef.current = roundedScale
+    setTransformScaleState(roundedScale)
+    setScaleDisplay(null)
+    redrawTransformedImage(source, 0, 0, roundedScale)
+    commitTransform()
+  }, [captureTransformSource, redrawTransformedImage, commitTransform])
 
   // Nudge transform by (dx, dy) pixels (via arrows or keys)
   const nudgeTransform = useCallback(
@@ -801,6 +841,20 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
         // Draw 1:1 pixel perfect!
         ctx.drawImage(img, 0, 0)
 
+        // Store unclipped version in map
+        const fKey = `${activeDirection}_${safeIndex}`
+        if (!unclippedFramesMapRef.current.has(fKey)) {
+          const uCanvas = document.createElement('canvas')
+          uCanvas.width = img.naturalWidth
+          uCanvas.height = img.naturalHeight
+          const uCtx = uCanvas.getContext('2d')
+          if (uCtx) {
+            uCtx.imageSmoothingEnabled = false
+            uCtx.drawImage(img, 0, 0)
+            unclippedFramesMapRef.current.set(fKey, uCanvas)
+          }
+        }
+
         setPreviewDataUrl(currentImgUrl)
         historyRef.current = [ctx.getImageData(0, 0, canvasPixelWidth, canvasPixelHeight)]
         historyStepRef.current = 0
@@ -853,9 +907,26 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     if (targetW === pixelWidth && targetH === pixelHeight) return
 
     isResizingRef.current = true
-    commitCurrentCanvas()
 
     const canvas = drawCanvasRef.current
+    const activeFrameKey = `${activeDirection}_${activeFrameIndex}`
+
+    // Ensure we have the unclipped pristine image of the active canvas BEFORE resizing
+    let activeUnclipped = unclippedFramesMapRef.current.get(activeFrameKey)
+    if (!activeUnclipped && canvas) {
+      activeUnclipped = document.createElement('canvas')
+      activeUnclipped.width = canvas.width
+      activeUnclipped.height = canvas.height
+      const uCtx = activeUnclipped.getContext('2d')
+      if (uCtx) {
+        uCtx.imageSmoothingEnabled = false
+        uCtx.drawImage(canvas, 0, 0)
+        unclippedFramesMapRef.current.set(activeFrameKey, activeUnclipped)
+      }
+    }
+
+    commitCurrentCanvas()
+
     const activeFrameUrl = canvas ? canvas.toDataURL('image/png') : ''
 
     // Current working snapshot across all directions
@@ -886,7 +957,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       directions.map(async (dir) => {
         const list = currentFramesSnapshot[dir] || []
         const resizedList = await Promise.all(
-          list.map(async (frameUrl) => {
+          list.map(async (frameUrl, fIdx) => {
             if (!frameUrl) return ''
             const off = document.createElement('canvas')
             off.width = targetW
@@ -895,16 +966,42 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
             if (!oCtx) return ''
             oCtx.imageSmoothingEnabled = false
 
+            const fKey = `${dir}_${fIdx}`
+            const unclippedF = unclippedFramesMapRef.current.get(fKey)
+            if (unclippedF) {
+              const srcW = unclippedF.width
+              const srcH = unclippedF.height
+              const dx = Math.round((targetW - srcW) / 2)
+              const dy = Math.round((targetH - srcH) / 2)
+              oCtx.drawImage(unclippedF, dx, dy)
+              return off.toDataURL('image/png')
+            }
+
             const img = new Image()
             img.src = frameUrl
             await new Promise<void>((resolve) => {
               img.onload = () => {
-                const srcW = img.naturalWidth || targetW
-                const srcH = img.naturalHeight || targetH
-                // Place 1:1 centered in the new canvas dimensions without stretching or resampling
+                const srcW = img.naturalWidth || pixelWidth || targetW
+                const srcH = img.naturalHeight || pixelHeight || targetH
+
+                // Place 1:1 centered in the new canvas dimensions without stretching or re-scaling pixels
                 const dx = Math.round((targetW - srcW) / 2)
                 const dy = Math.round((targetH - srcH) / 2)
+
+                oCtx.imageSmoothingEnabled = false
                 oCtx.drawImage(img, dx, dy)
+
+                // Store unclipped version in map
+                const uCanvas = document.createElement('canvas')
+                uCanvas.width = srcW
+                uCanvas.height = srcH
+                const uCtx = uCanvas.getContext('2d')
+                if (uCtx) {
+                  uCtx.imageSmoothingEnabled = false
+                  uCtx.drawImage(img, 0, 0)
+                  unclippedFramesMapRef.current.set(fKey, uCanvas)
+                }
+
                 resolve()
               }
               img.onerror = () => resolve()
@@ -931,17 +1028,26 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       if (ctx) {
         ctx.imageSmoothingEnabled = false
         ctx.clearRect(0, 0, targetW, targetH)
-        const newActiveDataUrl = resizedCanvasFrames[activeDirection]?.[activeFrameIndex] || ''
-        if (newActiveDataUrl) {
-          const img = new Image()
-          img.src = newActiveDataUrl
-          await new Promise<void>((resolve) => {
-            img.onload = () => {
-              ctx.drawImage(img, 0, 0)
-              resolve()
-            }
-            img.onerror = () => resolve()
-          })
+
+        if (activeUnclipped) {
+          const srcW = activeUnclipped.width
+          const srcH = activeUnclipped.height
+          const destX = Math.round((targetW - srcW) / 2)
+          const destY = Math.round((targetH - srcH) / 2)
+          ctx.drawImage(activeUnclipped, destX, destY)
+        } else {
+          const newActiveDataUrl = resizedCanvasFrames[activeDirection]?.[activeFrameIndex] || ''
+          if (newActiveDataUrl) {
+            const img = new Image()
+            img.src = newActiveDataUrl
+            await new Promise<void>((resolve) => {
+              img.onload = () => {
+                ctx.drawImage(img, 0, 0)
+                resolve()
+              }
+              img.onerror = () => resolve()
+            })
+          }
         }
         historyRef.current = [ctx.getImageData(0, 0, targetW, targetH)]
         historyStepRef.current = 0
@@ -951,17 +1057,30 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
       }
     }
 
+    // Keep the pristine unclipped source active for the Move Tool!
+    if (activeUnclipped) {
+      transformSourceCanvasRef.current = activeUnclipped
+      transformOffsetRef.current = { x: 0, y: 0 }
+      transformScaleRef.current = 1.0
+      setTransformScaleState(1.0)
+      setScaleDisplay(null)
+    } else {
+      transformSourceCanvasRef.current = null
+      transformOffsetRef.current = { x: 0, y: 0 }
+      transformScaleRef.current = 1.0
+      setTransformScaleState(1.0)
+      setScaleDisplay(null)
+    }
+
+    // Automatically switch to 'move' tool so user can immediately scroll to scale or reposition
+    setTool('move')
+    toolRef.current = 'move'
+
     // Adaptive zoom scaling for comfortable editing
     const bestZ = calcBestZoom(targetW, targetH)
     setZoom(bestZ)
     setDefaultZoom(bestZ)
     setPanOffset({ x: 0, y: 0 })
-
-    transformSourceCanvasRef.current = null
-    transformOffsetRef.current = { x: 0, y: 0 }
-    transformScaleRef.current = 1.0
-    setTransformScaleState(1.0)
-    setScaleDisplay(null)
 
     setDirectionalFrames(resizedCanvasFrames)
     setPixelWidth(targetW)
@@ -979,13 +1098,6 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
     if (safeW !== pixelWidth || safeH !== pixelHeight) {
       initialLoadedRef.current = true
       handleResizeDimensions(safeW, safeH)
-      // Keep Tamanho in sync if it was previously identical to Dimensões
-      if (tamanhoWidth === pixelWidth && tamanhoHeight === pixelHeight) {
-        setTamanhoWidth(safeW)
-        setTamanhoHeight(safeH)
-        setInputTamanhoWStr(String(safeW))
-        setInputTamanhoHStr(String(safeH))
-      }
     }
   }
 
@@ -1576,9 +1688,9 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
           <div className="flex items-center gap-3">
             {/* Dimensions & Tamanho Controls */}
             <div className="flex flex-col gap-1">
-              {/* Row 1: Dimensions Input (Resolução de Desenho) */}
+              {/* Row 1: Dimensions Input (Resolução da Tela de Desenho / Canvas) */}
               <div className="flex items-center justify-between gap-1.5 bg-[#2b2d31] border border-[#3f4147] px-2.5 py-1 rounded-xl text-xs">
-                <span className="text-[10px] font-bold text-slate-400 min-w-[55px]">Dimensões:</span>
+                <span className="text-[10px] font-bold text-slate-400 min-w-[55px]" title="Resolução da tela trabalhada (área de desenho)">Dimensões:</span>
                 <div className="flex items-center gap-1">
                   <input
                     type="number"
@@ -1594,7 +1706,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                       }
                     }}
                     className="w-12 bg-[#18191c] border border-[#383a40] rounded px-1 py-0.5 text-center text-white font-bold text-xs focus:outline-none focus:border-[#3b82f6]"
-                    title="Resolução da tela em pixels (Enter para aplicar)"
+                    title="Resolução da tela trabalhada em pixels (Enter para aplicar)"
                   />
                   <span className="text-slate-400 text-xs">×</span>
                   <input
@@ -1611,15 +1723,15 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                       }
                     }}
                     className="w-12 bg-[#18191c] border border-[#383a40] rounded px-1 py-0.5 text-center text-white font-bold text-xs focus:outline-none focus:border-[#3b82f6]"
-                    title="Resolução da tela em pixels (Enter para aplicar)"
+                    title="Resolução da tela trabalhada em pixels (Enter para aplicar)"
                   />
                   <span className="text-[10px] text-slate-400 font-medium">px</span>
                 </div>
               </div>
 
-              {/* Row 2: Tamanho Input (Tamanho real no jogo / mapa) */}
+              {/* Row 2: Tamanho Input (Tamanho final de exibição no mapa / jogo e preview) */}
               <div className="flex items-center justify-between gap-1.5 bg-[#2b2d31] border border-[#3f4147] px-2.5 py-1 rounded-xl text-xs">
-                <span className="text-[10px] font-bold text-slate-400 min-w-[55px]">Tamanho:</span>
+                <span className="text-[10px] font-bold text-slate-400 min-w-[55px]" title="Tamanho final de exibição do asset no mapa/jogo e no preview">Tamanho:</span>
                 <div className="flex items-center gap-1">
                   <input
                     type="number"
@@ -1635,7 +1747,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                       }
                     }}
                     className="w-12 bg-[#18191c] border border-[#383a40] rounded px-1 py-0.5 text-center text-white font-bold text-xs focus:outline-none focus:border-[#3b82f6]"
-                    title="Tamanho final no mapa em pixels (Enter para aplicar)"
+                    title="Tamanho final de exibição do asset no mapa/jogo e preview em pixels (Enter para aplicar)"
                   />
                   <span className="text-slate-400 text-xs">×</span>
                   <input
@@ -1652,7 +1764,7 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                       }
                     }}
                     className="w-12 bg-[#18191c] border border-[#383a40] rounded px-1 py-0.5 text-center text-white font-bold text-xs focus:outline-none focus:border-[#3b82f6]"
-                    title="Tamanho final no mapa em pixels (Enter para aplicar)"
+                    title="Tamanho final de exibição do asset no mapa/jogo e preview em pixels (Enter para aplicar)"
                   />
                   <span className="text-[10px] text-slate-400 font-medium">px</span>
                 </div>
@@ -2163,6 +2275,14 @@ export const AvatarPixelArtModal: React.FC<Props> = ({
                           +
                         </button>
                       </div>
+                      <span>•</span>
+                      <button
+                        onClick={fitTransform}
+                        title="Enquadrar arte inteira dentro da tela (ajusta a escala para caber 100% sem cortes)"
+                        className="px-2 py-0.5 rounded-lg bg-[#2b2d31] hover:bg-[#383a40] text-emerald-300 hover:text-emerald-200 text-xs font-semibold border border-[#383a40] transition-colors cursor-pointer"
+                      >
+                        📐 Enquadrar
+                      </button>
                       <span>•</span>
                       <button
                         onClick={resetTransform}
