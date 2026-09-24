@@ -83,5 +83,27 @@ export class NameTagRenderer {
     // Text name
     ctx.fillStyle = isConnecting ? '#fde68a' : '#ffffff'
     ctx.fillText(label, pillX + 10.5, pillY + 9.2)
+
+    // Sleeping "Zzz" floating animation for AFK / away players
+    if (player.status === 'away' || player.statusEmoji === '💤') {
+      const now = Date.now()
+      const zzzChars = ['z', 'Z', 'z']
+      ctx.save()
+      zzzChars.forEach((char, i) => {
+        // Staggered rise and sinusoidal drift
+        const progress = ((now / 1400) + i * 0.33) % 1
+        const alpha = Math.sin(progress * Math.PI)
+        const yOffset = -progress * 16 - 2
+        const xOffset = Math.sin(progress * Math.PI * 2) * 2.5 + (i * 3.5) + (pillW / 2 - 4)
+        const size = 6 + i * 1.5
+
+        ctx.font = `bold ${size}px "Inter", sans-serif`
+        ctx.fillStyle = `rgba(199, 210, 254, ${Math.max(0, alpha * 0.95)})`
+        ctx.shadowColor = 'rgba(99, 102, 241, 0.7)'
+        ctx.shadowBlur = 3
+        ctx.fillText(char, pillX + xOffset, pillY + yOffset)
+      })
+      ctx.restore()
+    }
   }
 }

@@ -31,6 +31,14 @@ export class CanvasEngine {
   public hoverTile: { x: number; y: number } | null = null
   public zoneDragStart: { x: number; y: number } | null = null
   public zoneDragCurrent: { x: number; y: number } | null = null
+  public isShiftPressed: boolean = false
+
+  private onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Shift') this.isShiftPressed = true
+  }
+  private onKeyUp = (e: KeyboardEvent) => {
+    if (e.key === 'Shift') this.isShiftPressed = false
+  }
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
@@ -47,6 +55,8 @@ export class CanvasEngine {
 
   private setupInputs() {
     this.input.setup()
+    window.addEventListener('keydown', this.onKeyDown)
+    window.addEventListener('keyup', this.onKeyUp)
     // NOTE: wheel zoom is handled once by MapViewport's wrapper onWheel
     // (which also owns the immersive/simplified mode switch). Attaching a
     // second native wheel listener here used to apply every scroll tick 2-3×.
@@ -352,7 +362,8 @@ export class CanvasEngine {
       this.zoneDragCurrent,
       currentTime,
       this.fps,
-      this.input.finalDestination
+      this.input.finalDestination,
+      this.isShiftPressed
     )
   }
 

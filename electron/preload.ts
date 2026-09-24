@@ -29,6 +29,13 @@ export interface ProcessAudioCaptureInfo {
   error?: string
 }
 
+export interface AppSettings {
+  openAtLogin: boolean
+  openAsHidden: boolean
+  closeToTray: boolean
+  minimizeToTray: boolean
+}
+
 export interface IElectronAPI {
   getSources: () => Promise<Array<{ id: string; name: string; thumbnail: string; appIcon: string | null }>>
   setScreenSource: (sourceId: string | null, withAudio?: boolean, captureMethod?: string) => Promise<boolean>
@@ -56,6 +63,21 @@ export interface IElectronAPI {
   removePresence?: (userId: string) => Promise<void>
   sendCrossProcessMessage?: (message: any) => Promise<boolean>
   fetchCrossProcessMessages?: (payload: { forUserId: string; forUserName?: string }) => Promise<any[]>
+  getAppSettings: () => Promise<AppSettings>
+  setAppSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>
+  minimizeToTray: () => Promise<boolean>
+  quitApp: () => Promise<boolean>
+  showNativeNotification: (options: {
+    title: string
+    body: string
+    sound?: boolean
+    tag?: string
+    actions?: Array<{ type: 'button'; text: string }>
+  }) => Promise<{ ok: boolean }>
+  onNotificationAction: (
+    callback: (event: { tag?: string; action: 'click' | 'button'; buttonIndex?: number }) => void
+  ) => () => void
+  getSystemIdleTime: () => Promise<number>
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -112,4 +134,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendCrossProcessMessage: (message: any) => ipcRenderer.invoke('send-cross-message', message),
   fetchCrossProcessMessages: (payload: { forUserId: string; forUserName?: string }) =>
     ipcRenderer.invoke('fetch-cross-messages', payload),
+  getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
+  setAppSettings: (settings: Partial<AppSettings>) => ipcRenderer.invoke('set-app-settings', settings),
+  minimizeToTray: () => ipcRenderer.invoke('minimize-to-tray'),
+  quitApp: () => ipcRenderer.invoke('quit-app'),
+  showNativeNotification: (options: {
+    title: string
+    body: string
+    sound?: boolean
+    tag?: string
+    actions?: Array<{ type: 'button'; text: string }>
+  }) => ipcRenderer.invoke('show-native-notification', options),
+  onNotificationAction: (
+    callback: (event: { tag?: string; action: 'click' | 'button'; buttonIndex?: number }) => void
+  ) => {
+    const handler = (
+      _event: unknown,
+      data: { tag?: string; action: 'click' | 'button'; buttonIndex?: number }
+    ) => callback(data)
+    ipcRenderer.on('notification-action', handler)
+    return () => ipcRenderer.removeListener('notification-action', handler)
+  },
+  getSystemIdleTime: () => ipcRenderer.invoke('get-system-idle-time'),
 })

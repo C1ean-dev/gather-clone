@@ -36,6 +36,8 @@ import { RoomSettingsModal } from './RoomSettingsModal'
 import { attachStreamToVideo } from '../media/attachVideoElement'
 import { ParticipantContextMenu } from './grid/ParticipantContextMenu'
 import { ParticipantData } from './grid/GridParticipantTile'
+import { NetworkSignalIcon } from './NetworkSignalIcon'
+import { useNetworkQualityStore } from '../store/useNetworkQualityStore'
 
 interface VideoTileProps {
   id?: string
@@ -84,6 +86,11 @@ const VideoTile: React.FC<VideoTileProps> = ({
   const isGlobalDeafened = useMediaStore((s) => s.isDeafened)
   const isSilenced = useMediaStore((s) => (id ? s.isUserSilenced(id, name) : false))
   const rawVolume = (id && participantVolumes[id] !== undefined) ? participantVolumes[id] : 100
+  const networkQuality = useNetworkQualityStore((s) =>
+    isLocal
+      ? s.localQuality
+      : (id ? s.peerQualities[id] : null) || { pingMs: 0, lossPct: 0, jitterMs: 0, rating: 'excellent' as const, lastUpdated: 0 }
+  )
 
   const isEffectivelyMuted = Boolean(isLocal || suppressAudio || isGlobalDeafened || isSilenced || rawVolume === 0)
 
@@ -227,9 +234,20 @@ const VideoTile: React.FC<VideoTileProps> = ({
 
       {/* Name Pill Tag */}
       <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between px-2 py-0.5 bg-black/70 backdrop-blur-md rounded-lg text-[10px] text-white">
-        <span className="truncate font-medium">
-          {isScreenTrack ? `Tela (${name})` : isLocal ? `${name} (Você)` : name}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="truncate font-medium">
+            {isScreenTrack ? `Tela (${name})` : isLocal ? `${name} (Você)` : name}
+          </span>
+          {!isScreenTrack && (
+            <NetworkSignalIcon
+              rating={networkQuality.rating}
+              pingMs={networkQuality.pingMs}
+              lossPct={networkQuality.lossPct}
+              showPingText={false}
+              size="sm"
+            />
+          )}
+        </div>
         <div className="flex items-center gap-1 shrink-0">
           {isDeafened && (
             <span title={isLocal ? "Você mutou o som para si" : "Usuário mutou o som para si (ensurdecido)"} className="flex items-center">

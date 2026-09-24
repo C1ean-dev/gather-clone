@@ -19,6 +19,7 @@ import { useMediaStore } from './store/useMediaStore'
 import { useChatStore } from './store/useChatStore'
 import { useMapStore } from './store/useMapStore'
 import { UpdateService, UpdateInfo } from './services/updateService'
+import { idleManager } from './services/idleManager'
 import { PeerManager } from './p2p/PeerManager'
 import { MediaManager } from './media/MediaManager'
 
@@ -97,6 +98,12 @@ export const App: React.FC = () => {
       window.removeEventListener('beforeunload', handleUnload)
       window.removeEventListener('pagehide', handleUnload)
     }
+  }, [])
+
+  // 4. Inactivity & AFK detection (5 min idle)
+  useEffect(() => {
+    idleManager.start()
+    return () => idleManager.stop()
   }, [])
 
   const handleConfirmDisconnect = () => {

@@ -254,4 +254,41 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
     expect(useMapStore.getState().mapData.zones.some((z) => z.id === 'test_zone_1')).toBe(false)
     expect(useMapStore.getState().mapData.furniture.some((f) => f.id === 'chair_2')).toBe(true)
   })
+
+  it('should allow user to paint individual floor tiles inside a room instead of filling everything', () => {
+    const mapStore = useMapStore.getState()
+
+    // Add a room/zone at (10, 10) with width 5, height 5
+    mapStore.addOrUpdateZone({
+      id: 'meeting_room_test',
+      name: 'Sala de Reunião',
+      color: '#3b82f6',
+      x: 10,
+      y: 10,
+      width: 5,
+      height: 5,
+    })
+
+    const initialFloorAt10_10 = mapStore.mapData.floors[10][10]
+    const initialFloorAt11_10 = mapStore.mapData.floors[10][11]
+
+    // 1. Painting a single tile at (10, 10) inside the room only changes (10, 10)
+    mapStore.setFloorTile(10, 10, 'wood_light')
+    expect(useMapStore.getState().mapData.floors[10][10]).toBe('wood_light')
+    // Adjacent tile inside the same room remains untouched!
+    expect(useMapStore.getState().mapData.floors[10][11]).toBe(initialFloorAt11_10)
+
+    // 2. User can paint a different floor at (11, 10) inside the same room
+    mapStore.setFloorTile(11, 10, 'grass_light')
+    expect(useMapStore.getState().mapData.floors[10][10]).toBe('wood_light')
+    expect(useMapStore.getState().mapData.floors[10][11]).toBe('grass_light')
+
+    // 3. User can still fill the whole room if explicitly desired using paintFloorInZone
+    mapStore.paintFloorInZone('meeting_room_test', 'wood_light')
+    for (let dy = 0; dy < 5; dy++) {
+      for (let dx = 0; dx < 5; dx++) {
+        expect(useMapStore.getState().mapData.floors[10 + dy][10 + dx]).toBe('wood_light')
+      }
+    }
+  })
 })

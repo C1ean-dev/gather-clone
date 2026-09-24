@@ -1,7 +1,7 @@
 {
   "name": "gather-v2-clone",
   "version": "1.0.0",
-  "description": "Gather V2 Desktop Clone with Pixel Art Office, Realtime Map Editor, Zone Calls, Screenshare and Noise Suppression",
+  "description": "Lira - Espaço Virtual e Comunicação em Tempo Real",
   "main": "dist-electron/main.js",
   "type": "module",
   "scripts": {
@@ -50,8 +50,8 @@
     "wait-on": "^8.0.2"
   },
   "build": {
-    "appId": "com.gather.clone",
-    "productName": "Gather Clone V2",
+    "appId": "com.lira.app",
+    "productName": "Lira",
     "directories": {
       "output": "release"
     },
@@ -65,7 +65,8 @@
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "public/icon.png"
     },
     "nsis": {
       "oneClick": false,

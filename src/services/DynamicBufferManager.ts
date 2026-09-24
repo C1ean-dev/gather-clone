@@ -1,4 +1,5 @@
 import { useMediaStore } from '../store/useMediaStore'
+import { useNetworkQualityStore } from '../store/useNetworkQualityStore'
 import { MediaCallHandler } from '../p2p/mediaCalls'
 import { PeerManager } from '../p2p/PeerManager'
 
@@ -104,6 +105,7 @@ export class DynamicBufferManager {
     this.buffers.video = { ...DYNAMIC_BUFFER_DEFAULT.video }
     this.lastStats.clear()
     this.hasEvaluatedOnce = false
+    useNetworkQualityStore.getState().clearAll()
   }
 
   /**
@@ -162,6 +164,12 @@ export class DynamicBufferManager {
       // No active calls — keep the buffer at floor so the next call starts
       // with no latency penalty. No measurements exist, so report zeros.
       this.applyToStore(store, this.buffers.audio.currentMs, this.buffers.video.currentMs, 0, 0)
+      useNetworkQualityStore.getState().setLocalQuality({
+        pingMs: 0,
+        lossPct: 0,
+        jitterMs: 0,
+        rating: 'excellent',
+      })
       return { audio: this.buffers.audio.currentMs, video: this.buffers.video.currentMs }
     }
 
@@ -176,15 +184,33 @@ export class DynamicBufferManager {
     let maxVideoWidth = 0
     let maxVideoHeight = 0
 
+    let totalPeerPing = 0
+    let peerPingCount = 0
+
     const now = Date.now()
 
     for (const [peerId, call] of mediaCalls.entries()) {
       const pc = (call as any).peerConnection as RTCPeerConnection
       if (!pc || !pc.getStats) continue
 
+      let peerPingMs = 0
+      let peerLossRatio = 0
+      let peerJitterMs = 0
+
       try {
         const stats = await pc.getStats()
         stats.forEach((report) => {
+          // Extract RTT (Round Trip Time / Ping) from candidate-pair
+          if (
+            report.type === 'candidate-pair' &&
+            ((report as any).state === 'succeeded' || (report as any).currentRoundTripTime !== undefined)
+          ) {
+            const rttSec = (report as any).currentRoundTripTime ?? (report as any).roundTripTime
+            if (typeof rttSec === 'number' && rttSec > 0) {
+              peerPingMs = Math.round(rttSec * 1000)
+            }
+          }
+
           if (report.type !== 'inbound-rtp') return
           const kind: 'audio' | 'video' | undefined = (report as any).kind
           if (kind !== 'audio' && kind !== 'video') return
@@ -213,6 +239,9 @@ export class DynamicBufferManager {
             if (total > 0) lossRatio = deltaLost / total
           }
 
+          if (jitterMs > peerJitterMs) peerJitterMs = jitterMs
+          if (lossRatio > peerLossRatio) peerLossRatio = lossRatio
+
           if (kind === 'audio') {
             hasAudio = true
             if (jitterMs > maxJitterAudioMs) maxJitterAudioMs = jitterMs
@@ -235,8 +264,28 @@ export class DynamicBufferManager {
             timestamp: now,
           })
         })
+
+        // Update real-time network quality for this peer
+        useNetworkQualityStore.getState().setPeerQuality(peerId, {
+          pingMs: peerPingMs,
+          lossPct: Math.round(peerLossRatio * 100),
+          jitterMs: Math.round(peerJitterMs),
+        })
+
+        if (peerPingMs > 0) {
+          totalPeerPing += peerPingMs
+          peerPingCount++
+        }
       } catch (err) {
         // Stats can throw on closed connections — safe to skip.
+      }
+    }
+
+    // Clean up disconnected peers from network quality store
+    const storedPeerQualities = useNetworkQualityStore.getState().peerQualities
+    for (const storedPeerId of Object.keys(storedPeerQualities)) {
+      if (!mediaCalls.has(storedPeerId)) {
+        useNetworkQualityStore.getState().removePeerQuality(storedPeerId)
       }
     }
 
@@ -277,6 +326,14 @@ export class DynamicBufferManager {
     const peakLossPct = Math.max(maxLossRatioAudio, maxLossRatioVideo) * 100
     this.applyToStore(store, audioMs, videoMs, peakJitter, peakLossPct)
     this.hasEvaluatedOnce = true
+
+    // Update aggregated local connection quality
+    const avgPing = peerPingCount > 0 ? Math.round(totalPeerPing / peerPingCount) : 0
+    useNetworkQualityStore.getState().setLocalQuality({
+      pingMs: avgPing,
+      lossPct: Math.round(peakLossPct),
+      jitterMs: Math.round(peakJitter),
+    })
 
     return { audio: audioMs, video: videoMs }
   }

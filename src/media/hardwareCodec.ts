@@ -1,15 +1,42 @@
 /**
  * Hardware Codec Optimization for WebRTC
- * Prioritizes H.264 over VP8/VP9 on VIDEO transceivers so Windows offloads video encoding
- * directly to GPU dedicated hardware ASICs (NVIDIA NVENC, AMD AMF/VCN, Intel QuickSync).
+ * Supports toggling between Hardware Acceleration (H.264 NVENC/AMF/QuickSync)
+ * and Software Encoding (VP8 libvpx on CPU).
  */
-export function prioritizeH264HardwareCodec(pc?: RTCPeerConnection | null) {
+
+const STORAGE_HW_KEY = 'gather_hw_acceleration_enabled'
+
+let hwAccelerationActive = (() => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = window.localStorage.getItem(STORAGE_HW_KEY)
+      if (stored !== null) return stored === 'true'
+    }
+  } catch {}
+  return true // Default: GPU hardware acceleration enabled
+})()
+
+export function isHardwareAccelerationEnabled(): boolean {
+  return hwAccelerationActive
+}
+
+export function setHardwareAccelerationEnabled(enabled: boolean) {
+  hwAccelerationActive = enabled
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(STORAGE_HW_KEY, String(enabled))
+      window.dispatchEvent(new CustomEvent('gather:hw-acceleration-changed', { detail: { enabled } }))
+    }
+  } catch {}
+  console.info(`[HardwareCodec] Hardware acceleration: ${enabled ? 'ENABLED (GPU / H.264)' : 'DISABLED (CPU / VP8)'}`)
+}
+
+export function prioritizeH264HardwareCodec(pc?: RTCPeerConnection | null, forceH264?: boolean) {
   if (!pc || typeof pc.getTransceivers !== 'function') return
 
   const globalScope = typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : null
   if (!globalScope) return
 
-  // Per W3C WebRTC 1.0 specification, setCodecPreferences must use capabilities from RTCRtpReceiver
   const rtcReceiver = (globalScope as any).RTCRtpReceiver || (globalScope as any).RTCRtpSender
   if (!rtcReceiver || typeof rtcReceiver.getCapabilities !== 'function') return
 
@@ -17,18 +44,44 @@ export function prioritizeH264HardwareCodec(pc?: RTCPeerConnection | null) {
     const capabilities = rtcReceiver.getCapabilities('video')
     if (!capabilities || !capabilities.codecs || capabilities.codecs.length === 0) return
 
-    // Find H.264 codecs in receiver capabilities
-    const h264Codecs = capabilities.codecs.filter(
-      (c: any) => c.mimeType && c.mimeType.toLowerCase() === 'video/h264'
-    )
-    if (h264Codecs.length === 0) return
+    const useHw = forceH264 !== undefined ? forceH264 : hwAccelerationActive
+    let sortedCodecs: any[]
 
-    const otherCodecs = capabilities.codecs.filter(
-      (c: any) => !c.mimeType || c.mimeType.toLowerCase() !== 'video/h264'
-    )
+    if (useHw) {
+      // Find H.264 codecs in receiver capabilities
+      const h264Codecs = capabilities.codecs.filter(
+        (c: any) => c.mimeType && c.mimeType.toLowerCase() === 'video/h264'
+      )
+      if (h264Codecs.length === 0) return
 
-    // Sorted list containing all valid video capabilities, with H.264 first
-    const sortedCodecs = [...h264Codecs, ...otherCodecs]
+      // Prioritize packetization-mode=1 (required by Windows MediaFoundation for NVENC/AMF/QuickSync hardware offload)
+      const h264Mode1 = h264Codecs.filter(
+        (c: any) => c.sdpFmtpLine && c.sdpFmtpLine.includes('packetization-mode=1')
+      )
+      const h264Other = h264Codecs.filter(
+        (c: any) => !c.sdpFmtpLine || !c.sdpFmtpLine.includes('packetization-mode=1')
+      )
+
+      const otherCodecs = capabilities.codecs.filter(
+        (c: any) => !c.mimeType || c.mimeType.toLowerCase() !== 'video/h264'
+      )
+
+      // Sorted list: H.264 mode 1 first, then other H.264, then VP8/VP9/AV1
+      sortedCodecs = [...h264Mode1, ...h264Other, ...otherCodecs]
+    } else {
+      // Software mode: prioritize VP8/VP9 on CPU
+      const vp8Codecs = capabilities.codecs.filter(
+        (c: any) => c.mimeType && c.mimeType.toLowerCase() === 'video/vp8'
+      )
+      const vp9Codecs = capabilities.codecs.filter(
+        (c: any) => c.mimeType && c.mimeType.toLowerCase() === 'video/vp9'
+      )
+      const otherCodecs = capabilities.codecs.filter(
+        (c: any) => !c.mimeType || (!c.mimeType.toLowerCase().includes('vp8') && !c.mimeType.toLowerCase().includes('vp9'))
+      )
+
+      sortedCodecs = [...vp8Codecs, ...vp9Codecs, ...otherCodecs]
+    }
 
     pc.getTransceivers().forEach((transceiver) => {
       // CRITICAL: NEVER apply video codecs to audio transceivers!
@@ -48,6 +101,166 @@ export function prioritizeH264HardwareCodec(pc?: RTCPeerConnection | null) {
       }
     })
   } catch (err) {
-    console.warn('[HardwareCodec] Error setting H.264 preference:', err)
+    console.warn('[HardwareCodec] Error setting codec preference:', err)
   }
 }
+
+/**
+ * Reorders the video payload types in the SDP m=video line so that H.264 payloads appear first.
+ */
+export function prioritizeH264InSdp(sdp: string): string {
+  if (!sdp || !sdp.includes('m=video')) return sdp
+
+  try {
+    const lines = sdp.split(/\r\n|\n/)
+    const h264Payloads: string[] = []
+    const h264Mode1Payloads: string[] = []
+
+    for (const line of lines) {
+      const rtpMatch = line.match(/^a=rtpmap:(\d+)\s+H264\/90000/i)
+      if (rtpMatch) {
+        h264Payloads.push(rtpMatch[1])
+      }
+    }
+
+    if (h264Payloads.length === 0) return sdp
+
+    for (const pt of h264Payloads) {
+      const fmtpMatch = lines.some((line) => {
+        const regex = new RegExp(`^a=fmtp:${pt}\\s+[^\\r\\n]*packetization-mode=1`, 'i')
+        return regex.test(line)
+      })
+      if (fmtpMatch) {
+        h264Mode1Payloads.push(pt)
+      }
+    }
+
+    const preferredH264 = [
+      ...h264Mode1Payloads,
+      ...h264Payloads.filter((pt) => !h264Mode1Payloads.includes(pt)),
+    ]
+
+    return sdp.replace(
+      /(m=video\s+\d+\s+[\w\/]+\s+)([\d\s]+)/i,
+      (_all, prefix, payloadStr) => {
+        const existingPayloads = payloadStr.trim().split(/\s+/)
+        const remaining = existingPayloads.filter((pt: string) => !preferredH264.includes(pt))
+        const reordered = [...preferredH264, ...remaining].join(' ')
+        return `${prefix}${reordered}`
+      }
+    )
+  } catch (err) {
+    console.warn('[HardwareCodec] Error munging SDP for H.264:', err)
+    return sdp
+  }
+}
+
+/**
+ * Reorders the video payload types in the SDP m=video line so that VP8 payloads appear first (software mode).
+ */
+export function prioritizeVP8InSdp(sdp: string): string {
+  if (!sdp || !sdp.includes('m=video')) return sdp
+
+  try {
+    const lines = sdp.split(/\r\n|\n/)
+    const vp8Payloads: string[] = []
+
+    for (const line of lines) {
+      const rtpMatch = line.match(/^a=rtpmap:(\d+)\s+VP8\/90000/i)
+      if (rtpMatch) {
+        vp8Payloads.push(rtpMatch[1])
+      }
+    }
+
+    if (vp8Payloads.length === 0) return sdp
+
+    return sdp.replace(
+      /(m=video\s+\d+\s+[\w\/]+\s+)([\d\s]+)/i,
+      (_all, prefix, payloadStr) => {
+        const existingPayloads = payloadStr.trim().split(/\s+/)
+        const remaining = existingPayloads.filter((pt: string) => !vp8Payloads.includes(pt))
+        const reordered = [...vp8Payloads, ...remaining].join(' ')
+        return `${prefix}${reordered}`
+      }
+    )
+  } catch (err) {
+    return sdp
+  }
+}
+
+export function prioritizeCodecInSdp(sdp: string, forceH264?: boolean): string {
+  const useHw = forceH264 !== undefined ? forceH264 : hwAccelerationActive
+  return useHw ? prioritizeH264InSdp(sdp) : prioritizeVP8InSdp(sdp)
+}
+
+/**
+ * Installs a transparent interceptor on RTCPeerConnection prototype
+ * to ensure that all offers and answers automatically follow the selected codec configuration.
+ */
+export function installHardwareCodecInterceptor() {
+  const globalScope = typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : null
+  if (!globalScope) return
+
+  const OrigPC = (globalScope as any).RTCPeerConnection
+  if (!OrigPC || (OrigPC as any).__hwCodecInterceptorInstalled) return
+
+  const origCreateOffer = OrigPC.prototype.createOffer
+  if (typeof origCreateOffer === 'function') {
+    OrigPC.prototype.createOffer = async function (options?: any) {
+      try {
+        prioritizeH264HardwareCodec(this)
+      } catch {}
+      const desc = await origCreateOffer.apply(this, arguments as any)
+      if (desc && desc.sdp) {
+        desc.sdp = prioritizeCodecInSdp(desc.sdp)
+      }
+      return desc
+    }
+  }
+
+  const origCreateAnswer = OrigPC.prototype.createAnswer
+  if (typeof origCreateAnswer === 'function') {
+    OrigPC.prototype.createAnswer = async function (options?: any) {
+      try {
+        prioritizeH264HardwareCodec(this)
+      } catch {}
+      const desc = await origCreateAnswer.apply(this, arguments as any)
+      if (desc && desc.sdp) {
+        desc.sdp = prioritizeCodecInSdp(desc.sdp)
+      }
+      return desc
+    }
+  }
+
+  const origSetLocalDescription = OrigPC.prototype.setLocalDescription
+  if (typeof origSetLocalDescription === 'function') {
+    OrigPC.prototype.setLocalDescription = function (desc?: any) {
+      if (desc && desc.sdp) {
+        try {
+          desc.sdp = prioritizeCodecInSdp(desc.sdp)
+        } catch {}
+      }
+      return origSetLocalDescription.apply(this, arguments as any)
+    }
+  }
+
+  const origSetRemoteDescription = OrigPC.prototype.setRemoteDescription
+  if (typeof origSetRemoteDescription === 'function') {
+    OrigPC.prototype.setRemoteDescription = function (desc?: any) {
+      if (desc && desc.sdp) {
+        try {
+          desc.sdp = prioritizeCodecInSdp(desc.sdp)
+        } catch {}
+      }
+      return origSetRemoteDescription.apply(this, arguments as any)
+    }
+  }
+
+  ;(OrigPC as any).__hwCodecInterceptorInstalled = true
+  console.info('[HardwareCodec] RTCPeerConnection interceptor active')
+}
+
+// Auto-install on module load
+try {
+  installHardwareCodecInterceptor()
+} catch {}

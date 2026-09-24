@@ -16,6 +16,9 @@ import { useMapStore } from '../store/useMapStore'
 import { useChatStore } from '../store/useChatStore'
 import { useMediaStore } from '../store/useMediaStore'
 import { PeerManager } from '../p2p/PeerManager'
+import { LiraLogo } from './LiraLogo'
+import { NetworkSignalIcon } from './NetworkSignalIcon'
+import { useNetworkQualityStore } from '../store/useNetworkQualityStore'
 
 interface Props {
   onOpenAvatarModal: () => void
@@ -62,6 +65,7 @@ export const TopNavBar: React.FC<Props> = ({
   const isMuted = useMediaStore((s) => s.isMuted)
   const toggleMute = useMediaStore((s) => s.toggleMute)
   const connectionStatus = useGameStore((s) => s.connectionStatus)
+  const localQuality = useNetworkQualityStore((s) => s.localQuality)
 
   const [copied, setCopied] = useState(false)
   const [autoSavedNotice, setAutoSavedNotice] = useState(false)
@@ -90,9 +94,7 @@ export const TopNavBar: React.FC<Props> = ({
       {/* Left: Brand + Room Code + Privacy Toggle */}
       <div className="flex items-center gap-3">
         <div className="flex items-center">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-500/20">
-            <span className="text-white font-extrabold text-sm">G</span>
-          </div>
+          <LiraLogo size={32} showText={true} />
         </div>
 
         {/* Room ID Badge */}
@@ -263,6 +265,20 @@ export const TopNavBar: React.FC<Props> = ({
             <Download className="w-4 h-4" />
           </button>
         )}
+
+        {/* Real-time Network Quality Indicator */}
+        <div
+          className="flex items-center px-2.5 py-1.5 bg-[#1b202c] border border-[#2a3142] rounded-xl hover:bg-slate-800 transition-colors"
+          title={`Sua Conexão:\nPing: ${localQuality.pingMs > 0 ? `${localQuality.pingMs}ms` : '<10ms'}\nPerda de pacotes: ${localQuality.lossPct}%\nQualidade: ${localQuality.rating}`}
+        >
+          <NetworkSignalIcon
+            rating={localQuality.rating}
+            pingMs={localQuality.pingMs}
+            lossPct={localQuality.lossPct}
+            showPingText={true}
+            size="sm"
+          />
+        </div>
 
         {/* Audio & Video Settings Button */}
         <button

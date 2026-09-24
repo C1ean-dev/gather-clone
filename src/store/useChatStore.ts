@@ -4,6 +4,7 @@ import { useGameStore } from './useGameStore'
 import { playMessageNotificationChime } from '../utils/audioChime'
 import { FriendsPresenceService } from '../services/friendsPresenceService'
 import { PeerManager } from '../p2p/PeerManager'
+import { sendNotification } from '../services/notificationService'
 
 export const getDmChannelId = (userId1: string, userId2: string): string => {
   const sorted = [userId1, userId2].sort()
@@ -352,6 +353,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         persistDmsAndChannels(nextMessages, updatedChannels)
         if (!isFromMe) {
           playMessageNotificationChime()
+        }
+      }
+
+      // Trigger notification if message is from another user and not currently focused
+      if (message.senderId && !isFromMe && message.senderId !== 'system') {
+        if (isDm || !isCurrent) {
+          sendNotification({
+            title: isDm ? `Mensagem de ${message.senderName}` : `#${message.channelId} - ${message.senderName}`,
+            body: message.content,
+            soundType: 'message',
+            tag: `chat-${message.id}`,
+            onClick: () => {
+              get().setActiveChannel(targetChannelId)
+              get().setChatOpen(true)
+            },
+          })
         }
       }
 

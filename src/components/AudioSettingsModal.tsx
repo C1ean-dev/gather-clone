@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react'
-import { X, Sliders, Mic, Sparkles, CheckCircle2, Download } from 'lucide-react'
+import { X, Sliders, Mic, Sparkles, CheckCircle2, Download, Monitor } from 'lucide-react'
 import { useMediaStore } from '../store/useMediaStore'
 import { MediaManager } from '../media/MediaManager'
 import { exportDiagLogs } from '../utils/diagnosticLogger'
 import { AudioDeviceInfo } from '../types/audio'
 import { AudioDevicesTab } from './settings/AudioDevicesTab'
 import { AdvancedAudioTab } from './settings/AdvancedAudioTab'
+import { SystemSettingsTab } from './settings/SystemSettingsTab'
 
 export const AudioSettingsModal: React.FC = () => {
   // Selectors only — whole-store would re-render this modal (and enumerate
@@ -17,7 +18,7 @@ export const AudioSettingsModal: React.FC = () => {
   const [inputDevices, setInputDevices] = useState<AudioDeviceInfo[]>([])
   const [outputDevices, setOutputDevices] = useState<AudioDeviceInfo[]>([])
   const [videoDevices, setVideoDevices] = useState<AudioDeviceInfo[]>([])
-  const [activeTab, setActiveTab] = useState<'devices' | 'advanced'>('devices')
+  const [activeTab, setActiveTab] = useState<'devices' | 'advanced' | 'system'>('devices')
   const [isPlayingTestSound, setIsPlayingTestSound] = useState(false)
   const [logsExported, setLogsExported] = useState(false)
 
@@ -138,7 +139,18 @@ export const AudioSettingsModal: React.FC = () => {
             }`}
           >
             <Sparkles className="w-4 h-4" />
-            ⚙️ Anti-Eco & Sistema
+            ⚙️ Anti-Eco & DSP
+          </button>
+          <button
+            onClick={() => setActiveTab('system')}
+            className={`flex items-center gap-2 pb-3 px-3 text-xs font-bold border-b-2 transition-all ${
+              activeTab === 'system'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Monitor className="w-4 h-4" />
+            🖥️ Sistema & Inicialização
           </button>
         </div>
 
@@ -154,6 +166,7 @@ export const AudioSettingsModal: React.FC = () => {
             />
           )}
           {activeTab === 'advanced' && <AdvancedAudioTab />}
+          {activeTab === 'system' && <SystemSettingsTab />}
         </div>
 
         {/* Modal Footer */}

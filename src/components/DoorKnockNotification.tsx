@@ -4,6 +4,7 @@ import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
 import { PeerManager } from '../p2p/PeerManager'
 import { RoomKnockRequest } from '../types/game'
+import { sendNotification } from '../services/notificationService'
 
 function playKnockSound() {
   try {
@@ -56,6 +57,18 @@ export const DoorKnockNotification: React.FC = () => {
       if (newest.id !== lastSeenKnockId.current) {
         lastSeenKnockId.current = newest.id
         playKnockSound()
+        sendNotification({
+          title: 'Batida na Porta - Lira',
+          body: `${newest.requesterName} está pedindo para entrar em "${newest.zoneName}".`,
+          soundType: 'knock',
+          tag: `knock-${newest.id}`,
+          actions: [{ type: 'button', text: 'Permitir' }],
+          onAction: (idx) => {
+            if (idx === 0) {
+              handleApprove(newest)
+            }
+          },
+        })
       }
     }
   }, [activeKnocks])
