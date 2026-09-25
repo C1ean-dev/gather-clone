@@ -1,0 +1,30 @@
+/* Global Custom Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a3142 rgba(18, 21, 29, 0.4);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(18, 21, 29, 0.4);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a3142;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4f46e5;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
