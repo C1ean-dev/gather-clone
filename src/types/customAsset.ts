@@ -41,7 +41,7 @@ export interface CustomAsset {
   directionalDimensions?: Partial<Record<Direction, DirectionalDimension>>
   directionalCollisionGrids?: Partial<Record<Direction, boolean[][]>>
   frameLayers?: CustomAssetLayer[][] // Separate layers preserved for each frame
-  frameRateMs: number // default 160ms
+  frameRateMs?: number // default 160ms
   iconColor?: string
   createdAt: number
   creationSource?: 'slicer' | 'atlas' | 'studio'

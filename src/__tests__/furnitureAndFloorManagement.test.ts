@@ -34,6 +34,7 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
       height: 2,
       isObstacle: true,
       frames: ['data:image/png;base64,mockThrone'],
+      frameRateMs: 160,
       createdAt: Date.now(),
     }
     assetStore.addCustomAsset(furnAsset)
@@ -47,9 +48,6 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
       defId: 'furn_throne_001',
       x: 5,
       y: 5,
-      width: 2,
-      height: 2,
-      isObstacle: true,
     })
     expect(useMapStore.getState().mapData.furniture.some((f) => f.defId === 'furn_throne_001')).toBe(true)
 
@@ -85,6 +83,7 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
       height: 1,
       isObstacle: false,
       frames: ['data:image/png;base64,mockLava'],
+      frameRateMs: 160,
       createdAt: Date.now(),
     }
     assetStore.addCustomAsset(floorAsset)
@@ -128,6 +127,7 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
       pixelHeight: 32,
       isObstacle: false,
       frames: ['data:image/png;base64,mockCarpet'],
+      frameRateMs: 160,
       createdAt: Date.now(),
     }
     assetStore.addCustomAsset(floor2x1)
@@ -162,6 +162,7 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
       pixelHeight: 128,
       isObstacle: false,
       frames: ['data:image/png;base64,mockDanceFloor'],
+      frameRateMs: 160,
       createdAt: Date.now(),
     }
     assetStore.addCustomAsset(floor4x4)
@@ -206,8 +207,6 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
       defId: 'office_chair_blue',
       x: 4,
       y: 4,
-      width: 1,
-      height: 1,
     })
 
     expect(useMapStore.getState().mapData.furniture.some((f) => f.id === 'chair_1')).toBe(true)
@@ -234,8 +233,6 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
       defId: 'office_chair_blue',
       x: 4,
       y: 4,
-      width: 1,
-      height: 1,
     })
 
     // Erasing floor at (4,4) only resets the floor! Furniture and zone are preserved.
@@ -279,9 +276,9 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
     expect(useMapStore.getState().mapData.floors[10][11]).toBe(initialFloorAt11_10)
 
     // 2. User can paint a different floor at (11, 10) inside the same room
-    mapStore.setFloorTile(11, 10, 'grass_light')
+    mapStore.setFloorTile(11, 10, 'grass')
     expect(useMapStore.getState().mapData.floors[10][10]).toBe('wood_light')
-    expect(useMapStore.getState().mapData.floors[10][11]).toBe('grass_light')
+    expect(useMapStore.getState().mapData.floors[10][11]).toBe('grass')
 
     // 3. User can still fill the whole room if explicitly desired using paintFloorInZone
     mapStore.paintFloorInZone('meeting_room_test', 'wood_light')
