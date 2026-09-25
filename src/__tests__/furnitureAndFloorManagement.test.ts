@@ -4,6 +4,21 @@ import { useMapStore } from '../store/useMapStore'
 import { CustomAsset } from '../types/customAsset'
 import { createEmptyWorkspace } from '../editor/templates'
 
+function createCustomAssetFixture(
+  overrides: Partial<CustomAsset> & { id: string; name: string; type: CustomAsset['type'] }
+): CustomAsset {
+  return {
+    category: 'Geral',
+    width: 1,
+    height: 1,
+    isObstacle: overrides.type === 'furniture',
+    frames: ['data:image/png;base64,mockFrame'],
+    frameRateMs: 160,
+    createdAt: Date.now(),
+    ...overrides,
+  }
+}
+
 describe('Furniture & Floor Management (Edit and Delete)', () => {
   beforeEach(() => {
     useCustomAssetsStore.setState({
@@ -25,18 +40,14 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
     const mapStore = useMapStore.getState()
 
     // 1. Add furniture
-    const furnAsset: CustomAsset = {
+    const furnAsset = createCustomAssetFixture({
       id: 'furn_throne_001',
       name: 'Trono Real',
       type: 'furniture',
-      category: 'Geral',
       width: 2,
       height: 2,
-      isObstacle: true,
       frames: ['data:image/png;base64,mockThrone'],
-      frameRateMs: 160,
-      createdAt: Date.now(),
-    }
+    })
     assetStore.addCustomAsset(furnAsset)
 
     expect(useCustomAssetsStore.getState().getAssetById('furn_throne_001')).toBeDefined()
@@ -74,18 +85,12 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
     const mapStore = useMapStore.getState()
 
     // 1. Add custom floor
-    const floorAsset: CustomAsset = {
+    const floorAsset = createCustomAssetFixture({
       id: 'floor_lava_tiles',
       name: 'Piso de Lava',
       type: 'floor',
-      category: 'Geral',
-      width: 1,
-      height: 1,
-      isObstacle: false,
       frames: ['data:image/png;base64,mockLava'],
-      frameRateMs: 160,
-      createdAt: Date.now(),
-    }
+    })
     assetStore.addCustomAsset(floorAsset)
     expect(useCustomAssetsStore.getState().getAssetById('floor_lava_tiles')).toBeDefined()
 
@@ -116,20 +121,16 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
     const mapStore = useMapStore.getState()
 
     // 1. Create a 2x1 custom floor
-    const floor2x1: CustomAsset = {
+    const floor2x1 = createCustomAssetFixture({
       id: 'floor_carpet_2x1',
       name: 'Tapete Longo',
       type: 'floor',
-      category: 'Geral',
       width: 2,
       height: 1,
       pixelWidth: 64,
       pixelHeight: 32,
-      isObstacle: false,
       frames: ['data:image/png;base64,mockCarpet'],
-      frameRateMs: 160,
-      createdAt: Date.now(),
-    }
+    })
     assetStore.addCustomAsset(floor2x1)
 
     // Verify properties
@@ -151,20 +152,16 @@ describe('Furniture & Floor Management (Edit and Delete)', () => {
     expect(useMapStore.getState().mapData.floors[4][5]).not.toBe('floor_carpet_2x1')
 
     // 3. Create a 4x4 custom floor
-    const floor4x4: CustomAsset = {
+    const floor4x4 = createCustomAssetFixture({
       id: 'floor_dance_4x4',
       name: 'Pista de Dança 4x4',
       type: 'floor',
-      category: 'Geral',
       width: 4,
       height: 4,
       pixelWidth: 128,
       pixelHeight: 128,
-      isObstacle: false,
       frames: ['data:image/png;base64,mockDanceFloor'],
-      frameRateMs: 160,
-      createdAt: Date.now(),
-    }
+    })
     assetStore.addCustomAsset(floor4x4)
 
     const retrieved4x4 = assetStore.getAssetById('floor_dance_4x4')
