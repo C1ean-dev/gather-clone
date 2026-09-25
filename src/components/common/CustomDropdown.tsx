@@ -6,7 +6,6 @@ export interface DropdownOption<T extends string = string> {
   label: string
   dotColor?: string
   icon?: React.ReactNode
-  description?: string
 }
 
 interface CustomDropdownProps<T extends string = string> {
@@ -14,13 +13,8 @@ interface CustomDropdownProps<T extends string = string> {
   options: DropdownOption<T>[]
   onChange: (value: T) => void
   labelPrefix?: string
-  placeholder?: string
-  className?: string
   buttonClassName?: string
-  menuClassName?: string
   size?: 'sm' | 'md'
-  disabled?: boolean
-  placement?: 'bottom-left' | 'bottom-right'
   title?: string
   fullWidth?: boolean
 }
@@ -30,13 +24,8 @@ export function CustomDropdown<T extends string = string>({
   options,
   onChange,
   labelPrefix,
-  placeholder,
-  className = '',
   buttonClassName = '',
-  menuClassName = '',
   size = 'sm',
-  disabled = false,
-  placement = 'bottom-left',
   title,
   fullWidth = false,
 }: CustomDropdownProps<T>) {
@@ -45,7 +34,7 @@ export function CustomDropdown<T extends string = string>({
 
   const selectedOption = options.find((opt) => opt.value === value)
 
-  // Close on outside click
+  // Close on outside click or Escape
   useEffect(() => {
     if (!isOpen) return
 
@@ -74,14 +63,13 @@ export function CustomDropdown<T extends string = string>({
   return (
     <div
       ref={containerRef}
-      className={`relative ${fullWidth ? 'w-full block' : 'inline-block'} ${className}`}
+      className={`relative ${fullWidth ? 'w-full block' : 'inline-block'}`}
       title={title}
     >
       {/* Dropdown Trigger Button */}
       <button
         type="button"
-        disabled={disabled}
-        onClick={() => !disabled && setIsOpen((prev) => !prev)}
+        onClick={() => setIsOpen((prev) => !prev)}
         className={`flex items-center justify-between gap-1.5 rounded-xl transition-all cursor-pointer select-none border ${
           fullWidth ? 'w-full' : ''
         } ${
@@ -90,7 +78,7 @@ export function CustomDropdown<T extends string = string>({
           isOpen
             ? 'bg-[#1b202c] border-indigo-500/80 shadow-md shadow-indigo-500/10 text-white'
             : 'bg-[#1b202c] hover:bg-[#232938] border-[#2a3142] text-slate-200 hover:text-white'
-        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${buttonClassName}`}
+        } ${buttonClassName}`}
       >
         <div className="flex items-center gap-1.5 min-w-0 flex-1 text-left">
           {labelPrefix && (
@@ -108,7 +96,7 @@ export function CustomDropdown<T extends string = string>({
           )}
 
           <span className="font-bold truncate text-slate-100 flex-1">
-            {selectedOption?.label || placeholder || value}
+            {selectedOption?.label || value}
           </span>
         </div>
 
@@ -122,11 +110,9 @@ export function CustomDropdown<T extends string = string>({
       {/* Floating Menu Popover */}
       {isOpen && (
         <div
-          className={`absolute z-[999] mt-1.5 ${
+          className={`absolute left-0 z-[999] mt-1.5 ${
             fullWidth ? 'w-full min-w-full' : 'min-w-[150px]'
-          } max-h-60 overflow-y-auto bg-[#12151d]/95 backdrop-blur-xl border border-[#2a3142] rounded-xl shadow-2xl p-1 select-none text-slate-200 animate-in fade-in zoom-in-95 duration-150 ${
-            placement === 'bottom-right' ? 'right-0' : 'left-0'
-          } ${menuClassName}`}
+          } max-h-60 overflow-y-auto bg-[#12151d]/95 backdrop-blur-xl border border-[#2a3142] rounded-xl shadow-2xl p-1 select-none text-slate-200 animate-in fade-in zoom-in-95 duration-150`}
         >
           {options.length === 0 ? (
             <div className="px-3 py-2 text-xs text-slate-400 text-center">
