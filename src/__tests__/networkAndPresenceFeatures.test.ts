@@ -99,6 +99,42 @@ describe('Status de Presença Automático (Idle / AFK Presence Manager)', () => 
     expect(restoredPlayer.statusText).toBe('Disponível')
     expect(restoredPlayer.statusEmoji).toBe('💻')
   })
+
+  it('markUserActive immediately wakes up the player upon any mouse or keyboard activity', async () => {
+    // 1. Put user in AFK state
+    vi.spyOn(idleManager, 'getIdleSeconds').mockResolvedValue(IDLE_TIMEOUT_SECONDS + 10)
+    await (idleManager as any).checkIdleStatus()
+    expect(useGameStore.getState().localPlayer.statusText).toBe('Ausente (AFK)')
+
+    // 2. User moves mouse / types -> calls markUserActive()
+    idleManager.markUserActive()
+
+    const awakePlayer = useGameStore.getState().localPlayer
+    expect(awakePlayer.status).toBe('available')
+    expect(awakePlayer.statusText).toBe('Disponível')
+    expect(awakePlayer.statusEmoji).toBe('💻')
+  })
+
+  it('guarantees that restoring status never leaves the user stuck in Ausente (AFK)', () => {
+    // Force player in store to be away with no previous status recorded
+    useGameStore.setState({
+      localPlayer: {
+        ...useGameStore.getState().localPlayer,
+        status: 'away',
+        statusText: 'Ausente (AFK)',
+        statusEmoji: '💤',
+      },
+    })
+    idleManager.resetForTesting()
+
+    // Calling markUserActive should safely transition back to available / Disponível
+    idleManager.markUserActive()
+
+    const activePlayer = useGameStore.getState().localPlayer
+    expect(activePlayer.status).toBe('available')
+    expect(activePlayer.statusText).toBe('Disponível')
+    expect(activePlayer.statusEmoji).toBe('')
+  })
 })
 
 describe('Notificações Nativas do Windows & Som de Chamada (Notification Service)', () => {

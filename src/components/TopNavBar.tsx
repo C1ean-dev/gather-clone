@@ -37,6 +37,7 @@ export const TopNavBar: React.FC<Props> = ({
   // re-render this bar at 60Hz on every movement frame. Select only UI fields.
   const localPlayerName = useGameStore((s) => s.localPlayer.name)
   const localPlayerAvatarColor = useGameStore((s) => s.localPlayer.avatar?.shirtColor)
+  const localPlayerStatus = useGameStore((s) => s.localPlayer.status)
   const localPlayerStatusText = useGameStore((s) => s.localPlayer.statusText)
   const localPlayerCurrentZoneId = useGameStore((s) => s.localPlayer.currentZoneId)
   const roomId = useGameStore((s) => s.roomId)
@@ -301,7 +302,17 @@ export const TopNavBar: React.FC<Props> = ({
             >
               {localPlayerName.charAt(0).toUpperCase()}
             </div>
-            <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-[#12151d]" />
+            <div
+              className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-[#12151d] ${
+                localPlayerStatus === 'busy'
+                  ? 'bg-rose-500'
+                  : localPlayerStatus === 'focusing'
+                  ? 'bg-purple-500'
+                  : localPlayerStatus === 'away'
+                  ? 'bg-amber-400'
+                  : 'bg-emerald-400'
+              }`}
+            />
           </div>
           <div className="text-left">
             <div className="text-xs font-bold text-slate-200 group-hover:text-white leading-tight">

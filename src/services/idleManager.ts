@@ -58,21 +58,33 @@ class IdleManager {
     this.lastDomActivityTime = Date.now()
   }
 
+  public markUserActive() {
+    this.lastDomActivityTime = Date.now()
+    const { localPlayer } = useGameStore.getState()
+    const isAfk =
+      this.isAutoAway ||
+      localPlayer.status === 'away' ||
+      localPlayer.statusText === 'Ausente (AFK)' ||
+      localPlayer.statusEmoji === '💤'
+
+    if (isAfk) {
+      this.restoreActiveStatus()
+    }
+  }
+
   private attachDomActivityListeners() {
     if (this.listenersAttached || typeof window === 'undefined') return
     this.listenersAttached = true
 
-    const markActive = () => {
-      this.lastDomActivityTime = Date.now()
-      if (this.isAutoAway) {
-        this.restoreActiveStatus()
-      }
-    }
+    const markActive = () => this.markUserActive()
 
-    window.addEventListener('mousemove', markActive, { passive: true })
-    window.addEventListener('keydown', markActive, { passive: true })
-    window.addEventListener('pointerdown', markActive, { passive: true })
-    window.addEventListener('wheel', markActive, { passive: true })
+    // Use capture phase so stopped propagation on inner elements doesn't swallow user activity
+    window.addEventListener('mousemove', markActive, { passive: true, capture: true })
+    window.addEventListener('keydown', markActive, { passive: true, capture: true })
+    window.addEventListener('pointerdown', markActive, { passive: true, capture: true })
+    window.addEventListener('wheel', markActive, { passive: true, capture: true })
+    window.addEventListener('focus', markActive, { passive: true, capture: true })
+    window.addEventListener('touchstart', markActive, { passive: true, capture: true })
   }
 
   /**
@@ -95,20 +107,26 @@ class IdleManager {
     return Math.floor((Date.now() - this.lastDomActivityTime) / 1000)
   }
 
-  private async checkIdleStatus() {
+  public async checkIdleStatus() {
     const idleSeconds = await this.getIdleSeconds()
     const { localPlayer, setLocalStatus } = useGameStore.getState()
 
     if (idleSeconds >= IDLE_TIMEOUT_SECONDS) {
-      if (!this.isAutoAway) {
-        // Record previous status before going AFK
+      if (!this.isAutoAway && localPlayer.status !== 'away') {
+        // Record previous status before going AFK, ensuring it's not already away
+        const prevStatus = localPlayer.status
+        const prevText =
+          localPlayer.statusText === 'Ausente (AFK)' ? 'Disponível' : (localPlayer.statusText || 'Disponível')
+        const prevEmoji = localPlayer.statusEmoji === '💤' ? '' : (localPlayer.statusEmoji || '')
+
         this.previousStatus = {
-          status: localPlayer.status,
-          statusText: localPlayer.statusText,
-          statusEmoji: localPlayer.statusEmoji,
+          status: prevStatus,
+          statusText: prevText,
+          statusEmoji: prevEmoji,
         }
         this.isAutoAway = true
-        setLocalStatus('away', 'Ausente (AFK)', '💤')
+        // Pass persist = false so auto AFK is never saved permanently into localStorage
+        setLocalStatus('away', 'Ausente (AFK)', '💤', false)
         try {
           PeerManager.getInstance().sendPlayerUpdate({
             status: 'away',
@@ -117,28 +135,38 @@ class IdleManager {
           })
         } catch {}
       }
-    } else if (this.isAutoAway && idleSeconds < 10) {
-      this.restoreActiveStatus()
+    } else if (idleSeconds < IDLE_TIMEOUT_SECONDS) {
+      // If idle time is below timeout and user is marked away, restore active state!
+      const isAfk =
+        this.isAutoAway ||
+        localPlayer.status === 'away' ||
+        localPlayer.statusText === 'Ausente (AFK)' ||
+        localPlayer.statusEmoji === '💤'
+
+      if (isAfk) {
+        this.restoreActiveStatus()
+      }
     }
   }
 
-  private restoreActiveStatus() {
-    if (!this.isAutoAway) return
+  public restoreActiveStatus() {
     this.isAutoAway = false
 
     const { setLocalStatus } = useGameStore.getState()
-    const restored = this.previousStatus || {
-      status: 'available' as PresenceStatus,
-      statusText: 'Disponível',
-      statusEmoji: '',
-    }
+    const prev = this.previousStatus
 
-    setLocalStatus(restored.status, restored.statusText, restored.statusEmoji)
+    // Guarantee that target status is NEVER away / Ausente (AFK)
+    const targetStatus = prev?.status && prev.status !== 'away' ? prev.status : 'available'
+    const targetText =
+      prev?.statusText && prev.statusText !== 'Ausente (AFK)' ? prev.statusText : 'Disponível'
+    const targetEmoji = prev?.statusEmoji && prev.statusEmoji !== '💤' ? prev.statusEmoji : ''
+
+    setLocalStatus(targetStatus, targetText, targetEmoji, false)
     try {
       PeerManager.getInstance().sendPlayerUpdate({
-        status: restored.status,
-        statusText: restored.statusText,
-        statusEmoji: restored.statusEmoji,
+        status: targetStatus,
+        statusText: targetText,
+        statusEmoji: targetEmoji,
       })
     } catch {}
 

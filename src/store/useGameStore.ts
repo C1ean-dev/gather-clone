@@ -102,7 +102,7 @@ interface GameStore {
   localPlayer: Player
   setLocalPlayer: (player: Partial<Player>) => void
   setLocalPosition: (x: number, y: number, direction: 'up' | 'down' | 'left' | 'right', isMoving: boolean) => void
-  setLocalStatus: (status: PresenceStatus, statusText?: string, statusEmoji?: string) => void
+  setLocalStatus: (status: PresenceStatus, statusText?: string, statusEmoji?: string, persist?: boolean) => void
   setCurrentZoneId: (zoneId: string | null) => void
 
   // Remote Players
@@ -402,9 +402,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
       canKick: false,
     },
     avatar: saved.avatar ? { ...DEFAULT_AVATAR, ...saved.avatar } : { ...DEFAULT_AVATAR },
-    status: saved.status || 'available',
-    statusText: saved.statusText || 'Disponível',
-    statusEmoji: saved.statusEmoji || '',
+    status: (saved.status === 'away' ? 'available' : saved.status) || 'available',
+    statusText: (saved.statusText === 'Ausente (AFK)' ? 'Disponível' : saved.statusText) || 'Disponível',
+    statusEmoji: (saved.statusEmoji === '💤' ? '' : saved.statusEmoji) || '',
     currentZoneId: null,
     lastUpdated: Date.now(),
     isMuted: false,
@@ -450,12 +450,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
     }),
 
-  setLocalStatus: (status, statusText, statusEmoji) => {
-    saveProfile({
-      status,
-      statusText,
-      statusEmoji,
-    })
+  setLocalStatus: (status, statusText, statusEmoji, persist = true) => {
+    if (persist) {
+      saveProfile({
+        status,
+        statusText,
+        statusEmoji,
+      })
+    }
     set((state) => ({
       localPlayer: {
         ...state.localPlayer,
