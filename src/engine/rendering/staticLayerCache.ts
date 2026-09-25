@@ -26,8 +26,17 @@ let lastAssetRef: unknown = null
 
 const MAX_STATIC_PIXELS = 4096 * 4096
 
-function isAnimatedAsset(asset: { frames?: unknown[] } | undefined): boolean {
-  return !!asset && Array.isArray(asset.frames) && asset.frames.length > 1
+function isAnimatedAsset(
+  asset: { frames?: unknown[]; directionalFrames?: Partial<Record<string, unknown>> } | undefined
+): boolean {
+  if (!asset) return false
+  if (Array.isArray(asset.frames) && asset.frames.length > 1) return true
+  if (asset.directionalFrames) {
+    for (const val of Object.values(asset.directionalFrames)) {
+      if (Array.isArray(val) && val.length > 1) return true
+    }
+  }
+  return false
 }
 
 export function invalidateStaticLayer(): void {

@@ -1,4 +1,5 @@
 import { FloorType, WallType, PlacedFurniture, PrivateZone } from '../types/map'
+import { Direction } from '../types/game'
 import { TILE_SIZE } from './Constants'
 import { FloorRenderer } from './rendering/floorRenderer'
 import { WallRenderer, type ZoneWallTheme, getZoneWallTheme } from './rendering/wallRenderer'
@@ -38,9 +39,10 @@ export class PixelArtRenderer {
     type: WallType | string,
     x: number,
     y: number,
-    size: number = TILE_SIZE
+    size: number = TILE_SIZE,
+    direction: Direction = 'down'
   ) {
-    WallRenderer.drawWall(ctx, type, x, y, size)
+    WallRenderer.drawWall(ctx, type, x, y, size, direction)
   }
 
   /**

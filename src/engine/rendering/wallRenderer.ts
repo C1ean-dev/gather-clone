@@ -2,6 +2,7 @@ import { WallType, PrivateZone } from '../../types/map'
 import { TILE_SIZE } from '../Constants'
 import { useCustomAssetsStore, getCustomAssetImage } from '../../store/useCustomAssetsStore'
 import { DoorRenderer } from './doorRenderer'
+import { Direction } from '../../types/game'
 
 export interface ZoneWallTheme {
   wallBody: string
@@ -112,7 +113,8 @@ export class WallRenderer {
     type: WallType | string,
     x: number,
     y: number,
-    size: number = TILE_SIZE
+    size: number = TILE_SIZE,
+    direction: Direction = 'down'
   ) {
     const px = Math.floor(x)
     const py = Math.floor(y)
@@ -121,22 +123,44 @@ export class WallRenderer {
 
     // 1. Check custom user wall element
     const customAsset = useCustomAssetsStore.getState().getAssetById(type)
-    if (customAsset && customAsset.frames && customAsset.frames.length > 0) {
-      const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
-      const img = getCustomAssetImage(customAsset.frames[frameIdx])
-      if (img && img.complete && img.naturalWidth > 0) {
-        const isDownscaling = img.naturalWidth > size * 1.2 || img.naturalHeight > size * 1.2
-        ctx.imageSmoothingEnabled = isDownscaling
-        if (isDownscaling) {
-          ctx.imageSmoothingQuality = 'high'
+    if (customAsset) {
+      let frameUrl: string | undefined
+      const dirFrames = customAsset.directionalFrames?.[direction]
+      if (dirFrames) {
+        if (Array.isArray(dirFrames)) {
+          const valid = dirFrames.filter((f) => typeof f === 'string' && f.length > 0)
+          if (valid.length > 0) {
+            const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % valid.length)
+            frameUrl = valid[frameIdx] || valid[0]
+          }
+        } else if (typeof dirFrames === 'string' && dirFrames.length > 0) {
+          frameUrl = dirFrames
         }
-        ctx.drawImage(img, px, py, size, size)
-      } else {
-        ctx.fillStyle = customAsset.iconColor || '#212529'
-        ctx.fillRect(px, py, size, size)
       }
-      ctx.restore()
-      return
+      if (!frameUrl && customAsset.frames && customAsset.frames.length > 0) {
+        const valid = customAsset.frames.filter((f) => typeof f === 'string' && f.length > 0)
+        if (valid.length > 0) {
+          const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % valid.length)
+          frameUrl = valid[frameIdx] || valid[0]
+        }
+      }
+
+      if (frameUrl) {
+        const img = getCustomAssetImage(frameUrl)
+        if (img && img.complete && img.naturalWidth > 0) {
+          const isDownscaling = img.naturalWidth > size * 1.2 || img.naturalHeight > size * 1.2
+          ctx.imageSmoothingEnabled = isDownscaling
+          if (isDownscaling) {
+            ctx.imageSmoothingQuality = 'high'
+          }
+          ctx.drawImage(img, px, py, size, size)
+        } else {
+          ctx.fillStyle = customAsset.iconColor || '#212529'
+          ctx.fillRect(px, py, size, size)
+        }
+        ctx.restore()
+        return
+      }
     }
 
     switch (type) {
@@ -266,17 +290,48 @@ export class WallRenderer {
 
     ctx.save()
 
-    // 1. Check custom user wall texture
+    // 1. Check custom user wall texture with 4-directional support
     const customAsset = useCustomAssetsStore.getState().getAssetById(zone.wallType || '')
-    let customPattern: CanvasPattern | null = null
 
-    if (customAsset && customAsset.frames && customAsset.frames.length > 0) {
-      const frameIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % customAsset.frames.length)
-      const img = getCustomAssetImage(customAsset.frames[frameIdx])
-      if (img && img.complete && img.naturalWidth > 0) {
-        customPattern = ctx.createPattern(img, 'repeat')
+    const getDirectionFrame = (dir: Direction): string | undefined => {
+      if (!customAsset) return undefined
+      const dirFrames = customAsset.directionalFrames?.[dir]
+      if (dirFrames) {
+        if (Array.isArray(dirFrames)) {
+          const valid = dirFrames.filter((f) => typeof f === 'string' && f.length > 0)
+          if (valid.length > 0) {
+            const fIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % valid.length)
+            return valid[fIdx] || valid[0]
+          }
+        } else if (typeof dirFrames === 'string' && dirFrames.length > 0) {
+          return dirFrames
+        }
       }
+      // Fallback: check general frames
+      if (customAsset.frames && customAsset.frames.length > 0) {
+        const valid = customAsset.frames.filter((f) => typeof f === 'string' && f.length > 0)
+        if (valid.length > 0) {
+          const fIdx = Math.floor((Date.now() / (customAsset.frameRateMs || 160)) % valid.length)
+          return valid[fIdx] || valid[0]
+        }
+      }
+      return undefined
     }
+
+    const getDirectionPattern = (dir: Direction): CanvasPattern | null => {
+      const frameUrl = getDirectionFrame(dir)
+      if (!frameUrl) return null
+      const img = getCustomAssetImage(frameUrl)
+      if (img && img.complete && img.naturalWidth > 0) {
+        return ctx.createPattern(img, 'repeat')
+      }
+      return null
+    }
+
+    const patternUp = getDirectionPattern('up')
+    const patternDown = getDirectionPattern('down')
+    const patternLeft = getDirectionPattern('left')
+    const patternRight = getDirectionPattern('right')
 
     const theme = getZoneWallTheme(zone.wallType || 'drywall_white')
     const wallBodyColor = theme.wallBody
@@ -299,10 +354,16 @@ export class WallRenderer {
     // to fake ambient occlusion at the inside corner.
     const TOP_CORNER_SHADOW_PX = 18
 
-    // Unified helper to render the wall material/texture seamlessly
-    const fillWallTexture = (rx: number, ry: number, rw: number, rh: number) => {
-      if (customPattern) {
-        ctx.fillStyle = customPattern
+    // Unified helper to render the wall material/texture seamlessly per direction
+    const fillWallTexture = (rx: number, ry: number, rw: number, rh: number, dir: Direction = 'down') => {
+      let pattern: CanvasPattern | null = null
+      if (dir === 'up') pattern = patternUp || patternDown
+      else if (dir === 'left') pattern = patternLeft || patternDown
+      else if (dir === 'right') pattern = patternRight || patternDown
+      else pattern = patternDown || patternUp
+
+      if (pattern) {
+        ctx.fillStyle = pattern
         ctx.fillRect(rx, ry, rw, rh)
       } else {
         ctx.fillStyle = wallBodyColor
@@ -419,7 +480,7 @@ export class WallRenderer {
     if (hasTopDoorway) {
       const leftBackW = topDoorwayStartX - minX
       if (leftBackW > 0) {
-        fillWallTexture(minX, minY, leftBackW, backWallH)
+        fillWallTexture(minX, minY, leftBackW, backWallH, 'up')
         ctx.fillStyle = WALL_BORDER
         ctx.fillRect(minX, minY, leftBackW, 1)
         // Vertical inner edge on right side of left block
@@ -428,7 +489,7 @@ export class WallRenderer {
 
       const rightBackW = maxX - topDoorwayEndX
       if (rightBackW > 0) {
-        fillWallTexture(topDoorwayEndX, minY, rightBackW, backWallH)
+        fillWallTexture(topDoorwayEndX, minY, rightBackW, backWallH, 'up')
         ctx.fillStyle = WALL_BORDER
         ctx.fillRect(topDoorwayEndX, minY, rightBackW, 1)
         // Vertical inner edge on left side of right block
@@ -447,7 +508,7 @@ export class WallRenderer {
         zone
       )
     } else {
-      fillWallTexture(minX, minY, w, backWallH)
+      fillWallTexture(minX, minY, w, backWallH, 'up')
       // Top border line with identical uniform border color and 1px thickness
       ctx.fillStyle = WALL_BORDER
       ctx.fillRect(minX, minY, w, 1)
@@ -487,7 +548,7 @@ export class WallRenderer {
       const doorEndY = doorStartY + doorH
 
       if (doorStartY > sideTopY) {
-        fillWallTexture(minX, sideTopY, SIDE_WALL_PX, doorStartY - sideTopY)
+        fillWallTexture(minX, sideTopY, SIDE_WALL_PX, doorStartY - sideTopY, 'left')
         ctx.fillStyle = WALL_BORDER
         // Extremidade externa esquerda
         ctx.fillRect(minX, sideTopY, 1, doorStartY - sideTopY)
@@ -496,7 +557,7 @@ export class WallRenderer {
         drawTopCornerShadow(minX, sideTopY, SIDE_WALL_PX, doorStartY - sideTopY)
       }
       if (sideBottomY > doorEndY) {
-        fillWallTexture(minX, doorEndY, SIDE_WALL_PX, sideBottomY - doorEndY)
+        fillWallTexture(minX, doorEndY, SIDE_WALL_PX, sideBottomY - doorEndY, 'left')
         ctx.fillStyle = WALL_BORDER
         // Extremidade externa esquerda
         ctx.fillRect(minX, doorEndY, 1, sideBottomY - doorEndY)
@@ -507,7 +568,7 @@ export class WallRenderer {
       // Draw Side Connecting Doorway Arch & Threshold
       DoorRenderer.drawSideDoorway(ctx, minX, doorStartY, doorEndY, theme, 'left')
     } else if (sideBottomY > sideTopY) {
-      fillWallTexture(minX, sideTopY, SIDE_WALL_PX, sideBottomY - sideTopY)
+      fillWallTexture(minX, sideTopY, SIDE_WALL_PX, sideBottomY - sideTopY, 'left')
       ctx.fillStyle = WALL_BORDER
       // Extremidade externa esquerda
       ctx.fillRect(minX, sideTopY, 1, sideBottomY - sideTopY)
@@ -526,7 +587,7 @@ export class WallRenderer {
       const doorEndY = doorStartY + doorH
 
       if (doorStartY > sideTopY) {
-        fillWallTexture(maxX - SIDE_WALL_PX, sideTopY, SIDE_WALL_PX, doorStartY - sideTopY)
+        fillWallTexture(maxX - SIDE_WALL_PX, sideTopY, SIDE_WALL_PX, doorStartY - sideTopY, 'right')
         ctx.fillStyle = WALL_BORDER
         // Extremidade interna direita
         ctx.fillRect(maxX - SIDE_WALL_PX, sideTopY, 1, doorStartY - sideTopY)
@@ -535,7 +596,7 @@ export class WallRenderer {
         drawTopCornerShadow(maxX - SIDE_WALL_PX, sideTopY, SIDE_WALL_PX, doorStartY - sideTopY)
       }
       if (sideBottomY > doorEndY) {
-        fillWallTexture(maxX - SIDE_WALL_PX, doorEndY, SIDE_WALL_PX, sideBottomY - doorEndY)
+        fillWallTexture(maxX - SIDE_WALL_PX, doorEndY, SIDE_WALL_PX, sideBottomY - doorEndY, 'right')
         ctx.fillStyle = WALL_BORDER
         // Extremidade interna direita
         ctx.fillRect(maxX - SIDE_WALL_PX, doorEndY, 1, sideBottomY - doorEndY)
@@ -546,7 +607,7 @@ export class WallRenderer {
       // Draw Side Connecting Doorway Arch & Threshold
       DoorRenderer.drawSideDoorway(ctx, maxX - SIDE_WALL_PX, doorStartY, doorEndY, theme, 'right')
     } else if (sideBottomY > sideTopY) {
-      fillWallTexture(maxX - SIDE_WALL_PX, sideTopY, SIDE_WALL_PX, sideBottomY - sideTopY)
+      fillWallTexture(maxX - SIDE_WALL_PX, sideTopY, SIDE_WALL_PX, sideBottomY - sideTopY, 'right')
       ctx.fillStyle = WALL_BORDER
       // Extremidade interna direita
       ctx.fillRect(maxX - SIDE_WALL_PX, sideTopY, 1, sideBottomY - sideTopY)
@@ -561,7 +622,7 @@ export class WallRenderer {
     // Left Front Block
     const leftBlockW = finalDoorStartX - minX
     if (leftBlockW > 0) {
-      fillWallTexture(minX, frontWallY, leftBlockW, frontWallH)
+      fillWallTexture(minX, frontWallY, leftBlockW, frontWallH, 'down')
       // Top rim & doorway shadows
       ctx.fillStyle = WALL_BORDER
       ctx.fillRect(minX, frontWallY, leftBlockW, 1)
@@ -572,7 +633,7 @@ export class WallRenderer {
     // Right Front Block
     const rightBlockW = maxX - finalDoorEndX
     if (rightBlockW > 0) {
-      fillWallTexture(finalDoorEndX, frontWallY, rightBlockW, frontWallH)
+      fillWallTexture(finalDoorEndX, frontWallY, rightBlockW, frontWallH, 'down')
       // Top rim & doorway shadows
       ctx.fillStyle = WALL_BORDER
       ctx.fillRect(finalDoorEndX, frontWallY, rightBlockW, 1)
