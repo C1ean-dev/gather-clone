@@ -15,6 +15,7 @@ import {
 import { useMediaStore } from '../../store/useMediaStore'
 import { MediaManager } from '../../media/MediaManager'
 import { AudioDeviceInfo, SensitivityMode } from '../../types/audio'
+import { CustomDropdown } from '../common/CustomDropdown'
 
 interface Props {
   inputDevices: AudioDeviceInfo[]
@@ -170,18 +171,25 @@ export const AudioDevicesTab: React.FC<Props> = ({
           </button>
         </div>
 
-        <select
+        <CustomDropdown
           value={selectedVideoInput}
-          onChange={(e) => handleVideoInputChange(e.target.value)}
-          className="w-full bg-[#12151d] border border-[#2a3142] rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 transition-colors"
-        >
-          <option value="default">Câmera Padrão do Sistema</option>
-          {videoDevices.map((d) => (
-            <option key={d.deviceId} value={d.deviceId}>
-              {d.label}
-            </option>
-          ))}
-        </select>
+          options={[
+            {
+              value: 'default',
+              label: 'Câmera Padrão do Sistema',
+              icon: <Video className="w-3.5 h-3.5 text-indigo-400" />,
+            },
+            ...videoDevices.map((d) => ({
+              value: d.deviceId,
+              label: d.label || `Câmera (${d.deviceId.slice(0, 8)}...)`,
+              icon: <Video className="w-3.5 h-3.5 text-slate-400" />,
+            })),
+          ]}
+          onChange={handleVideoInputChange}
+          fullWidth
+          size="md"
+          buttonClassName="bg-[#12151d] hover:bg-[#181d2a] border-[#2a3142]"
+        />
 
         {isObsVirtualCamera && (
           <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-2.5 text-xs text-amber-300">
@@ -228,18 +236,25 @@ export const AudioDevicesTab: React.FC<Props> = ({
             <Mic className="w-4 h-4 text-indigo-400" />
             <span>Dispositivo de Entrada (Microfone)</span>
           </label>
-          <select
+          <CustomDropdown
             value={selectedAudioInput}
-            onChange={(e) => handleInputChange(e.target.value)}
-            className="w-full bg-[#12151d] border border-[#2a3142] rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 transition-colors"
-          >
-            <option value="default">Microfone Padrão do Sistema</option>
-            {inputDevices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              {
+                value: 'default',
+                label: 'Microfone Padrão do Sistema',
+                icon: <Mic className="w-3.5 h-3.5 text-indigo-400" />,
+              },
+              ...inputDevices.map((d) => ({
+                value: d.deviceId,
+                label: d.label || `Microfone (${d.deviceId.slice(0, 8)}...)`,
+                icon: <Mic className="w-3.5 h-3.5 text-slate-400" />,
+              })),
+            ]}
+            onChange={handleInputChange}
+            fullWidth
+            size="md"
+            buttonClassName="bg-[#12151d] hover:bg-[#181d2a] border-[#2a3142]"
+          />
 
           {/* Volume de Entrada */}
           <div className="pt-2">
@@ -279,18 +294,25 @@ export const AudioDevicesTab: React.FC<Props> = ({
               <span>{isPlayingTestSound ? 'Tocando...' : 'Testar Som'}</span>
             </button>
           </div>
-          <select
+          <CustomDropdown
             value={selectedAudioOutput}
-            onChange={(e) => handleOutputChange(e.target.value)}
-            className="w-full bg-[#12151d] border border-[#2a3142] rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 transition-colors"
-          >
-            <option value="default">Alto-Falante Padrão do Sistema</option>
-            {outputDevices.map((d) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              {
+                value: 'default',
+                label: 'Alto-Falante Padrão do Sistema',
+                icon: <Headphones className="w-3.5 h-3.5 text-indigo-400" />,
+              },
+              ...outputDevices.map((d) => ({
+                value: d.deviceId,
+                label: d.label || `Alto-Falante (${d.deviceId.slice(0, 8)}...)`,
+                icon: <Headphones className="w-3.5 h-3.5 text-slate-400" />,
+              })),
+            ]}
+            onChange={handleOutputChange}
+            fullWidth
+            size="md"
+            buttonClassName="bg-[#12151d] hover:bg-[#181d2a] border-[#2a3142]"
+          />
 
           {/* Volume de Saída */}
           <div className="pt-2">

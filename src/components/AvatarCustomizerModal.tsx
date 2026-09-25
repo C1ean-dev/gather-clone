@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { X, Check, Eye, EyeOff } from 'lucide-react'
+import { CustomDropdown, DropdownOption } from './common/CustomDropdown'
 import { useGameStore } from '../store/useGameStore'
 import { useSettingsStore } from '../store/useSettingsStore'
 import { AvatarConfig, AvatarComponentSlot, PresenceStatus, Direction, PetType } from '../types/game'
@@ -272,53 +273,31 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
             </div>
 
             {/* Current Status Selector */}
-            <div className="flex items-center gap-2 bg-[#2b2d31] px-2.5 py-1 rounded-xl border border-[#383a40]">
-              <span className="text-[11px] font-semibold text-slate-400">Status:</span>
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    status === 'available'
-                      ? 'bg-emerald-500'
-                      : status === 'busy'
-                      ? 'bg-rose-500'
-                      : status === 'focusing'
-                      ? 'bg-purple-500'
-                      : 'bg-amber-500'
-                  }`}
-                />
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as PresenceStatus)}
-                  className="bg-transparent text-xs font-bold text-slate-100 focus:outline-hidden cursor-pointer pr-1"
-                >
-                  <option value="available" className="bg-[#1e1f22] text-white">Disponível</option>
-                  <option value="busy" className="bg-[#1e1f22] text-white">Ocupado</option>
-                  <option value="focusing" className="bg-[#1e1f22] text-white">Em Foco</option>
-                  <option value="away" className="bg-[#1e1f22] text-white">Ausente</option>
-                </select>
-              </div>
-            </div>
+            <CustomDropdown<PresenceStatus>
+              value={status}
+              options={[
+                { value: 'available', label: 'Disponível', dotColor: 'bg-emerald-500' },
+                { value: 'busy', label: 'Ocupado', dotColor: 'bg-rose-500' },
+                { value: 'focusing', label: 'Em Foco', dotColor: 'bg-purple-500' },
+                { value: 'away', label: 'Ausente', dotColor: 'bg-amber-500' },
+              ]}
+              onChange={setStatus}
+              labelPrefix="Status:"
+              buttonClassName="bg-[#2b2d31] hover:bg-[#34373d] border-[#383a40]"
+            />
 
             {/* Show / Hide Names Selector (Character & Pet) */}
-            <div className="flex items-center gap-2 bg-[#2b2d31] px-2.5 py-1 rounded-xl border border-[#383a40]">
-              <span className="text-[11px] font-semibold text-slate-400">Nomes:</span>
-              <div className="flex items-center gap-1.5">
-                {showNameTags ? (
-                  <Eye className="w-3.5 h-3.5 text-blue-400" />
-                ) : (
-                  <EyeOff className="w-3.5 h-3.5 text-slate-500" />
-                )}
-                <select
-                  value={showNameTags ? 'show' : 'hide'}
-                  onChange={(e) => setShowNameTags(e.target.value === 'show')}
-                  className="bg-transparent text-xs font-bold text-slate-100 focus:outline-hidden cursor-pointer pr-1"
-                  title="Mostrar ou ocultar nomes em cima do personagem e do pet"
-                >
-                  <option value="show" className="bg-[#1e1f22] text-white">Mostrar</option>
-                  <option value="hide" className="bg-[#1e1f22] text-white">Ocultar</option>
-                </select>
-              </div>
-            </div>
+            <CustomDropdown<'show' | 'hide'>
+              value={showNameTags ? 'show' : 'hide'}
+              options={[
+                { value: 'show', label: 'Mostrar', icon: <Eye className="w-3.5 h-3.5 text-blue-400" /> },
+                { value: 'hide', label: 'Ocultar', icon: <EyeOff className="w-3.5 h-3.5 text-slate-400" /> },
+              ]}
+              onChange={(val) => setShowNameTags(val === 'show')}
+              labelPrefix="Nomes:"
+              buttonClassName="bg-[#2b2d31] hover:bg-[#34373d] border-[#383a40]"
+              title="Mostrar ou ocultar nomes em cima do personagem e do pet"
+            />
           </div>
           <button
             onClick={onClose}

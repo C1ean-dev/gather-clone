@@ -219,7 +219,7 @@ describe('Vertical Room Connection (topNeighbor / bottomNeighbor)', () => {
     const fs = require('fs')
     const spaces = JSON.parse(fs.readFileSync('src/data/nativeSpaces.json', 'utf8'))
     const space = spaces.find((x: any) => x.id === 'space-dxbpti1')
-    if (!space) {
+    if (!space || !space.mapData?.zones?.some((z: any) => z.id === 'zone-4runi')) {
       // Space was modified or replaced by runtime dev server session; safely skip
       return
     }

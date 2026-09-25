@@ -2,11 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+}
+
 @layer base {
   body {
     background-color: #0c0e14;
     color: #f8f9fa;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  /* Global Native Select & Option Dark Theme Styling */
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem 1rem;
+    padding-right: 2.25rem !important;
+    cursor: pointer;
+  }
+
+  select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  select option {
+    background-color: #161922;
+    color: #f1f5f9;
+    padding: 8px 12px;
+  }
+
+  select option:checked {
+    background-color: #4f46e5;
+    color: #ffffff;
   }
 }
 
@@ -23,23 +56,35 @@ video {
   transform: translateZ(0);
 }
 
-/* Custom Scrollbars */
+/* Global Custom Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a3142 rgba(18, 21, 29, 0.4);
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(18, 21, 29, 0.5);
+  background: rgba(18, 21, 29, 0.4);
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb {
   background: #2a3142;
-  border-radius: 3px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4c6ef5;
+  background: #4f46e5;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* Animations */
