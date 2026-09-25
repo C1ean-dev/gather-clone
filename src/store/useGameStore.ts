@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { Player, PresenceStatus, ReactionItem, AvatarConfig, UserRole, PlayerPermissions, ConnectionStatus, RoomKnockRequest, KnockStatus, FriendProfile } from '../types/game'
+import { Player, PresenceStatus, PresenceInfo, sanitizePresence, STATUS_META, ReactionItem, AvatarConfig, UserRole, PlayerPermissions, ConnectionStatus, RoomKnockRequest, KnockStatus, FriendProfile } from '../types/game'
 import { DEFAULT_AVATAR } from '../engine/Constants'
 import { PublicRoomsService } from '../services/publicRoomsService'
 
@@ -102,7 +102,10 @@ interface GameStore {
   localPlayer: Player
   setLocalPlayer: (player: Partial<Player>) => void
   setLocalPosition: (x: number, y: number, direction: 'up' | 'down' | 'left' | 'right', isMoving: boolean) => void
-  setLocalStatus: (status: PresenceStatus, statusText?: string, statusEmoji?: string, persist?: boolean) => void
+  setLocalStatus: {
+    (status: PresenceStatus, statusText?: string, statusEmoji?: string, persist?: boolean): void
+    (presence: Partial<PresenceInfo>, persist?: boolean): void
+  }
   setCurrentZoneId: (zoneId: string | null) => void
 
   // Remote Players
@@ -402,9 +405,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       canKick: false,
     },
     avatar: saved.avatar ? { ...DEFAULT_AVATAR, ...saved.avatar } : { ...DEFAULT_AVATAR },
-    status: (saved.status === 'away' ? 'available' : saved.status) || 'available',
-    statusText: (saved.statusText === 'Ausente (AFK)' ? 'Disponível' : saved.statusText) || 'Disponível',
-    statusEmoji: (saved.statusEmoji === '💤' ? '' : saved.statusEmoji) || '',
+    ...sanitizePresence(saved, { allowManualAway: true }),
     currentZoneId: null,
     lastUpdated: Date.now(),
     isMuted: false,
@@ -450,20 +451,58 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
     }),
 
-  setLocalStatus: (status, statusText, statusEmoji, persist = true) => {
-    if (persist) {
+  setLocalStatus: (
+    statusOrPresence: PresenceStatus | Partial<PresenceInfo>,
+    statusTextOrPersist?: string | boolean,
+    statusEmoji?: string,
+    persist = true
+  ) => {
+    let finalStatus: PresenceStatus
+    let finalStatusText: string | undefined
+    let finalStatusEmoji: string | undefined
+    let shouldPersist = persist
+
+    if (typeof statusOrPresence === 'object' && statusOrPresence !== null) {
+      finalStatus = statusOrPresence.status || 'available'
+      finalStatusText = statusOrPresence.statusText
+      finalStatusEmoji = statusOrPresence.statusEmoji
+      if (typeof statusTextOrPersist === 'boolean') {
+        shouldPersist = statusTextOrPersist
+      }
+    } else {
+      finalStatus = statusOrPresence
+      finalStatusText = typeof statusTextOrPersist === 'string' ? statusTextOrPersist : undefined
+      finalStatusEmoji = statusEmoji
+    }
+
+    const currentLocal = get().localPlayer
+    const defaultLabel = STATUS_META[finalStatus]?.label || 'Disponível'
+    const resolvedStatusText =
+      finalStatusText !== undefined
+        ? finalStatusText
+        : currentLocal.status === finalStatus && currentLocal.statusText !== 'Ausente (AFK)'
+          ? currentLocal.statusText
+          : defaultLabel
+    const resolvedStatusEmoji =
+      finalStatusEmoji !== undefined
+        ? finalStatusEmoji
+        : currentLocal.statusEmoji === '💤'
+          ? ''
+          : currentLocal.statusEmoji
+
+    if (shouldPersist) {
       saveProfile({
-        status,
-        statusText,
-        statusEmoji,
+        status: finalStatus,
+        statusText: resolvedStatusText,
+        statusEmoji: resolvedStatusEmoji,
       })
     }
     set((state) => ({
       localPlayer: {
         ...state.localPlayer,
-        status,
-        statusText: statusText ?? state.localPlayer.statusText,
-        statusEmoji: statusEmoji ?? state.localPlayer.statusEmoji,
+        status: finalStatus,
+        statusText: resolvedStatusText,
+        statusEmoji: resolvedStatusEmoji,
         lastUpdated: Date.now(),
       },
     }))

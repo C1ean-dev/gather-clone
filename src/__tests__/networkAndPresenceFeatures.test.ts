@@ -135,6 +135,45 @@ describe('Status de Presença Automático (Idle / AFK Presence Manager)', () => 
     expect(activePlayer.statusText).toBe('Disponível')
     expect(activePlayer.statusEmoji).toBe('')
   })
+
+  it('does not overwrite manual Ausente status upon user activity (preserves explicit choice)', () => {
+    // User explicitly selects "Ausente" in AvatarCustomizerModal or dropdown
+    useGameStore.getState().setLocalStatus({
+      status: 'away',
+      statusText: 'Ausente',
+      statusEmoji: '',
+    })
+
+    // User moves mouse or types
+    idleManager.markUserActive()
+
+    const player = useGameStore.getState().localPlayer
+    expect(player.status).toBe('away')
+    expect(player.statusText).toBe('Ausente')
+    expect(player.statusEmoji).toBe('')
+  })
+
+  it('cancels auto-away when user explicitly updates status manually', async () => {
+    // 1. Go auto-AFK
+    vi.spyOn(idleManager, 'getIdleSeconds').mockResolvedValue(IDLE_TIMEOUT_SECONDS + 10)
+    await (idleManager as any).checkIdleStatus()
+    expect(useGameStore.getState().localPlayer.statusText).toBe('Ausente (AFK)')
+
+    // 2. User explicitly selects "Ausente" manually
+    useGameStore.getState().setLocalStatus({
+      status: 'away',
+      statusText: 'Ausente',
+      statusEmoji: '',
+    })
+
+    // 3. User becomes active - manual Ausente must be preserved!
+    idleManager.markUserActive()
+
+    const player = useGameStore.getState().localPlayer
+    expect(player.status).toBe('away')
+    expect(player.statusText).toBe('Ausente')
+    expect(player.statusEmoji).toBe('')
+  })
 })
 
 describe('Notificações Nativas do Windows & Som de Chamada (Notification Service)', () => {

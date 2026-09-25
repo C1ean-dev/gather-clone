@@ -15,7 +15,26 @@ import {
 import { useMediaStore } from '../../store/useMediaStore'
 import { MediaManager } from '../../media/MediaManager'
 import { AudioDeviceInfo, SensitivityMode } from '../../types/audio'
-import { CustomDropdown } from '../common/CustomDropdown'
+import { CustomDropdown, DropdownOption } from '../common/CustomDropdown'
+
+function toDeviceOptions(
+  devices: AudioDeviceInfo[],
+  fallbackName: string,
+  renderIcon: (className: string) => React.ReactNode
+): DropdownOption<string>[] {
+  return [
+    {
+      value: 'default',
+      label: `${fallbackName} Padrão do Sistema`,
+      icon: renderIcon('w-3.5 h-3.5 text-indigo-400'),
+    },
+    ...devices.map((d) => ({
+      value: d.deviceId,
+      label: d.label || `${fallbackName} (${d.deviceId.slice(0, 8)}...)`,
+      icon: renderIcon('w-3.5 h-3.5 text-slate-400'),
+    })),
+  ]
+}
 
 interface Props {
   inputDevices: AudioDeviceInfo[]
@@ -173,18 +192,7 @@ export const AudioDevicesTab: React.FC<Props> = ({
 
         <CustomDropdown
           value={selectedVideoInput}
-          options={[
-            {
-              value: 'default',
-              label: 'Câmera Padrão do Sistema',
-              icon: <Video className="w-3.5 h-3.5 text-indigo-400" />,
-            },
-            ...videoDevices.map((d) => ({
-              value: d.deviceId,
-              label: d.label || `Câmera (${d.deviceId.slice(0, 8)}...)`,
-              icon: <Video className="w-3.5 h-3.5 text-slate-400" />,
-            })),
-          ]}
+          options={toDeviceOptions(videoDevices, 'Câmera', (cls) => <Video className={cls} />)}
           onChange={handleVideoInputChange}
           fullWidth
           size="md"
@@ -238,18 +246,7 @@ export const AudioDevicesTab: React.FC<Props> = ({
           </label>
           <CustomDropdown
             value={selectedAudioInput}
-            options={[
-              {
-                value: 'default',
-                label: 'Microfone Padrão do Sistema',
-                icon: <Mic className="w-3.5 h-3.5 text-indigo-400" />,
-              },
-              ...inputDevices.map((d) => ({
-                value: d.deviceId,
-                label: d.label || `Microfone (${d.deviceId.slice(0, 8)}...)`,
-                icon: <Mic className="w-3.5 h-3.5 text-slate-400" />,
-              })),
-            ]}
+            options={toDeviceOptions(inputDevices, 'Microfone', (cls) => <Mic className={cls} />)}
             onChange={handleInputChange}
             fullWidth
             size="md"
@@ -296,18 +293,7 @@ export const AudioDevicesTab: React.FC<Props> = ({
           </div>
           <CustomDropdown
             value={selectedAudioOutput}
-            options={[
-              {
-                value: 'default',
-                label: 'Alto-Falante Padrão do Sistema',
-                icon: <Headphones className="w-3.5 h-3.5 text-indigo-400" />,
-              },
-              ...outputDevices.map((d) => ({
-                value: d.deviceId,
-                label: d.label || `Alto-Falante (${d.deviceId.slice(0, 8)}...)`,
-                icon: <Headphones className="w-3.5 h-3.5 text-slate-400" />,
-              })),
-            ]}
+            options={toDeviceOptions(outputDevices, 'Alto-Falante', (cls) => <Headphones className={cls} />)}
             onChange={handleOutputChange}
             fullWidth
             size="md"

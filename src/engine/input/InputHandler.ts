@@ -1,6 +1,5 @@
 import { Direction } from '../../types/game'
 import { Point } from '../physics/pathfinding'
-import { idleManager } from '../../services/idleManager'
 
 export class InputHandler {
   public keysPressed: Set<string> = new Set()
@@ -26,7 +25,6 @@ export class InputHandler {
     if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
       this.keysPressed.add(key)
       this.clearPath()
-      idleManager.markUserActive()
     }
   }
 
@@ -38,9 +36,6 @@ export class InputHandler {
   public setPath(path: Point[]) {
     this.path = [...path]
     this.finalDestination = path.length > 0 ? path[path.length - 1] : null
-    if (path.length > 0) {
-      idleManager.markUserActive()
-    }
   }
 
   public clearPath() {

@@ -1,4 +1,4 @@
-import { Player } from '../../types/game'
+import { Player, STATUS_META } from '../../types/game'
 import { useGameStore } from '../../store/useGameStore'
 
 const textWidthCache = new Map<string, number>()
@@ -70,9 +70,9 @@ export class NameTagRenderer {
       const pulse = 0.45 + Math.abs(Math.sin(t * Math.PI)) * 0.55
       ctx.globalAlpha = pulse
       statusColor = '#f59e0b'
-    } else if (player.status === 'busy') statusColor = '#ef4444'
-    else if (player.status === 'focusing') statusColor = '#a855f7'
-    else if (player.status === 'away') statusColor = '#f59e0b'
+    } else {
+      statusColor = STATUS_META[player.status || 'available']?.hexColor || '#22c55e'
+    }
 
     ctx.fillStyle = statusColor
     ctx.beginPath()

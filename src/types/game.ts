@@ -2,6 +2,73 @@ export type Direction = 'up' | 'down' | 'left' | 'right'
 
 export type PresenceStatus = 'available' | 'busy' | 'focusing' | 'away'
 
+export interface StatusMeta {
+  label: string
+  dotColor: string
+  hexColor: string
+}
+
+export const STATUS_META: Record<PresenceStatus, StatusMeta> = {
+  available: {
+    label: 'Disponível',
+    dotColor: 'bg-emerald-500',
+    hexColor: '#22c55e',
+  },
+  busy: {
+    label: 'Ocupado',
+    dotColor: 'bg-rose-500',
+    hexColor: '#ef4444',
+  },
+  focusing: {
+    label: 'Em Foco',
+    dotColor: 'bg-purple-500',
+    hexColor: '#a855f7',
+  },
+  away: {
+    label: 'Ausente',
+    dotColor: 'bg-amber-500',
+    hexColor: '#f59e0b',
+  },
+}
+
+export const STATUS_OPTIONS: { value: PresenceStatus; label: string; dotColor: string }[] = (
+  Object.entries(STATUS_META) as [PresenceStatus, StatusMeta][]
+).map(([value, meta]) => ({
+  value,
+  label: meta.label,
+  dotColor: meta.dotColor,
+}))
+
+export interface PresenceInfo {
+  status: PresenceStatus
+  statusText: string
+  statusEmoji: string
+}
+
+export function sanitizePresence(
+  presence?: {
+    status?: PresenceStatus
+    statusText?: string
+    statusEmoji?: string
+  } | null,
+  options?: { allowManualAway?: boolean }
+): PresenceInfo {
+  const isAutoAfk =
+    presence?.statusText === 'Ausente (AFK)' || presence?.statusEmoji === '💤'
+  const isAllowedStatus =
+    presence?.status &&
+    (options?.allowManualAway
+      ? !isAutoAfk
+      : presence.status !== 'away')
+
+  const status = isAllowedStatus && presence?.status ? presence.status : 'available'
+  const statusText =
+    presence?.statusText && presence.statusText !== 'Ausente (AFK)' ? presence.statusText : 'Disponível'
+  const statusEmoji = presence?.statusEmoji && presence.statusEmoji !== '💤' ? presence.statusEmoji : ''
+
+  return { status, statusText, statusEmoji }
+}
+
 export type SkinDetailType = 'smooth' | 'vitiligo1' | 'vitiligo2' | 'freckles' | 'blush'
 export type EyeType = 'normal' | 'anime' | 'focused' | 'happy' | 'wink' | 'closed'
 export type HairStyleType = 'none' | 'bald' | 'messy' | 'anime' | 'long_bangs' | 'short_wavy' | 'curly_afro' | 'twin_tails' | 'ponytail' | 'bob' | 'buzz' | 'short' | 'spiky' | 'long' | 'curly'

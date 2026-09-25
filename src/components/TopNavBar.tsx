@@ -19,6 +19,7 @@ import { PeerManager } from '../p2p/PeerManager'
 import { LiraLogo } from './LiraLogo'
 import { NetworkSignalIcon } from './NetworkSignalIcon'
 import { useNetworkQualityStore } from '../store/useNetworkQualityStore'
+import { STATUS_META } from '../types/game'
 
 interface Props {
   onOpenAvatarModal: () => void
@@ -304,13 +305,7 @@ export const TopNavBar: React.FC<Props> = ({
             </div>
             <div
               className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-[#12151d] ${
-                localPlayerStatus === 'busy'
-                  ? 'bg-rose-500'
-                  : localPlayerStatus === 'focusing'
-                  ? 'bg-purple-500'
-                  : localPlayerStatus === 'away'
-                  ? 'bg-amber-400'
-                  : 'bg-emerald-400'
+                STATUS_META[localPlayerStatus || 'available'].dotColor
               }`}
             />
           </div>

@@ -19,6 +19,30 @@ interface CustomDropdownProps<T extends string = string> {
   fullWidth?: boolean
 }
 
+function OptionContent({
+  option,
+  fallbackLabel,
+  isBold = false,
+}: {
+  option?: DropdownOption
+  fallbackLabel?: string
+  isBold?: boolean
+}) {
+  return (
+    <>
+      {option?.dotColor && (
+        <span className={`w-2 h-2 rounded-full shrink-0 ${option.dotColor}`} />
+      )}
+      {option?.icon && (
+        <span className="shrink-0 flex items-center justify-center">{option.icon}</span>
+      )}
+      <span className={`truncate flex-1 ${isBold ? 'font-bold text-slate-100' : ''}`}>
+        {option?.label || fallbackLabel}
+      </span>
+    </>
+  )
+}
+
 export function CustomDropdown<T extends string = string>({
   value,
   options,
@@ -86,18 +110,7 @@ export function CustomDropdown<T extends string = string>({
               {labelPrefix}
             </span>
           )}
-
-          {selectedOption?.dotColor && (
-            <span className={`w-2 h-2 rounded-full shrink-0 ${selectedOption.dotColor}`} />
-          )}
-
-          {selectedOption?.icon && (
-            <span className="shrink-0 flex items-center justify-center">{selectedOption.icon}</span>
-          )}
-
-          <span className="font-bold truncate text-slate-100 flex-1">
-            {selectedOption?.label || value}
-          </span>
+          <OptionContent option={selectedOption} fallbackLabel={value} isBold />
         </div>
 
         <ChevronDown
@@ -136,15 +149,7 @@ export function CustomDropdown<T extends string = string>({
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {option.dotColor && (
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${option.dotColor}`} />
-                    )}
-                    {option.icon && (
-                      <span className="shrink-0 flex items-center justify-center">
-                        {option.icon}
-                      </span>
-                    )}
-                    <span className="truncate flex-1">{option.label}</span>
+                    <OptionContent option={option} />
                   </div>
 
                   {isSelected && <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0 ml-1.5" />}

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { X, Check, Eye, EyeOff } from 'lucide-react'
-import { CustomDropdown, DropdownOption } from './common/CustomDropdown'
+import { CustomDropdown } from './common/CustomDropdown'
 import { useGameStore } from '../store/useGameStore'
 import { useSettingsStore } from '../store/useSettingsStore'
-import { AvatarConfig, AvatarComponentSlot, PresenceStatus, Direction, PetType } from '../types/game'
+import { AvatarConfig, AvatarComponentSlot, PresenceStatus, Direction, PetType, STATUS_OPTIONS, STATUS_META } from '../types/game'
 import { PeerManager } from '../p2p/PeerManager'
+import { idleManager } from '../services/idleManager'
 import { PetRenderer } from '../engine/pet/PetRenderer'
 import { CategoryKey, CategoryTabs } from './avatar-customizer/CategoryTabs'
 import { OptionSelectorGrid } from './avatar-customizer/OptionSelectorGrid'
@@ -222,12 +223,28 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
     const rawName = name.trim() || localPlayer.name
     const otherNames = Object.values(useGameStore.getState().remotePlayers).map((p) => p.name)
     const finalName = resolveUniquePlayerName(rawName, otherNames)
-    setLocalPlayer({ name: finalName, avatar, status })
-    setLocalStatus(status)
+    const statusMeta = STATUS_META[status]
+    const chosenStatusText = statusMeta?.label || 'Disponível'
+
+    idleManager.cancelAutoAway()
+    setLocalPlayer({
+      name: finalName,
+      avatar,
+      status,
+      statusText: chosenStatusText,
+      statusEmoji: '',
+    })
+    setLocalStatus({
+      status,
+      statusText: chosenStatusText,
+      statusEmoji: '',
+    })
     PeerManager.getInstance().sendPlayerUpdate({
       name: finalName,
       avatar,
       status,
+      statusText: chosenStatusText,
+      statusEmoji: '',
     })
     onClose()
   }
@@ -275,12 +292,7 @@ export const AvatarCustomizerModal: React.FC<Props> = ({ isOpen, onClose }) => {
             {/* Current Status Selector */}
             <CustomDropdown<PresenceStatus>
               value={status}
-              options={[
-                { value: 'available', label: 'Disponível', dotColor: 'bg-emerald-500' },
-                { value: 'busy', label: 'Ocupado', dotColor: 'bg-rose-500' },
-                { value: 'focusing', label: 'Em Foco', dotColor: 'bg-purple-500' },
-                { value: 'away', label: 'Ausente', dotColor: 'bg-amber-500' },
-              ]}
+              options={STATUS_OPTIONS}
               onChange={setStatus}
               labelPrefix="Status:"
               buttonClassName="bg-[#2b2d31] hover:bg-[#34373d] border-[#383a40]"

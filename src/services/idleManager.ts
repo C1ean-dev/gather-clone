@@ -7,31 +7,45 @@
 
 import { useGameStore } from '../store/useGameStore'
 import { PeerManager } from '../p2p/PeerManager'
-import { PresenceStatus } from '../types/game'
+import { PresenceInfo, sanitizePresence } from '../types/game'
 
 export const IDLE_TIMEOUT_SECONDS = 300 // 5 minutes
-
-interface PreviousStatus {
-  status: PresenceStatus
-  statusText?: string
-  statusEmoji?: string
-}
 
 class IdleManager {
   private static instance: IdleManager | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private lastDomActivityTime = Date.now()
   private isAutoAway = false
-  private previousStatus: PreviousStatus | null = null
+  private previousStatus: PresenceInfo | null = null
   private listenersAttached = false
+  private storeSubscribed = false
 
-  private constructor() {}
+  private constructor() {
+    this.subscribeToStoreChanges()
+  }
 
   public static getInstance(): IdleManager {
     if (!IdleManager.instance) {
       IdleManager.instance = new IdleManager()
     }
     return IdleManager.instance
+  }
+
+  private subscribeToStoreChanges() {
+    if (this.storeSubscribed) return
+    this.storeSubscribed = true
+
+    useGameStore.subscribe((state) => {
+      // If the user's status is changed to anything other than the transient auto-away,
+      // cancel any active auto-away flag so explicit manual choices are never overwritten.
+      if (
+        this.isAutoAway &&
+        state.localPlayer.statusText !== 'Ausente (AFK)' &&
+        state.localPlayer.statusEmoji !== '💤'
+      ) {
+        this.cancelAutoAway()
+      }
+    })
   }
 
   public start() {
@@ -58,16 +72,28 @@ class IdleManager {
     this.lastDomActivityTime = Date.now()
   }
 
-  public markUserActive() {
-    this.lastDomActivityTime = Date.now()
+  public cancelAutoAway() {
+    this.isAutoAway = false
+    this.previousStatus = null
+  }
+
+  /**
+   * Identifies whether the current user is in transient auto-away (AFK).
+   * Note: Explicit manual choice of 'away' (with statusText 'Ausente') is deliberately
+   * excluded so that user activity does not overwrite manual status choices.
+   */
+  public isAfk(): boolean {
     const { localPlayer } = useGameStore.getState()
-    const isAfk =
+    return (
       this.isAutoAway ||
-      localPlayer.status === 'away' ||
       localPlayer.statusText === 'Ausente (AFK)' ||
       localPlayer.statusEmoji === '💤'
+    )
+  }
 
-    if (isAfk) {
+  public markUserActive() {
+    this.lastDomActivityTime = Date.now()
+    if (this.isAfk()) {
       this.restoreActiveStatus()
     }
   }
@@ -113,37 +139,23 @@ class IdleManager {
 
     if (idleSeconds >= IDLE_TIMEOUT_SECONDS) {
       if (!this.isAutoAway && localPlayer.status !== 'away') {
-        // Record previous status before going AFK, ensuring it's not already away
-        const prevStatus = localPlayer.status
-        const prevText =
-          localPlayer.statusText === 'Ausente (AFK)' ? 'Disponível' : (localPlayer.statusText || 'Disponível')
-        const prevEmoji = localPlayer.statusEmoji === '💤' ? '' : (localPlayer.statusEmoji || '')
-
-        this.previousStatus = {
-          status: prevStatus,
-          statusText: prevText,
-          statusEmoji: prevEmoji,
-        }
+        // Record previous status before going AFK, ensuring it's not away
+        this.previousStatus = sanitizePresence(localPlayer)
         this.isAutoAway = true
+        const awayPresence: PresenceInfo = {
+          status: 'away',
+          statusText: 'Ausente (AFK)',
+          statusEmoji: '💤',
+        }
         // Pass persist = false so auto AFK is never saved permanently into localStorage
-        setLocalStatus('away', 'Ausente (AFK)', '💤', false)
+        setLocalStatus(awayPresence, false)
         try {
-          PeerManager.getInstance().sendPlayerUpdate({
-            status: 'away',
-            statusText: 'Ausente (AFK)',
-            statusEmoji: '💤',
-          })
+          PeerManager.getInstance().sendPlayerUpdate(awayPresence)
         } catch {}
       }
     } else if (idleSeconds < IDLE_TIMEOUT_SECONDS) {
       // If idle time is below timeout and user is marked away, restore active state!
-      const isAfk =
-        this.isAutoAway ||
-        localPlayer.status === 'away' ||
-        localPlayer.statusText === 'Ausente (AFK)' ||
-        localPlayer.statusEmoji === '💤'
-
-      if (isAfk) {
+      if (this.isAfk()) {
         this.restoreActiveStatus()
       }
     }
@@ -153,21 +165,11 @@ class IdleManager {
     this.isAutoAway = false
 
     const { setLocalStatus } = useGameStore.getState()
-    const prev = this.previousStatus
+    const targetPresence = sanitizePresence(this.previousStatus)
 
-    // Guarantee that target status is NEVER away / Ausente (AFK)
-    const targetStatus = prev?.status && prev.status !== 'away' ? prev.status : 'available'
-    const targetText =
-      prev?.statusText && prev.statusText !== 'Ausente (AFK)' ? prev.statusText : 'Disponível'
-    const targetEmoji = prev?.statusEmoji && prev.statusEmoji !== '💤' ? prev.statusEmoji : ''
-
-    setLocalStatus(targetStatus, targetText, targetEmoji, false)
+    setLocalStatus(targetPresence, false)
     try {
-      PeerManager.getInstance().sendPlayerUpdate({
-        status: targetStatus,
-        statusText: targetText,
-        statusEmoji: targetEmoji,
-      })
+      PeerManager.getInstance().sendPlayerUpdate(targetPresence)
     } catch {}
 
     this.previousStatus = null
