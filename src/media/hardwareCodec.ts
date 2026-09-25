@@ -141,7 +141,7 @@ export function prioritizeH264InSdp(sdp: string): string {
     ]
 
     return sdp.replace(
-      /(m=video\s+\d+\s+[\w\/]+\s+)([\d\s]+)/i,
+      /(m=video\s+\d+\s+[^\r\n\s]+\s+)([0-9\s]+?)(?=\r?\n|$)/i,
       (_all, prefix, payloadStr) => {
         const existingPayloads = payloadStr.trim().split(/\s+/)
         const remaining = existingPayloads.filter((pt: string) => !preferredH264.includes(pt))
@@ -175,7 +175,7 @@ export function prioritizeVP8InSdp(sdp: string): string {
     if (vp8Payloads.length === 0) return sdp
 
     return sdp.replace(
-      /(m=video\s+\d+\s+[\w\/]+\s+)([\d\s]+)/i,
+      /(m=video\s+\d+\s+[^\r\n\s]+\s+)([0-9\s]+?)(?=\r?\n|$)/i,
       (_all, prefix, payloadStr) => {
         const existingPayloads = payloadStr.trim().split(/\s+/)
         const remaining = existingPayloads.filter((pt: string) => !vp8Payloads.includes(pt))
@@ -194,73 +194,10 @@ export function prioritizeCodecInSdp(sdp: string, forceH264?: boolean): string {
 }
 
 /**
- * Installs a transparent interceptor on RTCPeerConnection prototype
- * to ensure that all offers and answers automatically follow the selected codec configuration.
+ * RTCPeerConnection codec configuration helper.
+ * Per W3C WebRTC 1.0, codec preferences are set directly via transceiver.setCodecPreferences()
+ * on peer connections (handled by prioritizeH264HardwareCodec).
  */
 export function installHardwareCodecInterceptor() {
-  const globalScope = typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : null
-  if (!globalScope) return
-
-  const OrigPC = (globalScope as any).RTCPeerConnection
-  if (!OrigPC || (OrigPC as any).__hwCodecInterceptorInstalled) return
-
-  const origCreateOffer = OrigPC.prototype.createOffer
-  if (typeof origCreateOffer === 'function') {
-    OrigPC.prototype.createOffer = async function (options?: any) {
-      try {
-        prioritizeH264HardwareCodec(this)
-      } catch {}
-      const desc = await origCreateOffer.apply(this, arguments as any)
-      if (desc && desc.sdp) {
-        desc.sdp = prioritizeCodecInSdp(desc.sdp)
-      }
-      return desc
-    }
-  }
-
-  const origCreateAnswer = OrigPC.prototype.createAnswer
-  if (typeof origCreateAnswer === 'function') {
-    OrigPC.prototype.createAnswer = async function (options?: any) {
-      try {
-        prioritizeH264HardwareCodec(this)
-      } catch {}
-      const desc = await origCreateAnswer.apply(this, arguments as any)
-      if (desc && desc.sdp) {
-        desc.sdp = prioritizeCodecInSdp(desc.sdp)
-      }
-      return desc
-    }
-  }
-
-  const origSetLocalDescription = OrigPC.prototype.setLocalDescription
-  if (typeof origSetLocalDescription === 'function') {
-    OrigPC.prototype.setLocalDescription = function (desc?: any) {
-      if (desc && desc.sdp) {
-        try {
-          desc.sdp = prioritizeCodecInSdp(desc.sdp)
-        } catch {}
-      }
-      return origSetLocalDescription.apply(this, arguments as any)
-    }
-  }
-
-  const origSetRemoteDescription = OrigPC.prototype.setRemoteDescription
-  if (typeof origSetRemoteDescription === 'function') {
-    OrigPC.prototype.setRemoteDescription = function (desc?: any) {
-      if (desc && desc.sdp) {
-        try {
-          desc.sdp = prioritizeCodecInSdp(desc.sdp)
-        } catch {}
-      }
-      return origSetRemoteDescription.apply(this, arguments as any)
-    }
-  }
-
-  ;(OrigPC as any).__hwCodecInterceptorInstalled = true
-  console.info('[HardwareCodec] RTCPeerConnection interceptor active')
+  // Maintained for backward compatibility. Direct transceiver preferences are used instead of prototype patching.
 }
-
-// Auto-install on module load
-try {
-  installHardwareCodecInterceptor()
-} catch {}

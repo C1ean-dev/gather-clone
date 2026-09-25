@@ -125,7 +125,8 @@ describe('WebRTC Hardware Codec Acceleration (H.264 Priority)', () => {
     ].join('\r\n')
 
     const munged = prioritizeH264InSdp(sampleSdp)
-    expect(munged).toContain('m=video 9 UDP/TLS/RTP/SAVPF 102 104 96 97')
+    expect(munged).toContain('m=video 9 UDP/TLS/RTP/SAVPF 102 104 96 97\r\na=rtpmap:96')
+    expect(munged).not.toContain('97a=rtpmap')
   })
 
   it('allows toggling hardware acceleration on and off dynamically', async () => {
