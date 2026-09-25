@@ -34,6 +34,16 @@ export const DEFAULT_NETWORK_QUALITY: NetworkQuality = Object.freeze({
   lastUpdated: 0,
 })
 
+export function getUserNetworkQuality(
+  state: { localQuality: NetworkQuality; peerQualities: Record<string, NetworkQuality> },
+  peerId?: string,
+  isLocal?: boolean
+): NetworkQuality {
+  if (isLocal) return state.localQuality
+  if (!peerId) return DEFAULT_NETWORK_QUALITY
+  return state.peerQualities[peerId] || DEFAULT_NETWORK_QUALITY
+}
+
 export function useUserNetworkQuality(peerId?: string, isLocal?: boolean): NetworkQuality {
   const quality = useNetworkQualityStore((s) => {
     if (isLocal) return s.localQuality

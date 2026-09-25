@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   useNetworkQualityStore,
   calculateRating,
+  DEFAULT_NETWORK_QUALITY,
+  getUserNetworkQuality,
+  useUserNetworkQuality,
 } from '../store/useNetworkQualityStore'
 import { idleManager, IDLE_TIMEOUT_SECONDS } from '../services/idleManager'
 import {
@@ -157,5 +160,103 @@ describe('Notificações Nativas do Windows & Som de Chamada (Notification Servi
         tag: 'test-knock',
       })
     )
+  })
+})
+
+describe('Garantia Anti-Loop de Renderização (Zustand Referential Stability & Anti-Loop)', () => {
+  beforeEach(() => {
+    useNetworkQualityStore.getState().clearAll()
+  })
+
+  it('guarantees that DEFAULT_NETWORK_QUALITY is a frozen singleton reference', () => {
+    expect(Object.isFrozen(DEFAULT_NETWORK_QUALITY)).toBe(true)
+    expect(DEFAULT_NETWORK_QUALITY.pingMs).toBe(0)
+    expect(DEFAULT_NETWORK_QUALITY.rating).toBe('excellent')
+  })
+
+  it('getUserNetworkQuality returns strictly identical object references for unmapped peers across multiple calls', () => {
+    // If a selector produces a new object on each invocation, React's useSyncExternalStore
+    // triggers an infinite re-render loop (Maximum update depth exceeded).
+    const state = useNetworkQualityStore.getState()
+    const refA = getUserNetworkQuality(state, 'unmapped-peer-id')
+    const refB = getUserNetworkQuality(state, 'unmapped-peer-id')
+    const refC = getUserNetworkQuality(state, undefined, false)
+
+    expect(refA).toBe(DEFAULT_NETWORK_QUALITY)
+    expect(refB).toBe(DEFAULT_NETWORK_QUALITY)
+    expect(refC).toBe(DEFAULT_NETWORK_QUALITY)
+
+    // Strict referential equality
+    expect(Object.is(refA, refB)).toBe(true)
+    expect(Object.is(refB, refC)).toBe(true)
+  })
+
+  it('unrelated store updates do not break referential equality for unmapped peers', () => {
+    const store = useNetworkQualityStore.getState()
+    const initialRef = getUserNetworkQuality(store, 'peer-ghost')
+
+    // Update local player quality
+    useNetworkQualityStore.getState().setLocalQuality({ pingMs: 85, lossPct: 2 })
+    const afterLocalUpdate = getUserNetworkQuality(useNetworkQualityStore.getState(), 'peer-ghost')
+    expect(afterLocalUpdate).toBe(initialRef)
+
+    // Update another peer
+    useNetworkQualityStore.getState().setPeerQuality('peer-active', { pingMs: 42, lossPct: 0 })
+    const afterOtherPeerUpdate = getUserNetworkQuality(useNetworkQualityStore.getState(), 'peer-ghost')
+    expect(afterOtherPeerUpdate).toBe(initialRef)
+
+    // The active peer should get its new quality, but peer-ghost stays strictly on DEFAULT_NETWORK_QUALITY
+    const activeQuality = getUserNetworkQuality(useNetworkQualityStore.getState(), 'peer-active')
+    expect(activeQuality.pingMs).toBe(42)
+    expect(getUserNetworkQuality(useNetworkQualityStore.getState(), 'peer-ghost')).toBe(DEFAULT_NETWORK_QUALITY)
+  })
+
+  it('demonstrates that returning inline object literals inside Zustand selectors is an anti-pattern', () => {
+    // The previous buggy pattern was:
+    // const selector = (s) => s.peerQualities[id] || { pingMs: 0, lossPct: 0, rating: 'excellent' }
+    // Calling this selector twice produces two distinct objects in memory:
+    const buggySelector = (s: any) => s.peerQualities['nonexistent'] || { pingMs: 0, lossPct: 0 }
+    const call1 = buggySelector(useNetworkQualityStore.getState())
+    const call2 = buggySelector(useNetworkQualityStore.getState())
+
+    // BUG VERIFICATION: The buggy selector fails Object.is equality, which causes React re-render loops
+    expect(Object.is(call1, call2)).toBe(false)
+
+    // SAFE SELECTOR VERIFICATION: Our getUserNetworkQuality passes Object.is equality every single time
+    const safeCall1 = getUserNetworkQuality(useNetworkQualityStore.getState(), 'nonexistent')
+    const safeCall2 = getUserNetworkQuality(useNetworkQualityStore.getState(), 'nonexistent')
+    expect(Object.is(safeCall1, safeCall2)).toBe(true)
+  })
+
+  it('scans codebase to assert that no component contains inline object fallbacks inside useNetworkQualityStore selectors', () => {
+    // Eagerly load all component and store source files as raw text strings via Vite
+    const sourceModules = import.meta.glob<string>(
+      ['../components/**/*.{ts,tsx}'],
+      { query: '?raw', import: 'default', eager: true }
+    )
+
+    // Anti-pattern regex: useNetworkQualityStore((s) => ... || { ... })
+    // Regex matches inline object fallback `|| {` inside useNetworkQualityStore call
+    const inlineObjectPattern = /useNetworkQualityStore\s*\(\s*\([^)]*\)\s*=>[^{};]*?\|\|\s*\{/g
+
+    const violations: { file: string; match: string }[] = []
+
+    for (const [filePath, content] of Object.entries(sourceModules)) {
+      if (typeof content === 'string') {
+        const matches = content.match(inlineObjectPattern)
+        if (matches) {
+          violations.push({
+            file: filePath,
+            match: matches[0],
+          })
+        }
+      }
+    }
+
+    // Must be ZERO violations across all components
+    expect(
+      violations,
+      `Detected inline object literal fallback inside useNetworkQualityStore selector in: ${JSON.stringify(violations, null, 2)}. Use useUserNetworkQuality or DEFAULT_NETWORK_QUALITY instead!`
+    ).toHaveLength(0)
   })
 })
