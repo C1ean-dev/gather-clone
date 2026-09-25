@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import { Radio, MicOff, Maximize, Pin, Maximize2, Volume2, Volume1, VolumeX, Headphones } from 'lucide-react'
 import { useMediaStore } from '../../store/useMediaStore'
-import { useNetworkQualityStore } from '../../store/useNetworkQualityStore'
+import { useUserNetworkQuality } from '../../store/useNetworkQualityStore'
 import { NetworkSignalIcon } from '../NetworkSignalIcon'
 import { attachStreamToVideo } from '../../media/attachVideoElement'
 
@@ -56,11 +56,7 @@ export const GridParticipantTile: React.FC<Props> = ({
   const selectedAudioOutput = useMediaStore((s) => s.selectedAudioOutput)
   const isDeafened = useMediaStore((s) => s.isDeafened)
   const isSilenced = useMediaStore((s) => s.isUserSilenced(user.id, user.name))
-  const networkQuality = useNetworkQualityStore((s) =>
-    user.isLocal
-      ? s.localQuality
-      : s.peerQualities[user.id] || { pingMs: 0, lossPct: 0, jitterMs: 0, rating: 'excellent', lastUpdated: 0 }
-  )
+  const networkQuality = useUserNetworkQuality(user.id, user.isLocal)
 
   const rawVolume =
     participantVolumes[user.id] !== undefined

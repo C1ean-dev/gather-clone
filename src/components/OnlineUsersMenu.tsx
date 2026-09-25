@@ -30,7 +30,7 @@ import { useGameStore } from '../store/useGameStore'
 import { useMapStore } from '../store/useMapStore'
 import { useChatStore } from '../store/useChatStore'
 import { useMediaStore } from '../store/useMediaStore'
-import { useNetworkQualityStore } from '../store/useNetworkQualityStore'
+import { useNetworkQualityStore, DEFAULT_NETWORK_QUALITY } from '../store/useNetworkQualityStore'
 import { NetworkSignalIcon } from './NetworkSignalIcon'
 import { ConfirmModal } from './ConfirmModal'
 import { Player, UserRole } from '../types/game'
@@ -308,9 +308,7 @@ const OnlineUsersMenuInner: React.FC = () => {
                           <span>{getZoneName(player.currentZoneId)}</span>
                         </span>
                         {(() => {
-                          const q = isLocal
-                            ? localQuality
-                            : networkQualities[player.id] || { pingMs, lossPct: 0, jitterMs: 0, rating: 'excellent', lastUpdated: 0 }
+                          const q = (isLocal ? localQuality : networkQualities[player.id]) || DEFAULT_NETWORK_QUALITY
                           return (
                             <NetworkSignalIcon
                               rating={q.rating}

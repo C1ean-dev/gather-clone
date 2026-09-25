@@ -37,7 +37,7 @@ import { attachStreamToVideo } from '../media/attachVideoElement'
 import { ParticipantContextMenu } from './grid/ParticipantContextMenu'
 import { ParticipantData } from './grid/GridParticipantTile'
 import { NetworkSignalIcon } from './NetworkSignalIcon'
-import { useNetworkQualityStore } from '../store/useNetworkQualityStore'
+import { useUserNetworkQuality } from '../store/useNetworkQualityStore'
 
 interface VideoTileProps {
   id?: string
@@ -86,11 +86,7 @@ const VideoTile: React.FC<VideoTileProps> = ({
   const isGlobalDeafened = useMediaStore((s) => s.isDeafened)
   const isSilenced = useMediaStore((s) => (id ? s.isUserSilenced(id, name) : false))
   const rawVolume = (id && participantVolumes[id] !== undefined) ? participantVolumes[id] : 100
-  const networkQuality = useNetworkQualityStore((s) =>
-    isLocal
-      ? s.localQuality
-      : (id ? s.peerQualities[id] : null) || { pingMs: 0, lossPct: 0, jitterMs: 0, rating: 'excellent' as const, lastUpdated: 0 }
-  )
+  const networkQuality = useUserNetworkQuality(id, isLocal)
 
   const isEffectivelyMuted = Boolean(isLocal || suppressAudio || isGlobalDeafened || isSilenced || rawVolume === 0)
 

@@ -26,13 +26,24 @@ export function calculateRating(pingMs: number, lossPct: number, jitterMs: numbe
   return 'excellent'
 }
 
-const DEFAULT_QUALITY: NetworkQuality = {
+export const DEFAULT_NETWORK_QUALITY: NetworkQuality = Object.freeze({
   pingMs: 0,
   lossPct: 0,
   jitterMs: 0,
   rating: 'excellent',
-  lastUpdated: Date.now(),
+  lastUpdated: 0,
+})
+
+export function useUserNetworkQuality(peerId?: string, isLocal?: boolean): NetworkQuality {
+  const quality = useNetworkQualityStore((s) => {
+    if (isLocal) return s.localQuality
+    if (!peerId) return undefined
+    return s.peerQualities[peerId]
+  })
+  return quality || DEFAULT_NETWORK_QUALITY
 }
+
+const DEFAULT_QUALITY: NetworkQuality = { ...DEFAULT_NETWORK_QUALITY }
 
 export const useNetworkQualityStore = create<NetworkQualityStore>((set) => ({
   localQuality: { ...DEFAULT_QUALITY },
