@@ -87,8 +87,12 @@ export const FloorsTab: React.FC<Props> = ({
             <div
               key={floor.id}
               onClick={() => {
-                setSelectedFloor(floor.id as any)
-                setActiveTool('paint_floor')
+                if (isSelected) {
+                  setActiveTool('select')
+                } else {
+                  setSelectedFloor(floor.id as any)
+                  setActiveTool('paint_floor')
+                }
               }}
               className={`group relative aspect-square rounded-xl border flex flex-col items-center justify-between p-1.5 transition-all select-none cursor-pointer ${
                 isSelected

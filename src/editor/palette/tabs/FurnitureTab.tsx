@@ -181,8 +181,13 @@ export const FurnitureTab: React.FC<Props> = ({
               <div
                 key={item.id}
                 onClick={() => {
-                  setSelectedFurnitureDefId(item.id)
-                  setActiveTool('place_furniture')
+                  if (isSelected) {
+                    setSelectedFurnitureDefId('')
+                    setActiveTool('select')
+                  } else {
+                    setSelectedFurnitureDefId(item.id)
+                    setActiveTool('place_furniture')
+                  }
                 }}
                 className={`group relative aspect-square rounded-xl border flex flex-col items-center justify-between p-1.5 transition-all select-none cursor-pointer ${
                   isSelected

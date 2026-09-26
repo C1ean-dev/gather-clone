@@ -59,7 +59,7 @@ export const FurnitureContextMenu: React.FC = () => {
     })
   }, [selectedFurn, updateFurniture])
 
-  // Hotkey R to rotate selected placed furniture
+  // Hotkeys: R to rotate, Escape to deselect, Arrows to move placed furniture
   useEffect(() => {
     if (!isEditorOpen || !selectedFurn) return
 
@@ -68,11 +68,26 @@ export const FurnitureContextMenu: React.FC = () => {
       if (e.key === 'r' || e.key === 'R') {
         e.preventDefault()
         handleRotate()
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        setSelectedPlacedFurnitureId(null)
+        setIsMovingFurniture(false)
+        setShowColorPalette(false)
+      } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault()
+        const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0
+        const dy = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0
+        const newX = Math.max(0, Math.min(mapData.width - 1, selectedFurn.x + dx))
+        const newY = Math.max(0, Math.min(mapData.height - 1, selectedFurn.y + dy))
+        updateFurniture(selectedFurn.id, { x: newX, y: newY })
+        PeerManager.getInstance().sendMapEdit('add_furniture', {
+          furniture: { ...selectedFurn, x: newX, y: newY },
+        })
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isEditorOpen, selectedFurn, handleRotate])
+  }, [isEditorOpen, selectedFurn, handleRotate, setSelectedPlacedFurnitureId, setIsMovingFurniture, mapData.width, mapData.height, updateFurniture])
 
   if (!isEditorOpen || !selectedPlacedFurnitureId || !selectedFurn) {
     return null
@@ -89,7 +104,7 @@ export const FurnitureContextMenu: React.FC = () => {
   }
 
   const handleStartMove = () => {
-    setIsMovingFurniture(true)
+    setIsMovingFurniture(!isMovingFurniture)
   }
 
   const handleSelectColor = (colorHex?: string) => {
@@ -175,13 +190,13 @@ export const FurnitureContextMenu: React.FC = () => {
           onClick={handleStartMove}
           className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95 ${
             isMovingFurniture
-              ? 'bg-amber-500 text-slate-950 shadow-amber-500/30 animate-pulse'
+              ? 'bg-amber-500 text-slate-950 shadow-amber-500/30'
               : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30'
           }`}
-          title="Clique no mapa para posicionar em um novo local"
+          title="Arraste a mobília diretamente pelo mapa para movê-la"
         >
           <Move className="w-3.5 h-3.5" />
-          <span>{isMovingFurniture ? 'Clique no mapa para soltar...' : 'Mover'}</span>
+          <span>{isMovingFurniture ? 'Arraste no mapa' : 'Mover'}</span>
         </button>
 
         {/* Rotate / Direction Action */}

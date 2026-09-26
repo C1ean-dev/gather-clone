@@ -1,5 +1,5 @@
 import React from 'react'
-import { Sparkles, Armchair, Trash2 } from 'lucide-react'
+import { Sparkles, Armchair, Trash2, X } from 'lucide-react'
 import { PixelArtThumbnail } from '../PixelArtThumbnail'
 import { FloorType, WallType } from '../../types/map'
 import { FurnitureDef } from '../../engine/PixelArtRenderer'
@@ -28,6 +28,8 @@ export const ActiveItemSummary: React.FC<Props> = ({
   selectedFurnitureDefId,
 }) => {
   const eraserTarget = useMapStore((s) => s.eraserTarget)
+  const setSelectedFurnitureDefId = useMapStore((s) => s.setSelectedFurnitureDefId)
+  const setActiveTool = useMapStore((s) => s.setActiveTool)
 
   const getSummary = () => {
     if (activeTool === 'eraser') {
@@ -148,6 +150,19 @@ export const ActiveItemSummary: React.FC<Props> = ({
         <div className="text-xs font-bold text-slate-100 truncate mt-0.5">{activeItem.title}</div>
         <div className="text-[10px] text-slate-400 truncate">{activeItem.subtitle}</div>
       </div>
+      {activeTool !== 'select' && (
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedFurnitureDefId('')
+            setActiveTool('select')
+          }}
+          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors shrink-0"
+          title="Deselecionar item (Escape)"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      )}
     </div>
   )
 }

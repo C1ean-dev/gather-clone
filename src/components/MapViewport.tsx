@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Sparkles, RotateCw } from 'lucide-react'
 import { CanvasEngine } from '../engine/CanvasEngine'
 import { getNextAvailableZoneColor, FURNITURE_CATALOG } from '../engine/Constants'
@@ -44,6 +44,22 @@ export const MapViewport: React.FC = () => {
   const placementDirection = useMapStore((s) => s.placementDirection)
   const rotatePlacementDirection = useMapStore((s) => s.rotatePlacementDirection)
   const eraserTarget = useMapStore((s) => s.eraserTarget)
+  const setSelectedFurnitureDefId = useMapStore((s) => s.setSelectedFurnitureDefId)
+  const setActiveTool = useMapStore((s) => s.setActiveTool)
+
+  const draggedFurnitureRef = useRef<{
+    id: string
+    startTile: { x: number; y: number }
+    initialPos: { x: number; y: number }
+    offsetX: number
+    offsetY: number
+    furnW: number
+    furnH: number
+    wasAlreadySelected: boolean
+    isDragging: boolean
+  } | null>(null)
+  const [isDraggingFurniture, setIsDraggingFurniture] = useState(false)
+  const [hoveredFurnitureId, setHoveredFurnitureId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isEditorOpen || activeTool !== 'place_furniture') return
@@ -61,6 +77,45 @@ export const MapViewport: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isEditorOpen, activeTool, rotatePlacementDirection])
+
+  // Global Escape key in editor: Deselect placed furniture or palette item
+  useEffect(() => {
+    if (!isEditorOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea') return
+
+      if (e.key === 'Escape') {
+        if (draggedFurnitureRef.current) {
+          updateFurniture(draggedFurnitureRef.current.id, {
+            x: draggedFurnitureRef.current.initialPos.x,
+            y: draggedFurnitureRef.current.initialPos.y,
+          })
+        }
+        setSelectedPlacedFurnitureId(null)
+        setIsMovingFurniture(false)
+        setSelectedFurnitureDefId('')
+        setActiveTool('select')
+        draggedFurnitureRef.current = null
+        setIsDraggingFurniture(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isEditorOpen, setSelectedPlacedFurnitureId, setIsMovingFurniture, setSelectedFurnitureDefId, setActiveTool, updateFurniture])
+
+  // Window mouseup listener to ensure drops are caught even if released outside canvas
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (draggedFurnitureRef.current?.isDragging) {
+        handleCanvasMouseUp()
+      }
+    }
+    window.addEventListener('mouseup', handleGlobalMouseUp)
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
+  }, [])
 
   useEffect(() => {
     if (!canvasRef.current) return
@@ -206,37 +261,27 @@ export const MapViewport: React.FC = () => {
     let snapStep = 1
     if (activeTool === 'place_furniture') {
       snapStep = getPlacementSnapStep(e.shiftKey, selectedFurnitureDefId)
-    } else if (isMovingFurniture && selectedPlacedFurnitureId) {
-      const movedFurn = mapData.furniture.find((f) => f.id === selectedPlacedFurnitureId)
-      snapStep = getPlacementSnapStep(e.shiftKey, movedFurn?.defId)
     }
 
     const tile = engineRef.current.screenToTile(mouseX, mouseY, snapStep)
+    const exactTile = engineRef.current.screenToTile(mouseX, mouseY, 0)
 
     isMouseDownRef.current = true
     lastPaintedTileRef.current = `${tile.x},${tile.y}`
 
     if (isEditorOpen) {
-      // 1. Moving an existing selected furniture
-      if (isMovingFurniture && selectedPlacedFurnitureId) {
-        updateFurniture(selectedPlacedFurnitureId, { x: tile.x, y: tile.y })
-        const updatedFurn = mapData.furniture.find((f) => f.id === selectedPlacedFurnitureId)
-        if (updatedFurn) {
-          PeerManager.getInstance().sendMapEdit('add_furniture', {
-            furniture: { ...updatedFurn, x: tile.x, y: tile.y },
-          })
-        }
-        setIsMovingFurniture(false)
-        return
-      }
-
-      // 2. Check if user clicked directly on an existing furniture
+      // 1. Check if user clicked directly on an existing furniture
       const customAssets = useCustomAssetsStore.getState().customAssets
       const clickedFurn = mapData.furniture.find((f) => {
         const custom = customAssets.find((a) => a.id === f.defId)
         const def = custom || FURNITURE_CATALOG.find((cat) => cat.id === f.defId)
         const { tileW: w, tileH: h } = resolveFurnitureDimensions(f, custom, def)
-        return tile.x >= f.x - 0.05 && tile.x < f.x + w + 0.05 && tile.y >= f.y - 0.05 && tile.y < f.y + h + 0.05
+        return (
+          exactTile.x >= f.x - 0.05 &&
+          exactTile.x < f.x + w + 0.05 &&
+          exactTile.y >= f.y - 0.05 &&
+          exactTile.y < f.y + h + 0.05
+        )
       })
 
       // If clicked on furniture and not painting floors/walls or drawing zone:
@@ -248,15 +293,42 @@ export const MapViewport: React.FC = () => {
             return
           }
         } else {
-          // Select furniture and open contextual menu
+          // Select this furniture and prepare for drag-and-drop
+          const custom = customAssets.find((a) => a.id === clickedFurn.defId)
+          const def = custom || FURNITURE_CATALOG.find((cat) => cat.id === clickedFurn.defId)
+          const { tileW, tileH } = resolveFurnitureDimensions(clickedFurn, custom, def)
+          const wasAlreadySelected = selectedPlacedFurnitureId === clickedFurn.id
+
           setSelectedPlacedFurnitureId(clickedFurn.id)
+          setIsMovingFurniture(true)
+          draggedFurnitureRef.current = {
+            id: clickedFurn.id,
+            startTile: { ...exactTile },
+            initialPos: { x: clickedFurn.x, y: clickedFurn.y },
+            offsetX: exactTile.x - clickedFurn.x,
+            offsetY: exactTile.y - clickedFurn.y,
+            furnW: tileW,
+            furnH: tileH,
+            wasAlreadySelected,
+            isDragging: false,
+          }
           return
         }
       }
 
-      // If clicked on empty space and not moving, deselect furniture
-      if (!clickedFurn && selectedPlacedFurnitureId && activeTool !== 'eraser') {
+      // 2. If clicked on empty space without moving, deselect furniture (do NOT teleport)
+      if (
+        !clickedFurn &&
+        selectedPlacedFurnitureId &&
+        activeTool !== 'eraser' &&
+        activeTool !== 'paint_floor' &&
+        activeTool !== 'paint_wall' &&
+        activeTool !== 'draw_zone'
+      ) {
         setSelectedPlacedFurnitureId(null)
+        setIsMovingFurniture(false)
+        draggedFurnitureRef.current = null
+        setIsDraggingFurniture(false)
       }
 
       if (activeTool === 'draw_zone') {
@@ -338,14 +410,63 @@ export const MapViewport: React.FC = () => {
     let snapStep = 1
     if (activeTool === 'place_furniture') {
       snapStep = getPlacementSnapStep(e.shiftKey, selectedFurnitureDefId)
-    } else if (isMovingFurniture && selectedPlacedFurnitureId) {
-      const movedFurn = mapData.furniture.find((f) => f.id === selectedPlacedFurnitureId)
-      snapStep = getPlacementSnapStep(e.shiftKey, movedFurn?.defId)
     }
 
     const tile = engineRef.current.screenToTile(mouseX, mouseY, snapStep)
+    const exactTile = engineRef.current.screenToTile(mouseX, mouseY, 0)
     engineRef.current.hoverTile = tile
     engineRef.current.isShiftPressed = e.shiftKey
+
+    if (isEditorOpen) {
+      const customAssets = useCustomAssetsStore.getState().customAssets
+      const hovered = mapData.furniture.find((f) => {
+        const custom = customAssets.find((a) => a.id === f.defId)
+        const def = custom || FURNITURE_CATALOG.find((cat) => cat.id === f.defId)
+        const { tileW: w, tileH: h } = resolveFurnitureDimensions(f, custom, def)
+        return (
+          exactTile.x >= f.x - 0.05 &&
+          exactTile.x < f.x + w + 0.05 &&
+          exactTile.y >= f.y - 0.05 &&
+          exactTile.y < f.y + h + 0.05
+        )
+      })
+      setHoveredFurnitureId(hovered ? hovered.id : null)
+    }
+
+    // Live dragging of selected furniture across the map
+    if (isEditorOpen && isMouseDownRef.current && draggedFurnitureRef.current) {
+      const drag = draggedFurnitureRef.current
+      const dist = Math.hypot(exactTile.x - drag.startTile.x, exactTile.y - drag.startTile.y)
+
+      if (dist > 0.05 || drag.isDragging) {
+        if (!drag.isDragging) {
+          drag.isDragging = true
+          setIsDraggingFurniture(true)
+        }
+
+        const targetX = exactTile.x - drag.offsetX
+        const targetY = exactTile.y - drag.offsetY
+
+        const targetFurn = mapData.furniture.find((f) => f.id === drag.id)
+        const dragSnap = getPlacementSnapStep(e.shiftKey, targetFurn?.defId)
+
+        let snappedX = targetX
+        let snappedY = targetY
+        if (dragSnap === 1) {
+          snappedX = Math.round(targetX)
+          snappedY = Math.round(targetY)
+        } else if (dragSnap > 0) {
+          snappedX = Math.round(targetX / dragSnap) * dragSnap
+          snappedY = Math.round(targetY / dragSnap) * dragSnap
+        }
+
+        const clampedX = Math.max(0, Math.min(mapData.width - drag.furnW, snappedX))
+        const clampedY = Math.max(0, Math.min(mapData.height - drag.furnH, snappedY))
+
+        updateFurniture(drag.id, { x: clampedX, y: clampedY })
+        return
+      }
+    }
 
     // Continuous drag painting when mouse button is held down
     if (isEditorOpen && isMouseDownRef.current) {
@@ -398,6 +519,32 @@ export const MapViewport: React.FC = () => {
   const handleCanvasMouseUp = () => {
     isMouseDownRef.current = false
     lastPaintedTileRef.current = null
+
+    // Finalize furniture drag & drop
+    if (isEditorOpen && draggedFurnitureRef.current) {
+      const drag = draggedFurnitureRef.current
+      draggedFurnitureRef.current = null
+      setIsDraggingFurniture(false)
+
+      if (drag.isDragging) {
+        // Broadcast final position of moved furniture across P2P
+        const currentFurn = useMapStore.getState().mapData.furniture.find((f) => f.id === drag.id)
+        if (currentFurn) {
+          PeerManager.getInstance().sendMapEdit('add_furniture', {
+            furniture: currentFurn,
+          })
+        }
+        return
+      } else {
+        // Simple click without drag:
+        // If it was already selected prior to this click, deselect it!
+        if (drag.wasAlreadySelected) {
+          setSelectedPlacedFurnitureId(null)
+          setIsMovingFurniture(false)
+          return
+        }
+      }
+    }
 
     if (!engineRef.current) return
 
@@ -525,10 +672,28 @@ export const MapViewport: React.FC = () => {
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
         onMouseLeave={handleCanvasMouseUp}
-        className={`w-full h-full cursor-crosshair pixelated ${
+        className={`w-full h-full pixelated ${
+          isDraggingFurniture
+            ? 'cursor-grabbing'
+            : isEditorOpen && (hoveredFurnitureId || (isMovingFurniture && selectedPlacedFurnitureId))
+            ? 'cursor-grab'
+            : 'cursor-crosshair'
+        } ${
           mapViewMode === 'simplified' ? 'hidden' : 'block'
         }`}
       />
+
+      {/* Selected Furniture Drag & Move Floating Banner */}
+      {isEditorOpen && selectedPlacedFurnitureId && !isDraggingFurniture && mapViewMode !== 'simplified' && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-slate-700/60 text-white px-4 py-2 rounded-2xl shadow-xl flex items-center gap-3 text-xs font-semibold select-none z-30">
+          <span className="text-slate-300">💡 Dica:</span>
+          <span className="text-indigo-300 font-medium">Arraste a mobília para mover</span>
+          <span className="text-slate-500">•</span>
+          <span className="text-slate-300 font-normal">Girar (<kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-amber-300 font-mono text-[10px]">R</kbd>)</span>
+          <span className="text-slate-500">•</span>
+          <span className="text-slate-300 font-normal">Deselecionar (<kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[10px]">Esc</kbd> ou clique nela)</span>
+        </div>
+      )}
 
       {/* Drawing Zone Active Floating Banner */}
       {isEditorOpen && activeTool === 'draw_zone' && mapViewMode !== 'simplified' && (
