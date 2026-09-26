@@ -1,15 +1,15 @@
-# Gather V2 — Espaço Virtual de Colaboração e Chamadas P2P
+# Lira — Espaço Virtual de Colaboração e Chamadas P2P
 
 [![React](https://img.shields.io/badge/React-18.3-20232A?style=flat-square&logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 [![Electron](https://img.shields.io/badge/Electron-33.2-47848F?style=flat-square&logo=electron)](https://www.electronjs.org/)
 [![Vite](https://img.shields.io/badge/Vite-6.1-646CFF?style=flat-square&logo=vite)](https://vitejs.dev/)
-[![Vitest](https://img.shields.io/badge/Vitest-46_Suites_|_278_Tests-6E9F18?style=flat-square&logo=vitest)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Vitest-67_Suites_|_424_Tests-6E9F18?style=flat-square&logo=vitest)](https://vitest.dev/)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?style=flat-square&logo=tailwindcss)](https://tailwindcss.com/)
 [![WebRTC](https://img.shields.io/badge/WebRTC-P2P_Mesh-333333?style=flat-square)](https://webrtc.org/)
 [![License](https://img.shields.io/badge/License-MIT-gray?style=flat-square)](LICENSE)
 
-Ambiente virtual para coworking, reuniões e interação em tempo real, integrando interface em pixel art 2D a chamadas de voz e vídeo descentralizadas via WebRTC. O sistema conta com processamento avançado de áudio em tempo real (DSP e rede neural), isolamento acústico por zonas, compartilhamento de tela em alta definição e estúdio integrado para criação de elementos gráficos.
+Ambiente virtual para coworking, reuniões e interação em tempo real, integrando interface gráfica em pixel art 2D a chamadas de voz e vídeo descentralizadas via WebRTC. O sistema conta com processamento avançado de áudio em tempo real (DSP clássico, DSP suave e rede neural RNNoise), isolamento acústico por zonas, compartilhamento de tela em alta definição, editor interativo de espaços com drag-and-drop livre, chat com gaveta redimensionável, sistema de presença e notificações nativas.
 
 ---
 
@@ -22,7 +22,7 @@ Ambiente virtual para coworking, reuniões e interação em tempo real, integran
   - **DSP Suave**: Expansor dinâmico descendente com transição suave (histerese ampla e release de 250 ms) que atenua o ruído contínuo preservando respirações, sussurros e consoantes finais.
   - **RNNoise Neural**: Redução de ruído por inteligência artificial executada localmente via WebAssembly e AudioWorklet, isolando os harmônicos da voz humana e eliminando ruídos complexos de fundo.
 - **Calibração Automática de Microfone**:
-  - Medição acústica do ruído de fundo (noise floor em dBFS) a partir de amostras brutas com cálculo pela mediana da metade inferior, evitando distorções causadas por fala ou ruídos esporádicos.
+  - Medição acústica do ruído de fundo (*noise floor* em dBFS) a partir de amostras brutas com cálculo pela mediana da metade inferior, evitando distorções causadas por fala ou ruídos esporádicos.
   - Recomendação automática do motor mais adequado e do limiar numérico do Noise Gate.
 - **Visualizador de Formas de Onda (Waveform)**:
   - Renderização vetorial SVG de alta resolução (64 a 75 barras simétricas) com gradiente contínuo e oscilação orgânica, reagindo em tempo real ao espectro vocal e aos picos de pressão sonora.
@@ -32,50 +32,89 @@ Ambiente virtual para coworking, reuniões e interação em tempo real, integran
 - **Isolamento de Áudio de Compartilhamento de Tela & Ducking Inteligente**:
   - Módulo nativo em C++ (WASAPI Loopback) para captura direta de áudio de janelas e processos de software.
   - Isolamento acústico automático das vozes dos participantes da conferência, impedindo realimentação (eco de retorno).
-  - Atenuação automática (ducking) do áudio da tela durante a fala do transmissor.
+  - Atenuação automática (*ducking*) do áudio da tela durante a fala do transmissor.
 
-### 2. Espaços Virtuais e Zonas Acústicas Privadas
+### 2. Espaços Virtuais, Zonas Acústicas e Câmera
 
 - **Isolamento por Zonas**: Conexão automática de áudio e vídeo restrita aos participantes posicionados dentro do perímetro da mesma sala ou mesa demarcada.
 - **Sistema de Controle de Acesso e Trancamento**:
   - Fechamento de portas com controle de acesso para ocupantes autorizados.
-  - Sinalização de batida na porta (door knocking) com notificação sonora e visual para os ocupantes.
+  - Sinalização de batida na porta (*door knocking*) com notificação sonora e visual para os ocupantes.
 - **Modos de Exibição de Chamada**:
-  - Mini-Call flutuante com prévias de vídeo integradas ao mapa.
-  - Modo Grade em tela cheia com palco principal e barra lateral (Gather Grid).
-  - Modo Foco (Spotlight) para destacar participantes individuais.
+  - **Mini-Call Flutuante**: Prévias de vídeo integradas ao mapa para colaboração contínua.
+  - **Modo Grade (Gather Grid)**: Tela cheia com palco principal e barra lateral de participantes.
+  - **Modo Foco (Spotlight)**: Destaque para palestrantes ou compartilhamento de tela.
+- **Visualização Flexível do Mapa**:
+  - **Modo Imersivo**: Renderizador Canvas 2D em 60 FPS com pixel art nítido, sombreamento e profundidade em Y.
+  - **Modo Simplificado (Visão Vetorial)**: Visão esquemática estilo planta-baixa / minimapa para navegação rápida e baixo consumo de recursos.
+  - **Zoom e Auto-ajuste**: Zoom contínuo na roda do mouse e botão de auto-ajuste (*Fit to Screen*) cobrindo 95%+ da tela.
 
-### 3. Compartilhamento de Tela em Alta Resolução
+### 3. Editor de Espaço Interativo & Estúdio de Criação
 
-- **Seleção de Monitores e Janelas**: Captura de telas completas ou aplicativos específicos (editores de código, navegadores, softwares de renderização).
+- **Movimentação por Arraste Direto (Drag-and-Drop)**:
+  - Arraste livre de mobílias diretamente pelo mapa com preservação do ponto de apoio sob o cursor.
+  - Alinhamento automático ao grid de 32x32 pixels ou posicionamento contínuo pixel a pixel segurando <kbd>Shift</kbd>.
+  - Prevenção de teletransporte acidental: clicar no mapa vazio apenas desmarca a seleção.
+  - Restrição de limites: cálculo automático que impede objetos de ultrapassarem as bordas da sala.
+- **Seleção e Desmarcação Eficiente**:
+  - Clique duplo ou novo clique no mesmo item (no mapa ou na paleta) desmarca a mobília.
+  - Botão de fechar `(X)` no resumo inferior da paleta e suporte universal à tecla <kbd>Esc</kbd>.
+- **Menu Contextual de Mobílias**:
+  - **Rotação Rápida**: Tecla de atalho <kbd>R</kbd> para girar entre as 4 direções (Frente, Costas, Esquerda, Direita).
+  - **Paleta Cromática**: Aplicação instantânea de 13 tons de tingimento preservando as texturas.
+  - **Ajuste Fino**: Deslocamento ortogonal via setas direcionais do teclado (<kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>).
+  - **Edição no Estúdio**: Atalho direto para editar a peça no Estúdio de Criação.
+- **Pintura e Demarcação Contínua**:
+  - Pintura de pisos e paredes por arrasto contínuo do mouse.
+  - Preenchimento total de salas com <kbd>Shift</kbd> + Clique.
+  - Suporte completo a **Paredes Direcionais** com profundidade e oclusão de avatares.
+  - Desenho e redimensionamento de zonas acústicas privadas por caixa delimitadora elástica.
+- **Estúdio de Criação de Sprites**:
+  - Importação de imagens (PNG, JPG) com recorte inteligente, remoção de fundo e transparência.
+  - Composição em camadas, espelhamento e máscaras de colisão personalizadas.
+
+### 4. Comunicação, Chat Drawer e Mensagens Diretas
+
+- **Gaveta de Chat Redimensionável**:
+  - Arraste interativo da borda direita com alça de toque e destaque visual (*glow* suave ao interagir).
+  - Divisor interno ajustável entre lista de canais/conversas e o fluxo de mensagens.
+  - Botão de maximizar/restaurar em tela cheia no cabeçalho.
+  - Persistência automática das dimensões no `localStorage`.
+- **Transferência Direta de Arquivos P2P**:
+  - Compartilhamento de arquivos diretamente pela conexão WebRTC sem limites de servidores intermediários.
+  - Fragmentação em blocos (*chunking*) com barra de progresso em tempo real e verificação de integridade.
+- **Mensagens Diretas e Chat da Sala**:
+  - Conversas individuais privadas e chat geral da sala com formatação de texto e timestamp.
+
+### 5. Presença, Status, Notificações Nativas e Companheiros
+
+- **Detecção de Ausência (AFK)**:
+  - Transição automática para o modo ausente após inatividade do mouse e teclado.
+  - Restauração instantânea do status ativo ao interagir novamente.
+  - Opção de ausência manual permanente (não sobrescrita pelo detector automático).
+- **Notificações Nativas do Windows & Bandeja**:
+  - Notificações do sistema operacional para menções, mensagens diretas e batidas na porta quando a janela está em segundo plano.
+  - Integração com a bandeja do sistema (*System Tray*) para manter o app ativo sem ocupar a barra de tarefas.
+- **Efeitos Sonoros Sintetizados**:
+  - Notificações acústicas sintetizadas em tempo real via Web Audio API (sem dependência de arquivos externos de áudio).
+- **Telemetria de Qualidade da Rede**:
+  - Monitoramento em tempo real de latência (RTT em ms), variação de atraso (*jitter*) e perda de pacotes.
+- **Mascotes Interativos (Pets)**:
+  - Companheiros animados que seguem o avatar pelo mapa com algoritmo de trilha suave e desvio de obstáculos.
+
+### 6. Compartilhamento de Tela em Alta Resolução
+
+- **Seleção de Monitores e Janelas**: Captura de telas completas ou aplicativos específicos (editores de código, navegadores, softwares de design).
 - **Perfis de Taxa de Quadros e Resolução**:
   - 720p a 30 FPS (5.000 kbps) e 60 FPS (6.000 kbps).
   - 1080p a 30 FPS (7.000 kbps) e 60 FPS (8.000 kbps), otimizado para legibilidade de texto e código.
 - **Visualizador Imersivo**: Interface com controles auto-ocultáveis e suporte a atalhos de teclado.
 
-### 4. Gerenciamento de Participantes, Papéis e Rede P2P
-
-- **Painel de Usuários**: Listagem em tempo real de membros conectados, localização no mapa e status de dispositivos (microfone, câmera, transmissão de tela).
-- **Hierarquia de Permissões**:
-  - **Proprietário da Sala (Owner)**: Controle de configurações de privacidade, gestão de permissões de edição de mapa e moderação (expulsão de participantes).
-  - **Host de Conexão (Dynamic Superpeer)**: Nó eleito dinamicamente com base na rota de menor latência para atuar como ponto de estabilização da rede P2P.
-- **Telemetria de Rede**: Acompanhamento contínuo de latência (RTT em milissegundos) entre nós.
-- **Ações Rápidas**: Teleporte para a posição de colegas, chat privado em mensagem direta e lista persistente de favoritos.
-
-### 5. Estúdio de Criação de Sprites e Customização de Elementos
-
-- **Importação de Imagens**: Conversão de arquivos PNG e JPG em elementos de piso, parede e mobília compatíveis com o grid de 32x32 pixels.
-- **Ferramentas de Recorte e Transparência**:
-  - Seleção livre com alinhamento ao grid.
-  - Remoção inteligente de cor de fundo via conta-gotas e presets cromáticos.
-- **Composição em Camadas**: Criação de móveis compostos com controle de opacidade, espelhamento e definição de máscaras de colisão.
-- **Customização de Avatares**: Sistema modular de camadas para personalização de tom de pele, cabelo, vestimenta e acessórios.
-
 ---
 
 ## Funcionamento da Conexão P2P (WebRTC)
 
-O sistema adota uma arquitetura híbrida descentralizada, combinando topologia em estrela para controle de estado da sala e topologia em malha (mesh) dinâmica para tráfego de mídia em tempo real:
+O sistema adota uma arquitetura híbrida descentralizada, combinando topologia em estrela para controle de estado da sala e topologia em malha (*mesh*) dinâmica para tráfego de mídia em tempo real:
 
 ```
 [Cliente A] <====== Data Channel ======> [Host da Sala / Superpeer] <====== Data Channel ======> [Cliente B]
@@ -97,7 +136,7 @@ O sistema adota uma arquitetura híbrida descentralizada, combinando topologia e
 
 ### 2. Resolução Determinística de Conflitos de Chamada (Call Glare)
 
-- **O Problema de Glare**: Em uma rede descentralizada, quando dois participantes entram simultaneamente na mesma zona acústica, ambos disparam uma oferta de conexão um para o outro (A dial B e B dial A). Sem tratamento, isso gera conexões duplicadas, consumo redundante de largura de banda e interrupções na reprodução de vídeo (`AbortError`).
+- **O Problema de Glare**: Em uma rede descentralizada, quando dois participantes entram simultaneamente na mesma zona acústica, ambos disparam uma oferta de conexão um para o outro (A disca B e B disca A). Sem tratamento, isso gera conexões duplicadas, consumo redundante de largura de banda e interrupções na reprodução de vídeo (`AbortError`).
 - **Resolução Determinística**: O módulo `mediaCalls.ts` implementa o algoritmo `resolveCallGlare`. Ao detectar uma chamada concorrente, os identificadores de peer de ambos os lados são comparados lexicograficamente (`myId < remoteId`). A ligação originada pelo nó com o menor identificador prevalece, enquanto a concorrente é descartada de forma simétrica em ambos os clientes sem necessidade de troca de mensagens de controle adicionais.
 
 ### 3. Estabelecimento de Transporte, ICE, STUN e Fallback TURN
@@ -106,7 +145,7 @@ O sistema adota uma arquitetura híbrida descentralizada, combinando topologia e
   - Candidatos ICE são coletados previamente antes do início da chamada. Isso elimina o atraso de 500 ms a 2.000 ms nas primeiras conexões WebRTC, evitando atraso ou corte.
 - **Topologia de Travessia NAT (STUN/TURN)**:
   - O sistema tenta conexões diretas via candidatos locais (`host`) e reflexivos públicos (`srflx`) utilizando servidores STUN do Google e Twilio.
-  - Para ambientes com restrições severas de rede (NAT simétrico, firewalls corporativos ou redes móveis restritivas), o sistema conta com servidores TURN (OpenRelay Metered nas portas 80 e 443) como camada de contingência (relay). A rota de relay só é selecionada caso o roteamento direto seja inviável.
+  - Para ambientes com restrições severas de rede (NAT simétrico, firewalls corporativos ou redes móveis restritivas), o sistema conta com servidores TURN (OpenRelay Metered nas portas 80 e 443) como camada de contingência (*relay*). A rota de relay só é selecionada caso o roteamento direto seja inviável.
 - **Otimização de Portas UDP (`max-bundle` e `rtcp-mux`)**:
   - Todas as faixas de áudio, vídeo e mensagens de controle RTCP são multiplexadas em uma única porta UDP compartilhada por sessão, minimizando o número de portas abertas na tabela NAT do roteador.
 
@@ -114,7 +153,7 @@ O sistema adota uma arquitetura híbrida descentralizada, combinando topologia e
 
 - O `DynamicBufferManager` monitora continuamente os parâmetros de qualidade da conexão (RTT, variação de atraso/jitter e taxa de perda de pacotes).
 - **Tratamento Diferenciado por Tipo de Mídia**:
-  - **Áudio Vocal**: Prioriza fluidez conversacional. Em conexões estáveis, o playout delay opera em 1 ms; em redes com alta oscilação de pacotes, é limitado a no máximo 500 ms, evitando atrasos que levam participantes a falarem simultaneamente.
+  - **Áudio Vocal**: Prioriza fluidez conversacional. Em conexões estáveis, o *playout delay* opera em 1 ms; em redes com alta oscilação de pacotes, é limitado a no máximo 500 ms, evitando atrasos que levam participantes a falarem simultaneamente.
   - **Vídeo e Compartilhamento de Tela**: O buffer se adapta entre 100 ms e 500 ms para absorver oscilações de quadros e manter a taxa contínua de 60 FPS sem congelamentos visíveis.
 
 ### 5. Eleição de Host e Recuperação de Falhas (Failover)
@@ -130,10 +169,11 @@ O projeto é estruturado segundo princípios de modularidade e separação de re
 
 - **Motor de Renderização (`src/engine/rendering/`)**:
   - `floorRenderer.ts`: Renderização de pisos nativos e texturas personalizadas.
-  - `wallRenderer.ts`: Paredes estruturais e iluminação temática.
+  - `wallRenderer.ts`: Paredes estruturais e direcionais com iluminação temática.
   - `zoneRenderer.ts`: Delimitação de zonas acústicas privadas.
   - `furnitureRenderer.ts`: Renderização e profundidade de mobílias e sprites compostos.
-  - `worldRenderer.ts`: Coordenação de viewport, culling de tiles e ordenação por profundidade.
+  - `worldRenderer.ts`: Coordenação de viewport, culling de tiles, destaque de seleção e ordenação por profundidade Y.
+  - `staticLayerCache.ts`: Cache de camadas estáticas para renderização de alta performance a 60 FPS.
 - **Áudio e Processamento de Sinais (`src/media/`)**:
   - `NoiseSuppressor.ts`: Implementação do motor DSP Clássico e cadeia de filtros Web Audio.
   - `SoftDspProcessor.ts`: Implementação do motor DSP Suave com expansor descendente.
@@ -141,10 +181,16 @@ O projeto é estruturado segundo princípios de modularidade e separação de re
   - `MicCalibrator.ts`: Medição acústica, cálculo de mediana de ruído e geração de amostras offline.
   - `audioBufferUtils.ts`: Codificação WAV PCM 16-bit, renderização offline e extração de waveforms.
   - `CallAudioIsolator.ts`: Isolamento de áudio de processos e prevenção de realimentação em chamadas.
+  - `hardwareCodec.ts`: Suporte e negociação de aceleração por hardware (H.264/VP9/AV1).
 - **Rede e Conectividade P2P (`src/p2p/`)**:
   - `PeerManager.ts`: Inicialização, heartbeat e coordenação de nós PeerJS.
   - `mediaCalls.ts`: Sinalização e negociação de canais WebRTC de áudio, vídeo e tela.
   - `messageHandlers.ts`: Protocolo binário/JSON de sincronização de estado, posições e eventos.
+- **Serviços e Estado (`src/services/` e `src/store/`)**:
+  - `idleManager.ts`: Rastreamento de inatividade e controle de ausência (AFK).
+  - `trayManager.ts`: Integração com a bandeja do sistema no Electron.
+  - `notificationService.ts`: Notificações nativas do Windows e síntese de áudio.
+  - `useMapStore.ts`, `useChatStore.ts`, `useGameStore.ts`, `useCustomAssetsStore.ts`: Estado reativo centralizado via Zustand.
 - **Camada Nativa Desktop (`native/` e `electron/`)**:
   - `native/process-audio-capture/`: Módulo em C++ para captura WASAPI Loopback em nível de processo no Windows.
   - `electron/main.ts`: Janela principal, inicialização de binários nativos e manipulação de fontes de captura de tela.
@@ -161,7 +207,7 @@ O projeto é estruturado segundo princípios de modularidade e separação de re
 | **Comunicação em Tempo Real** | WebRTC, PeerJS |
 | **Gerenciamento de Estado** | Zustand |
 | **Processamento de Áudio** | Web Audio API, WebAssembly (@jitsi/rnnoise-wasm), WASAPI C++ |
-| **Testes Automatizados** | Vitest (46 arquivos de teste, 278 testes unitários) |
+| **Testes Automatizados** | Vitest (67 arquivos de teste, 424 testes unitários) |
 
 ---
 
@@ -174,8 +220,8 @@ O projeto é estruturado segundo princípios de modularidade e separação de re
 
 ### 1. Obtenção do Código
 ```bash
-git clone https://github.com/C1ean-dev/gather-clone.git
-cd gather-clone
+git clone https://github.com/C1ean-dev/Lira.git
+cd Lira
 ```
 
 ### 2. Instalação das Dependências
@@ -212,7 +258,7 @@ npm run test:watch
 
 ### 5. Verificação de Tipos TypeScript
 ```bash
-npx tsc --noEmit
+npm run build
 ```
 
 ### 6. Compilação de Produção
